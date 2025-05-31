@@ -19,10 +19,11 @@ buildGo124Module (final: {
     fileset = fs.unions [
       ../../../pkg
       ../../../go.mod
+      ../../../go.sum
     ];
   };
 
-  vendorHash = null;
+  vendorHash = "sha256-pxjtWD8bhu0/wLLnYUtIQ3W/UaiuzoxFmlXS6hYf5Jc=";
 
   ldflags = [
     "-X github.com/numtide/nix-binary-cache/pkg/build.Name=${final.pname}"

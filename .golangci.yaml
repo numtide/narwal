@@ -12,7 +12,7 @@ linters:
         - varnamelen
         - forbidigo
         - tagliatelle
-        - nlreturnfmt
+        - nlreturn
 
     settings:
         cyclop:
