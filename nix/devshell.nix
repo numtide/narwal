@@ -65,6 +65,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       awscli
 
       goose # db migrations
+      sqlc # type-safe queries
     ]);
 
   shellHook = ''
