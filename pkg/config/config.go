@@ -38,23 +38,23 @@ func NewViper() (*viper.Viper, error) {
 	// set config type to TOML
 	v.SetConfigType("toml")
 
-	// setup automatic env override with the `NIX_BINARY_CACHE_` prefix
-	v.SetEnvPrefix("nix_binary_cache")
+	// setup automatic env override with the `NARWAL` prefix
+	v.SetEnvPrefix("narwal")
 	v.AutomaticEnv()
 
 	// to target a sub config section in an ENV variable use "__" in place of "."
-	// for example `foo.bar.baz` would be `NIX_BINARY_CACHE__FOO__BAR_BAZ`
+	// for example `foo.bar.baz` would be `NARWAL__FOO__BAR_BAZ`
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
 
-	// set config filename to nix-binary-cache.toml
-	v.SetConfigName("nix-binary-cache")
+	// set config filename to narwal.toml
+	v.SetConfigName("narwal")
 
-	// look in the current working directory and /etc/nix-binary-cache for the nix-binary-cache.toml config file
+	// look in the current working directory and /etc/narwal for the narwal.toml config file
 	v.AddConfigPath(".")
-	v.AddConfigPath("/etc/nix-binary-cache")
+	v.AddConfigPath("/etc/narwal")
 
 	// add the standard xdg config file path too
-	xdgPath, err := xdg.ConfigFile("nix-binary-cache/nix-binary-cache.toml")
+	xdgPath, err := xdg.ConfigFile("narwal/narwal.toml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create xdg path for config file: %w", err)
 	}

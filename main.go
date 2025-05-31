@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/numtide/nix-binary-cache/cmd"
+	"github.com/numtide/narwal/cmd"
 )
 
 func main() {

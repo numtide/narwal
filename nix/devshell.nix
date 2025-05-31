@@ -43,7 +43,7 @@ let
       '';
   };
 in
-perSystem.self.nix-binary-cache.overrideAttrs (old: {
+perSystem.self.narwal.overrideAttrs (old: {
   env = old.env // {
     GOROOT = "${old.passthru.go}/share/go";
   };

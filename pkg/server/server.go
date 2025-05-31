@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/log"
-	"github.com/numtide/nix-binary-cache/pkg/config"
-	"github.com/numtide/nix-binary-cache/pkg/http"
+	"github.com/numtide/narwal/pkg/config"
+	"github.com/numtide/narwal/pkg/http"
 	"golang.org/x/sync/errgroup"
 )
 

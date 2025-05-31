@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/numtide/nix-binary-cache/pkg/config"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 type Server struct {

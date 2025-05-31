@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/numtide/nix-binary-cache/cmd/server"
-	"github.com/numtide/nix-binary-cache/pkg/build"
+	"github.com/numtide/narwal/cmd/server"
+	"github.com/numtide/narwal/pkg/build"
 	"github.com/spf13/cobra"
 )
 

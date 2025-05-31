@@ -4,7 +4,7 @@ package build
 //nolint:gochecknoglobals
 var (
 	// Name is the program name, typically set via Nix to match the derivation's `pname`.
-	Name = "nix-binary-cache"
+	Name = "narwal"
 	// Version is the program version, typically set via Nix to match the derivation's `version`.
 	Version = "v0.1.0+dev"
 )

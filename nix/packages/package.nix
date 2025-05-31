@@ -1,1 +1,1 @@
-{ perSystem, ... }: perSystem.self.nix-binary-cache
+{ perSystem, ... }: perSystem.self.narwal

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/numtide/nix-binary-cache/pkg/config"
-	"github.com/numtide/nix-binary-cache/pkg/server"
+	"github.com/numtide/narwal/pkg/config"
+	"github.com/numtide/narwal/pkg/server"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

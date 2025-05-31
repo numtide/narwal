@@ -10,7 +10,7 @@ let
 in
 buildGo124Module (final: {
 
-  pname = "nix-binary-cache";
+  pname = "narwal";
   version = "0.1.0";
 
   # todo is there a way to avoid the `../../../`?
@@ -26,9 +26,9 @@ buildGo124Module (final: {
   vendorHash = "sha256-pxjtWD8bhu0/wLLnYUtIQ3W/UaiuzoxFmlXS6hYf5Jc=";
 
   ldflags = [
-    "-X github.com/numtide/nix-binary-cache/pkg/build.Name=${final.pname}"
-    "-X github.com/numtide/nix-binary-cache/pkg/build.Version=v${final.version}${toString versionSuffix}"
-    "-X github.com/numtide/nix-binary-cache/pkg/build.System=${stdenv.hostPlatform.system}"
+    "-X github.com/numtide/narwal/pkg/build.Name=${final.pname}"
+    "-X github.com/numtide/narwal/pkg/build.Version=v${final.version}${toString versionSuffix}"
+    "-X github.com/numtide/narwal/pkg/build.System=${stdenv.hostPlatform.system}"
   ];
 
   doInstallCheck = true;
@@ -49,9 +49,9 @@ buildGo124Module (final: {
   });
 
   meta = with lib; {
-    description = "nix-binary-cache: A Nix Binary Cache";
-    homepage = "https://github.com/numtide/nix-binary-cache";
+    description = "narwal: A Nix Binary Cache";
+    homepage = "https://github.com/numtide/narwal";
     license = licenses.mit;
-    mainProgram = "nix-binary-cache";
+    mainProgram = "narwal";
   };
 })

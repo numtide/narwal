@@ -1,4 +1,4 @@
-module github.com/numtide/nix-binary-cache
+module github.com/numtide/narwal
 
 go 1.24.3
 
