@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
 	"net/http"
 
 	"github.com/charmbracelet/log"
@@ -17,14 +19,21 @@ type Server struct {
 	cfg *config.Config
 
 	echo *echo.Echo
+
+	pgPool   *pgxpool.Pool
+	s3Client *minio.Client
 }
 
 func NewServer(
 	cfg *config.Config,
+	pgPool *pgxpool.Pool,
+	s3Client *minio.Client,
 ) (*Server, error) {
 	srv := &Server{
-		cfg: cfg,
-		log: log.WithPrefix("http"),
+		cfg:      cfg,
+		pgPool:   pgPool,
+		s3Client: s3Client,
+		log:      log.WithPrefix("http"),
 	}
 
 	srv.init()
@@ -82,5 +91,6 @@ func (s *Server) init() {
 	}))
 
 	// register routes
-	s.initHealth()
+	s.addNar()
+	s.addHealth()
 }

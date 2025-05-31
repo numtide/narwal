@@ -11,30 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const insertNar = `-- name: InsertNar :exec
-WITH ct AS (SELECT timezone('UTC', now()) AS now)
-insert
-into nar_file (hash, bucket, path, size, ct)
-values ($1, $2, $3, $4, ct)
-`
-
-type InsertNarParams struct {
-	Hash   string      `json:"hash"`
-	Bucket string      `json:"bucket"`
-	Path   string      `json:"path"`
-	Size   pgtype.Int8 `json:"size"`
-}
-
-func (q *Queries) InsertNar(ctx context.Context, arg InsertNarParams) error {
-	_, err := q.db.Exec(ctx, insertNar,
-		arg.Hash,
-		arg.Bucket,
-		arg.Path,
-		arg.Size,
-	)
-	return err
-}
-
 const insertNarInfoReferences = `-- name: InsertNarInfoReferences :exec
 WITH ct AS (
     SELECT timezone('UTC', now()) AS now
@@ -107,6 +83,32 @@ func (q *Queries) NarInfoExists(ctx context.Context, hash string) (NarInfoExists
 	var i NarInfoExistsRow
 	err := row.Scan(&i.Bucket, &i.Path, &i.Size)
 	return i, err
+}
+
+const putNar = `-- name: PutNar :exec
+WITH ct AS (SELECT timezone('UTC', now()) AS now)
+insert
+into nar_file (hash, bucket, path, size, ct)
+values ($1, $2, $3, $4, ct)
+on conflict
+do nothing
+`
+
+type PutNarParams struct {
+	Hash   string      `json:"hash"`
+	Bucket string      `json:"bucket"`
+	Path   string      `json:"path"`
+	Size   pgtype.Int8 `json:"size"`
+}
+
+func (q *Queries) PutNar(ctx context.Context, arg PutNarParams) error {
+	_, err := q.db.Exec(ctx, putNar,
+		arg.Hash,
+		arg.Bucket,
+		arg.Path,
+		arg.Size,
+	)
+	return err
 }
 
 const putNarInfo = `-- name: PutNarInfo :one

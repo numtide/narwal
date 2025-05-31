@@ -6,7 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func (s *Server) initHealth() {
+func (s *Server) addHealth() {
 	s.echo.GET("/health", s.getHealth)
 }
 

@@ -1,8 +1,10 @@
--- name: InsertNar :exec
+-- name: PutNar :exec
 WITH ct AS (SELECT timezone('UTC', now()) AS now)
 insert
 into nar_file (hash, bucket, path, size, ct)
-values ($1, $2, $3, $4, ct);
+values ($1, $2, $3, $4, ct)
+on conflict
+do nothing;
 
 -- name: NarExists :one
 select bucket, path, size
