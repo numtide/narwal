@@ -1,13 +1,20 @@
-{ pkgs }:
-pkgs.mkShell {
-  # Add build dependencies
-  packages = [ ];
+{ pkgs, perSystem, ... }:
+perSystem.self.nix-binary-cache.overrideAttrs (old: {
+  env = old.env // {
+    GOROOT = "${old.passthru.go}/share/go";
+  };
 
-  # Add environment variables
-  env = { };
+  nativeBuildInputs =
+    old.nativeBuildInputs
+    ++ (with pkgs; [
+      delve
+      pprof
+      gotools
+      golangci-lint
+    ]);
 
-  # Load custom bash code
   shellHook = ''
-
+    # this is only needed for hermetic builds
+    unset GO_NO_VENDOR_CHECKS GOSUMDB GOPROXY GOFLAGS
   '';
-}
+})
