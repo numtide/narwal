@@ -63,6 +63,8 @@ perSystem.self.nix-binary-cache.overrideAttrs (old: {
       postgres-init
       minio
       awscli
+
+      goose # db migrations
     ]);
 
   shellHook = ''
