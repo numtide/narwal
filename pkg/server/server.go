@@ -3,6 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/numtide/narwal/pkg/db"
+	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/pkg/config"
@@ -10,11 +17,19 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	dbConnectTimeout = 10 * time.Second
+)
+
 type Server struct {
 	log    *log.Logger
 	config *config.Config
 
-	http *http.Server
+	pgPool   *pgxpool.Pool
+	s3Client *minio.Client
+
+	http  *http.Server
+	store *store.Store
 
 	eg *errgroup.Group // for background tasks
 }
@@ -27,7 +42,27 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	var err error
 
-	if srv.http, err = http.NewServer(cfg); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), dbConnectTimeout)
+	defer cancel()
+
+	// connect to postgres
+	if srv.pgPool, err = db.Connect(ctx, cfg.Postgres.URL); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// connect to s3
+	if srv.s3Client, err = minio.New(cfg.S3.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
+		Secure: cfg.S3.SSLEnabled,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to connect to s3: %w", err)
+	}
+
+	// create a store
+	srv.store = store.New(cfg, srv.pgPool, srv.s3Client)
+
+	// create http server
+	if srv.http, err = http.NewServer(cfg, srv.store); err != nil {
 		return nil, fmt.Errorf("failed to create http server: %w", err)
 	}
 

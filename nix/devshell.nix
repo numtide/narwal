@@ -48,6 +48,8 @@ perSystem.self.narwal.overrideAttrs (old: {
     GOROOT = "${old.passthru.go}/share/go";
   };
 
+  doChecks = false;
+
   nativeBuildInputs =
     old.nativeBuildInputs
     ++ (with pkgs; [
@@ -65,6 +67,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       awscli
 
       goose # db migrations
+      sqlc # type-safe queries
     ]);
 
   shellHook = ''
