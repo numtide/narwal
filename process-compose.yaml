@@ -3,7 +3,7 @@ version: "0.5"
 processes:
     minio:
         command: |
-            mkdir -p $MINIO_DATA            
+            mkdir -p $MINIO_DATA/binary-cache            
             minio server $MINIO_DATA
 
     postgres:

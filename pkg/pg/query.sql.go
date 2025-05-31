@@ -12,11 +12,8 @@ import (
 )
 
 const insertNarInfoReferences = `-- name: InsertNarInfoReferences :exec
-WITH ct AS (
-    SELECT timezone('UTC', now()) AS now
-)
 insert into nar_info_reference (hash, refers_to, created_at)
-values ($1, $2, ct)
+values ($1, $2, timezone('UTC', now()))
 `
 
 type InsertNarInfoReferencesParams struct {
@@ -30,11 +27,8 @@ func (q *Queries) InsertNarInfoReferences(ctx context.Context, arg InsertNarInfo
 }
 
 const insertNarInfoSignatures = `-- name: InsertNarInfoSignatures :exec
-WITH ct AS (
-    SELECT timezone('UTC', now()) AS now
-)
 insert into nar_info_signature (hash, signature, created_at)
-values ($1, $2, ct)
+values ($1, $2, timezone('UTC', now()))
 `
 
 type InsertNarInfoSignaturesParams struct {
@@ -86,10 +80,8 @@ func (q *Queries) NarInfoExists(ctx context.Context, hash string) (NarInfoExists
 }
 
 const putNar = `-- name: PutNar :exec
-WITH ct AS (SELECT timezone('UTC', now()) AS now)
-insert
-into nar_file (hash, bucket, path, size, ct)
-values ($1, $2, $3, $4, ct)
+insert into nar_file (hash, bucket, path, size, created_at)
+values ($1, $2, $3, $4, timezone('UTC', now()))
 on conflict
 do nothing
 `
@@ -112,10 +104,9 @@ func (q *Queries) PutNar(ctx context.Context, arg PutNarParams) error {
 }
 
 const putNarInfo = `-- name: PutNarInfo :one
-WITH ct AS (SELECT timezone('UTC', now()) AS now)
 insert
 into nar_info (hash, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver, bucket, path, size, created_at)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, ct)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, timezone('UTC', now()))
     on conflict (hash)
 do
 update set hash = EXCLUDED.hash

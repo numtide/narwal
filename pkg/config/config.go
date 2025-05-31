@@ -57,7 +57,7 @@ func NewViper() (*viper.Viper, error) {
 	v.AutomaticEnv()
 
 	// to target a sub config section in an ENV variable use "__" in place of "."
-	// for example `foo.bar.baz` would be `NARWAL__FOO__BAR_BAZ`
+	// for example `foo.bar.baz` would be `NARWAL_FOO__BAR__BAZ`
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
 
 	// set config filename to narwal.toml

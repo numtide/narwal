@@ -92,5 +92,5 @@ func (s *Server) init() {
 
 	// register routes
 	s.addNar()
-	s.addHealth()
+	s.addInfo()
 }
