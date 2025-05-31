@@ -7,3 +7,6 @@ result-*
 
 # IDE
 .idea
+
+# local dev
+.data

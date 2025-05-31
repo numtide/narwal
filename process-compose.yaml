@@ -1,0 +1,12 @@
+version: "0.5"
+
+processes:
+    minio:
+        command: "minio server ."
+        working_dir: "$MINIO_DATA"
+
+    postgres:
+        command: |
+            postgres-init
+            postgres
+        working_dir: "$PGDATA"

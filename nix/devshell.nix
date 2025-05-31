@@ -1,4 +1,48 @@
 { pkgs, perSystem, ... }:
+let
+
+  inherit (pkgs) lib;
+
+  postgres-init = pkgs.writeShellApplication {
+    name = "postgres-init";
+    runtimeInputs = [ pkgs.postgresql_16 ];
+    text =
+      let
+
+        initdb = {
+          args = [
+            "--locale=en_US.UTF-8"
+            "--encoding=UTF8"
+          ];
+          scripts = [
+            # create some databases on startup
+            "${./devshell/init.sql}"
+          ];
+        };
+
+      in
+      ''
+            [ -d "$PGDATA" ] && echo "Postgres data dir exists, exiting" && exit 0
+
+            mkdir -p "$PGDATA"
+
+            eval 'initdb --username="$PGUSER" --pwfile=<(printf "%s\n" "$PGPASS") ${lib.concatStringsSep " " initdb.args}'
+
+            cat >> "$PGDATA/postgresql.conf" <<EOF
+                port = $PGPORT
+                listen_addresses = '$PGLISTEN'
+                unix_socket_directories = '$PGHOST'
+        EOF
+
+            echo "CREATE DATABASE ''${PGUSER:-$(id -nu)};" | postgres --single -E postgres
+
+            # execute init scripts
+            ${lib.concatStringsSep "\n" (
+              map (script: "postgres --single -E postgres < ${script}") initdb.scripts
+            )}
+      '';
+  };
+in
 perSystem.self.nix-binary-cache.overrideAttrs (old: {
   env = old.env // {
     GOROOT = "${old.passthru.go}/share/go";
@@ -7,10 +51,18 @@ perSystem.self.nix-binary-cache.overrideAttrs (old: {
   nativeBuildInputs =
     old.nativeBuildInputs
     ++ (with pkgs; [
+      # go
       delve
       pprof
       gotools
       golangci-lint
+
+      # local dev services
+      process-compose
+      postgresql_16
+      postgres-init
+      minio
+      awscli
     ]);
 
   shellHook = ''
