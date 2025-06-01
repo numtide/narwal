@@ -2,6 +2,7 @@
 with update_accessed as (
     update nar_file
     set last_accessed_at = timezone('UTC', now())
+    where hash = $1 and compression = $2
 )
 select bucket, path, size
 from nar_file as nf
@@ -20,7 +21,8 @@ on conflict(hash, compression) do update
 -- name: HasNarInfo :one
 with update_accessed as (
     update nar_info
-        set last_accessed_at = timezone('UTC', now())
+    set last_accessed_at = timezone('UTC', now())
+    where hash = $1
 )
 select bucket,
        path,

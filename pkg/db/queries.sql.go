@@ -33,6 +33,7 @@ const hasNar = `-- name: HasNar :one
 with update_accessed as (
     update nar_file
     set last_accessed_at = timezone('UTC', now())
+    where hash = $1 and compression = $2
 )
 select bucket, path, size
 from nar_file as nf
@@ -61,7 +62,8 @@ func (q *Queries) HasNar(ctx context.Context, arg HasNarParams) (HasNarRow, erro
 const hasNarInfo = `-- name: HasNarInfo :one
 with update_accessed as (
     update nar_info
-        set last_accessed_at = timezone('UTC', now())
+    set last_accessed_at = timezone('UTC', now())
+    where hash = $1
 )
 select bucket,
        path,
