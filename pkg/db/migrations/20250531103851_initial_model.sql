@@ -33,6 +33,8 @@ create table nar_file
     primary key (hash, compression)
 );
 
+create index idx_nar_file_hash on nar_file(hash);
+
 create table nar_info
 (
     hash char(32) primary key,
@@ -61,6 +63,8 @@ create table nar_info_reference
     primary key (hash, refers_to)
 );
 
+create index idx_nar_info_reference_hash on nar_info_reference(hash);
+
 create table nar_info_signature
 (
     hash varchar(32) not null,
@@ -68,10 +72,15 @@ create table nar_info_signature
     primary key (hash, signature)
 );
 
+create index idx_nar_info_signature_hash on nar_info_signature(hash);
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+drop index idx_nar_info_reference_hash;
+drop index idx_nar_info_signature_hash;
+drop index idx_nar_file_hash;
 
 drop table nar_info_signature;
 drop table nar_info_reference;
