@@ -59,7 +59,9 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// create a store
-	srv.store = store.New(cfg, srv.pgPool, srv.s3Client)
+	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client); err != nil {
+		return nil, fmt.Errorf("failed to create store: %w", err)
+	}
 
 	// create http server
 	if srv.http, err = http.NewServer(cfg, srv.store); err != nil {
@@ -90,6 +92,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	// wait for background tasks to finish
 	if err := s.eg.Wait(); err != nil {
 		s.log.Error("failure occurred waiting for background tasks", "err", err)
+	}
+
+	// close the store
+	if err := s.store.Close(); err != nil {
+		s.log.Error("failed to close store", "err", err)
 	}
 
 	s.log.Info("stopped")

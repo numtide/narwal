@@ -36,7 +36,7 @@ func (o *NarOptions) objectName(hash string) string {
 	return result
 }
 
-func (s *Store) HasNar(ctx context.Context, hash string, options NarOptions) (uint64, error) {
+func (s *Store) HasNar(ctx context.Context, hash string, opts NarOptions) (uint64, error) {
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to acquire db connection: %w", err)
@@ -46,7 +46,7 @@ func (s *Store) HasNar(ctx context.Context, hash string, options NarOptions) (ui
 	queries := db.New(conn)
 	entry, err := queries.HasNar(ctx, db.HasNarParams{
 		Hash:        hash,
-		Compression: options.compression(),
+		Compression: opts.compression(),
 	})
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -60,7 +60,7 @@ func (s *Store) HasNar(ctx context.Context, hash string, options NarOptions) (ui
 }
 
 //nolint:nonamedreturns
-func (s *Store) GetNar(ctx context.Context, hash string, options NarOptions) (body io.Reader, size uint64, err error) {
+func (s *Store) GetNar(ctx context.Context, hash string, opts NarOptions) (body io.Reader, size uint64, err error) {
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to acquire db connection: %w", err)
@@ -70,7 +70,7 @@ func (s *Store) GetNar(ctx context.Context, hash string, options NarOptions) (bo
 	queries := db.New(conn)
 	entry, err := queries.HasNar(ctx, db.HasNarParams{
 		Hash:        hash,
-		Compression: options.compression(),
+		Compression: opts.compression(),
 	})
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -90,12 +90,12 @@ func (s *Store) PutNar(
 	ctx context.Context,
 	hash string,
 	r io.Reader,
-	options NarOptions,
+	opts NarOptions,
 ) error {
 	info, err := s.s3.PutObject(
 		ctx,
 		s.bucketName,
-		options.objectName(hash),
+		opts.objectName(hash),
 		r,
 		-1,
 		minio.PutObjectOptions{ContentType: ContentTypeNar},
@@ -114,7 +114,7 @@ func (s *Store) PutNar(
 
 	err = queries.PutNar(ctx, db.PutNarParams{
 		Hash:        hash,
-		Compression: options.compression(),
+		Compression: opts.compression(),
 		Bucket:      info.Bucket,
 		Path:        info.Key,
 		Size:        info.Size,

@@ -21,7 +21,9 @@ func (s *Server) addNarInfoRoutes(r *chi.Mux) {
 func (s *Server) hasNarInfo(w http.ResponseWriter, r *http.Request) {
 	hash := chi.URLParam(r, "hash")
 
-	size, err := s.store.HasNarInfo(r.Context(), hash)
+	size, err := s.store.HasNarInfo(r.Context(), hash, store.NarInfoOptions{
+		UseCache: true,
+	})
 
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -41,7 +43,9 @@ func (s *Server) hasNarInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getNarInfo(w http.ResponseWriter, r *http.Request) {
 	hash := chi.URLParam(r, "hash")
 
-	body, size, err := s.store.GetNarInfo(r.Context(), hash)
+	body, size, err := s.store.GetNarInfo(r.Context(), hash, store.NarInfoOptions{
+		UseCache: true,
+	})
 
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
