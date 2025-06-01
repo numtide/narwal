@@ -23,12 +23,13 @@ create type compression_type as enum ('xz', 'bzip2', 'gzip', 'zstd', 'none');
 
 create table nar_file
 (
-    hash char(52),
-    compression compression_type,
+    hash char(52) not null,
+    compression compression_type not null,
     bucket varchar(128) not null,
     path varchar (128) not null,
-    size bigint constraint positive_size check (size > 0),
-    created_at timestamp,
+    size bigint constraint positive_size check (size > 0) not null,
+    created_at timestamp not null,
+    last_accessed_at timestamp,
     primary key (hash, compression)
 );
 
@@ -39,17 +40,18 @@ create table nar_info
     compression compression_type not null,
 
     file_hash varchar(128) not null,
-    file_size bigint constraint positive_file_size check (file_size > 0),
+    file_size bigint constraint positive_file_size check (file_size > 0) not null,
 
     nar_hash varchar(128) not null,
-    nar_size bigint constraint positive_nar_size check (nar_size > 0),
+    nar_size bigint constraint positive_nar_size check (nar_size > 0) not null,
 
     deriver varchar(1024) not null,
 
     bucket varchar(128) not null,
     path varchar(128) not null,
     size int not null,
-    created_at timestamp
+    created_at timestamp not null,
+    last_accessed_at timestamp
 );
 
 create table nar_info_reference

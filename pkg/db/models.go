@@ -57,27 +57,29 @@ func (ns NullCompressionType) Value() (driver.Value, error) {
 }
 
 type NarFile struct {
-	Hash        string           `json:"hash"`
-	Compression CompressionType  `json:"compression"`
-	Bucket      string           `json:"bucket"`
-	Path        string           `json:"path"`
-	Size        pgtype.Int8      `json:"size"`
-	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	Hash           string           `json:"hash"`
+	Compression    CompressionType  `json:"compression"`
+	Bucket         string           `json:"bucket"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt pgtype.Timestamp `json:"last_accessed_at"`
 }
 
 type NarInfo struct {
-	Hash        string           `json:"hash"`
-	StorePath   string           `json:"store_path"`
-	Compression CompressionType  `json:"compression"`
-	FileHash    string           `json:"file_hash"`
-	FileSize    pgtype.Int8      `json:"file_size"`
-	NarHash     string           `json:"nar_hash"`
-	NarSize     pgtype.Int8      `json:"nar_size"`
-	Deriver     string           `json:"deriver"`
-	Bucket      string           `json:"bucket"`
-	Path        string           `json:"path"`
-	Size        int32            `json:"size"`
-	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	Hash           string           `json:"hash"`
+	StorePath      string           `json:"store_path"`
+	Compression    CompressionType  `json:"compression"`
+	FileHash       string           `json:"file_hash"`
+	FileSize       int64            `json:"file_size"`
+	NarHash        string           `json:"nar_hash"`
+	NarSize        int64            `json:"nar_size"`
+	Deriver        string           `json:"deriver"`
+	Bucket         string           `json:"bucket"`
+	Path           string           `json:"path"`
+	Size           int32            `json:"size"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt pgtype.Timestamp `json:"last_accessed_at"`
 }
 
 type NarInfoReference struct {

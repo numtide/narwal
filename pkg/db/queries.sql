@@ -1,8 +1,12 @@
 -- name: HasNar :one
+with update_accessed as (
+    update nar_file
+    set last_accessed_at = timezone('UTC', now())
+)
 select bucket, path, size
-from nar_file
-where hash = $1
-  and compression = $2;
+from nar_file as nf
+where nf.hash = $1
+  and nf.compression = $2;
 
 -- name: PutNar :exec
 insert into nar_file (hash, compression, bucket, path, size, created_at)
@@ -14,11 +18,15 @@ on conflict(hash, compression) do update
         created_at = timezone('UTC', now());
 
 -- name: HasNarInfo :one
+with update_accessed as (
+    update nar_info
+        set last_accessed_at = timezone('UTC', now())
+)
 select bucket,
        path,
        size
-from nar_info
-where hash = $1;
+from nar_info as nf
+where nf.hash = $1;
 
 -- name: PutNarInfo :exec
 insert

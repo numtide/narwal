@@ -7,8 +7,6 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteNarInfoReferences = `-- name: DeleteNarInfoReferences :exec
@@ -32,10 +30,14 @@ func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) erro
 }
 
 const hasNar = `-- name: HasNar :one
+with update_accessed as (
+    update nar_file
+    set last_accessed_at = timezone('UTC', now())
+)
 select bucket, path, size
-from nar_file
-where hash = $1
-  and compression = $2
+from nar_file as nf
+where nf.hash = $1
+  and nf.compression = $2
 `
 
 type HasNarParams struct {
@@ -44,9 +46,9 @@ type HasNarParams struct {
 }
 
 type HasNarRow struct {
-	Bucket string      `json:"bucket"`
-	Path   string      `json:"path"`
-	Size   pgtype.Int8 `json:"size"`
+	Bucket string `json:"bucket"`
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
 }
 
 func (q *Queries) HasNar(ctx context.Context, arg HasNarParams) (HasNarRow, error) {
@@ -57,11 +59,15 @@ func (q *Queries) HasNar(ctx context.Context, arg HasNarParams) (HasNarRow, erro
 }
 
 const hasNarInfo = `-- name: HasNarInfo :one
+with update_accessed as (
+    update nar_info
+        set last_accessed_at = timezone('UTC', now())
+)
 select bucket,
        path,
        size
-from nar_info
-where hash = $1
+from nar_info as nf
+where nf.hash = $1
 `
 
 type HasNarInfoRow struct {
@@ -102,7 +108,7 @@ type PutNarParams struct {
 	Compression CompressionType `json:"compression"`
 	Bucket      string          `json:"bucket"`
 	Path        string          `json:"path"`
-	Size        pgtype.Int8     `json:"size"`
+	Size        int64           `json:"size"`
 }
 
 func (q *Queries) PutNar(ctx context.Context, arg PutNarParams) error {
@@ -140,9 +146,9 @@ type PutNarInfoParams struct {
 	StorePath   string          `json:"store_path"`
 	Compression CompressionType `json:"compression"`
 	FileHash    string          `json:"file_hash"`
-	FileSize    pgtype.Int8     `json:"file_size"`
+	FileSize    int64           `json:"file_size"`
 	NarHash     string          `json:"nar_hash"`
-	NarSize     pgtype.Int8     `json:"nar_size"`
+	NarSize     int64           `json:"nar_size"`
 	Deriver     string          `json:"deriver"`
 	Bucket      string          `json:"bucket"`
 	Path        string          `json:"path"`

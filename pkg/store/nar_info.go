@@ -8,7 +8,6 @@ import (
 	"io"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/minio/minio-go/v7"
 	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/db"
@@ -103,10 +102,10 @@ func (s *Store) PutNarInfo(
 		Compression: db.CompressionType(info.Compression),
 		FileHash:    info.FileHash.String(),
 		//nolint:gosec
-		FileSize: pgtype.Int8{Int64: int64(info.FileSize), Valid: true},
+		FileSize: int64(info.FileSize),
 		NarHash:  info.NarHash.String(),
 		//nolint:gosec
-		NarSize: pgtype.Int8{Int64: int64(info.NarSize), Valid: true},
+		NarSize: int64(info.NarSize),
 		Deriver: info.Deriver,
 		Bucket:  object.Bucket,
 		Path:    object.Key,

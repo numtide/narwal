@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/db"
 )
@@ -57,7 +56,7 @@ func (s *Store) HasNar(ctx context.Context, hash string, options NarOptions) (ui
 	}
 
 	//nolint:gosec
-	return uint64(entry.Size.Int64), nil
+	return uint64(entry.Size), nil
 }
 
 //nolint:nonamedreturns
@@ -84,7 +83,7 @@ func (s *Store) GetNar(ctx context.Context, hash string, options NarOptions) (bo
 	}
 
 	//nolint:gosec
-	return body, uint64(entry.Size.Int64), nil
+	return body, uint64(entry.Size), nil
 }
 
 func (s *Store) PutNar(
@@ -118,7 +117,7 @@ func (s *Store) PutNar(
 		Compression: options.compression(),
 		Bucket:      info.Bucket,
 		Path:        info.Key,
-		Size:        pgtype.Int8{Int64: info.Size, Valid: true},
+		Size:        info.Size,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put nar in db: %w", err)
