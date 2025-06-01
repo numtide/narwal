@@ -88,6 +88,7 @@ type NarInfoReference struct {
 }
 
 type NarInfoSignature struct {
-	Hash      string `json:"hash"`
-	Signature string `json:"signature"`
+	Hash string `json:"hash"`
+	Name string `json:"name"`
+	Data string `json:"data"`
 }

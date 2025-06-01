@@ -63,7 +63,8 @@ func (r *iteratorForInsertNarInfoSignatures) Next() bool {
 func (r iteratorForInsertNarInfoSignatures) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].Hash,
-		r.rows[0].Signature,
+		r.rows[0].Name,
+		r.rows[0].Data,
 	}, nil
 }
 
@@ -72,5 +73,5 @@ func (r iteratorForInsertNarInfoSignatures) Err() error {
 }
 
 func (q *Queries) InsertNarInfoSignatures(ctx context.Context, arg []InsertNarInfoSignaturesParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"nar_info_signature"}, []string{"hash", "signature"}, &iteratorForInsertNarInfoSignatures{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"nar_info_signature"}, []string{"hash", "name", "data"}, &iteratorForInsertNarInfoSignatures{rows: arg})
 }

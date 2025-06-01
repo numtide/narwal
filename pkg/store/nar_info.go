@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -124,8 +125,9 @@ func (s *Store) PutNarInfo(
 	signatures := make([]db.InsertNarInfoSignaturesParams, len(info.Signatures))
 	for idx, sig := range info.Signatures {
 		signatures[idx] = db.InsertNarInfoSignaturesParams{
-			Hash:      hash,
-			Signature: sig.String(),
+			Hash: hash,
+			Name: sig.Name,
+			Data: base64.StdEncoding.EncodeToString(sig.Data),
 		}
 	}
 

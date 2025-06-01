@@ -68,16 +68,19 @@ create index idx_nar_info_reference_hash on nar_info_reference(hash);
 create table nar_info_signature
 (
     hash varchar(32) not null,
-    signature varchar(512) not null,
-    primary key (hash, signature)
+    name varchar(128) not null,
+    data varchar(512) not null,
+    primary key (hash, name)
 );
 
 create index idx_nar_info_signature_hash on nar_info_signature(hash);
+create index idx_nar_info_signature_name on nar_info_signature(name);
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+drop index idx_nar_info_signature_name;
 drop index idx_nar_info_reference_hash;
 drop index idx_nar_info_signature_hash;
 drop index idx_nar_file_hash;

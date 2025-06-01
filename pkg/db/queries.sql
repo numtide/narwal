@@ -59,5 +59,5 @@ delete from nar_info_signature
 where hash = $1;
 
 -- name: InsertNarInfoSignatures :copyfrom
-insert into nar_info_signature (hash, signature)
-values ($1, $2);
+insert into nar_info_signature (hash, name, data)
+values ($1, $2, $3);

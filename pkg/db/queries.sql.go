@@ -89,8 +89,9 @@ type InsertNarInfoReferencesParams struct {
 }
 
 type InsertNarInfoSignaturesParams struct {
-	Hash      string `json:"hash"`
-	Signature string `json:"signature"`
+	Hash string `json:"hash"`
+	Name string `json:"name"`
+	Data string `json:"data"`
 }
 
 const putNar = `-- name: PutNar :exec
