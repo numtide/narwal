@@ -64,7 +64,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       postgresql_16
       postgres-init
       minio
-      awscli
+      awscli2
 
       goose # db migrations
       sqlc # type-safe queries
