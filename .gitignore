@@ -10,3 +10,6 @@ result-*
 
 # local dev
 .data
+
+# Go
+/narwal
