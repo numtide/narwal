@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) addNarInfoRoutes(r *chi.Mux) {
-	pattern := "/{hash:[a-z0-9]+}.narinfo"
+	pattern := "/{hash:[a-z0-9]{32}}.narinfo"
 
 	r.Get(pattern, s.getNarInfo)
 	r.Head(pattern, s.hasNarInfo)

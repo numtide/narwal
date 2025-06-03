@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) addNarRoutes(r *chi.Mux) {
-	pattern := "/nar/{hash:[a-z0-9]+}.nar.{compression:*}"
+	pattern := "/nar/{hash:[a-z0-9]{52}}.nar.{compression:*}"
 
 	r.Get(pattern, s.getNar)
 	r.Head(pattern, s.hasNar)
