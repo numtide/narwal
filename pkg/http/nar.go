@@ -2,25 +2,48 @@ package http
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/numtide/narwal/pkg/store"
 )
 
 func (s *Server) addNarRoutes(r *chi.Mux) {
-	pattern := "/nar/{hash:[a-z0-9]{52}}.nar.{compression:*}"
+	r.Route("/nar", func(r chi.Router) {
+		pattern := `/{hash:\w{52}}.{extension}`
 
-	r.Get(pattern, s.getNar)
-	r.Head(pattern, s.hasNar)
-	r.Put(pattern, s.putNar)
+		r.Get(pattern, s.getNar)
+		r.Head(pattern, s.hasNar)
+		r.Put(pattern, s.putNar)
+	})
+}
+
+//nolint:nonamedreturns
+func getNarParams(r *http.Request) (hash string, compression string, err error) {
+	hash = chi.URLParam(r, "hash")
+	extension := chi.URLParam(r, "extension")
+
+	if !strings.HasPrefix(extension, "nar") {
+		return "", "", fmt.Errorf("invalid extension: %s", extension)
+	}
+
+	if strings.HasPrefix(extension, "nar.") && len(extension) > 4 {
+		compression = extension[4:]
+	}
+
+	return hash, compression, nil
 }
 
 func (s *Server) hasNar(w http.ResponseWriter, r *http.Request) {
-	hash := chi.URLParam(r, "hash")
-	compression := chi.URLParam(r, "compression")
+	hash, compression, err := getNarParams(r)
+	if err != nil {
+		http.Error(w, "invalid nar url", http.StatusBadRequest)
+		return
+	}
 
 	size, err := s.store.HasNar(r.Context(), hash, store.NarOptions{
 		Compression: compression,
@@ -42,8 +65,11 @@ func (s *Server) hasNar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getNar(w http.ResponseWriter, r *http.Request) {
-	hash := chi.URLParam(r, "hash")
-	compression := chi.URLParam(r, "compression")
+	hash, compression, err := getNarParams(r)
+	if err != nil {
+		http.Error(w, "invalid nar url", http.StatusBadRequest)
+		return
+	}
 
 	body, size, err := s.store.GetNar(r.Context(), hash, store.NarOptions{
 		Compression: compression,
@@ -67,8 +93,11 @@ func (s *Server) getNar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putNar(w http.ResponseWriter, r *http.Request) {
-	hash := chi.URLParam(r, "hash")
-	compression := chi.URLParam(r, "compression")
+	hash, compression, err := getNarParams(r)
+	if err != nil {
+		http.Error(w, "invalid nar url", http.StatusBadRequest)
+		return
+	}
 
 	if err := s.store.PutNar(r.Context(), hash, r.Body, store.NarOptions{
 		Compression: compression,

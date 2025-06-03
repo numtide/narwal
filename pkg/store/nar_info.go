@@ -94,7 +94,12 @@ func (s *Store) GetNarInfo(ctx context.Context, hash string, opts NarInfoOptions
 }
 
 func (s *Store) loadNarInfo(ctx context.Context, key any) ([]byte, []cachestore.Option, error) {
-	r, _, getErr := s.GetNarInfo(ctx, key.(string), NarInfoOptions{UseCache: false})
+	hash, ok := key.(string)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid key type: %T", key)
+	}
+
+	r, _, getErr := s.GetNarInfo(ctx, hash, NarInfoOptions{UseCache: false})
 	if getErr != nil {
 		return nil, nil, fmt.Errorf("failed to get nar info: %w", getErr)
 	}
