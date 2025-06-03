@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	cache_store "github.com/eko/gocache/lib/v4/store"
+	cachestore "github.com/eko/gocache/lib/v4/store"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/minio/minio-go/v7"
@@ -93,7 +93,7 @@ func (s *Store) GetNarInfo(ctx context.Context, hash string, opts NarInfoOptions
 	return object, uint32(entry.Size), nil
 }
 
-func (s *Store) loadNarInfo(ctx context.Context, key any) ([]byte, []cache_store.Option, error) {
+func (s *Store) loadNarInfo(ctx context.Context, key any) ([]byte, []cachestore.Option, error) {
 	r, _, getErr := s.GetNarInfo(ctx, key.(string), NarInfoOptions{UseCache: false})
 	if getErr != nil {
 		return nil, nil, fmt.Errorf("failed to get nar info: %w", getErr)
@@ -192,9 +192,9 @@ func (s *Store) PutNarInfo(
 	}
 
 	// invalidate any cache entry
-	if err = s.narInfoCache.Delete(ctx, hash); err != nil {
-		return fmt.Errorf("failed to delete nar info cache entry: %w", err)
-	}
+	// todo the error returned is a bit weird, can't figure out where it's defined to use with errors.Is
+	// ignore error for now
+	_ = s.narInfoCache.Delete(ctx, hash)
 
 	return nil
 }
