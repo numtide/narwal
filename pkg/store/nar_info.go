@@ -82,6 +82,8 @@ func (s *Store) GetNarInfo(ctx context.Context, hash string, opts NarInfoOptions
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, 0, ErrNotFound
+	} else if err != nil {
+		return nil, 0, fmt.Errorf("failed to check get nar: %w", err)
 	}
 
 	object, err := s.s3.GetObject(ctx, entry.Bucket, entry.Path, minio.GetObjectOptions{})
