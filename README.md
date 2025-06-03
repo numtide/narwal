@@ -26,7 +26,7 @@ For the narinfo, it downloads and parses them, to collect the references.
 * dwarffs?
     * https://github.com/NixOS/infra/issues/484
 * `nar/<nar-hash>.nar[.compression]`
-* log/* files
+* `log/<drv-hash>-<name>.drv` files
 * `<drv-hash>.narinfo` files
 * `<drv-hash>[-<name>].ls[.xz]` files
 * TODO: Did I miss anything?
@@ -133,4 +133,3 @@ S3:
 ls-compression
 log-compression
 narinfo-compression
-
