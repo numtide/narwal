@@ -69,7 +69,21 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 	path := r.RequestURI[1:] // strip leading '/'
-	if err := s.store.PutObject(r.Context(), path, r.Body); err != nil {
+
+	// parse content length
+	contentLengthHeader := r.Header.Get("Content-Length")
+	if contentLengthHeader == "" {
+		// default to -1 when no content length is provided.
+		contentLengthHeader = "-1"
+	}
+
+	contentLength, err := strconv.ParseInt(contentLengthHeader, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid content length", http.StatusBadRequest)
+	}
+
+	// put into the store
+	if err = s.store.PutObject(r.Context(), path, r.Body, contentLength); err != nil {
 		s.log.Error("failed to put object in store", "path", path, "error", err)
 		http.Error(w, "internal failure", http.StatusInternalServerError)
 

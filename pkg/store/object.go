@@ -82,6 +82,7 @@ func (s *Store) PutObject(
 	ctx context.Context,
 	path string,
 	body io.Reader,
+	size int64,
 ) error {
 	analysis, err := analyzePath(path)
 	if err != nil {
@@ -93,6 +94,11 @@ func (s *Store) PutObject(
 
 	var compression db.CompressionType
 	body, compression = s.compressIfRequired(analysis.ObjectType, body)
+
+	if compression == db.CompressionTypeBr {
+		// we invalidate the provided size when uploading compressed files
+		size = -1
+	}
 
 	// if we are uploading a narinfo we will parse it and store it in the db
 	var narinfoBuf *bytes.Buffer
@@ -115,7 +121,7 @@ func (s *Store) PutObject(
 	}
 
 	// put into S3
-	objectInfo, err := s.s3.PutObject(ctx, s.bucketName, path, body, -1, putOptions)
+	objectInfo, err := s.s3.PutObject(ctx, s.bucketName, path, body, size, putOptions)
 	if err != nil {
 		return fmt.Errorf("failed to upload object to s3: %w", err)
 	}

@@ -73,6 +73,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       goose # db migrations
       pqrs # parquet inspection
       sqlc # type-safe queries
+      graphviz
     ]);
 
   shellHook = ''
