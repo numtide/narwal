@@ -20,7 +20,7 @@
 -- +goose StatementBegin
 
 create type object_type as enum('nar', 'narinfo', 'ls', 'drv');
-create type compression_type as enum ('xz', 'bzip2', 'gzip', 'zstd', 'none');
+create type compression_type as enum ('br', 'xz', 'bzip2', 'gzip', 'zstd', 'none');
 
 create table object
 (

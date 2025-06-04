@@ -14,6 +14,7 @@ import (
 type CompressionType string
 
 const (
+	CompressionTypeBr    CompressionType = "br"
 	CompressionTypeXz    CompressionType = "xz"
 	CompressionTypeBzip2 CompressionType = "bzip2"
 	CompressionTypeGzip  CompressionType = "gzip"
@@ -109,9 +110,6 @@ type NarInfo struct {
 	NarHash     string          `json:"nar_hash"`
 	NarSize     int64           `json:"nar_size"`
 	Deriver     string          `json:"deriver"`
-	Bucket      string          `json:"bucket"`
-	Path        string          `json:"path"`
-	Size        int32           `json:"size"`
 }
 
 type NarInfoReference struct {
