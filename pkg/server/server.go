@@ -38,6 +38,8 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	srv := &Server{
 		log:    log.WithPrefix("server"),
 		config: cfg,
+		// todo configure max tasks?
+		eg: &errgroup.Group{},
 	}
 
 	var err error
@@ -59,7 +61,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// create a store
-	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client); err != nil {
+	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client, srv.eg); err != nil {
 		return nil, fmt.Errorf("failed to create store: %w", err)
 	}
 
@@ -72,8 +74,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 }
 
 func (s *Server) Start(_ context.Context) error {
-	s.eg = &errgroup.Group{}
-
 	// start the http server
 	s.eg.Go(s.http.Listen)
 

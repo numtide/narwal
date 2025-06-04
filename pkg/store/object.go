@@ -9,6 +9,8 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/andybalholm/brotli"
+
 	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/mime"
 
@@ -43,7 +45,11 @@ func (s *Store) HasObject(ctx context.Context, path string) (*Object, error) {
 	}
 
 	//nolint:gosec
-	return &Object{Type: entry.ObjectType, Size: uint64(entry.Size)}, nil
+	return &Object{
+		Type:        entry.ObjectType,
+		Compression: entry.CompressionType,
+		Size:        uint64(entry.Size),
+	}, nil
 }
 
 func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
@@ -68,7 +74,11 @@ func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
 	}
 
 	//nolint:gosec
-	return &Object{Type: entry.ObjectType, Size: uint64(entry.Size), Body: body}, nil
+	return &Object{
+		Type:        entry.ObjectType,
+		Compression: entry.CompressionType,
+		Size:        uint64(entry.Size), Body: body,
+	}, nil
 }
 
 func (s *Store) PutObject(
@@ -80,6 +90,10 @@ func (s *Store) PutObject(
 	if err != nil {
 		return err
 	}
+
+	compression := typeAndCompression.Compression
+
+	body, compression = s.compressIfRequired(typeAndCompression.Type, body)
 
 	var buf *bytes.Buffer
 
@@ -94,7 +108,7 @@ func (s *Store) PutObject(
 	}
 
 	if typeAndCompression.Compression != db.CompressionTypeNone {
-		putOptions.ContentEncoding = string(typeAndCompression.Compression)
+		putOptions.ContentEncoding = string(compression)
 	}
 
 	objectInfo, err := s.s3.PutObject(
@@ -127,7 +141,7 @@ func (s *Store) PutObject(
 	err = queries.PutObject(ctx, db.PutObjectParams{
 		Hash:            hash,
 		ObjectType:      typeAndCompression.Type,
-		CompressionType: typeAndCompression.Compression,
+		CompressionType: compression,
 		Bucket:          objectInfo.Bucket,
 		Path:            objectInfo.Key,
 		Size:            objectInfo.Size,
@@ -193,6 +207,41 @@ func (s *Store) PutObject(
 	return nil
 }
 
+func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body io.Reader, compression db.CompressionType) {
+	// hydra is configured with Brotli compression for ls and logs
+
+	switch objectType {
+	case db.ObjectTypeLs, db.ObjectTypeLog:
+
+		pr, pw := io.Pipe()
+
+		// todo check what level nix is using
+		bw := brotli.NewWriterLevel(pw, brotli.BestCompression)
+
+		// compress in a background task
+		s.eg.Go(func() error {
+			defer pw.Close()
+			defer bw.Close()
+
+			_, err := io.Copy(bw, r)
+			if err != nil {
+				_ = pw.CloseWithError(err)
+			}
+
+			return nil
+		})
+
+		body = pr
+		compression = db.CompressionTypeBr
+
+	default:
+		body = r
+		compression = db.CompressionTypeNone
+	}
+
+	return body, compression
+}
+
 func parseObjectTypeAndCompression(path string) (*Object, error) {
 	matches := objectTypeRegex.FindStringSubmatch(path)
 
@@ -203,6 +252,11 @@ func parseObjectTypeAndCompression(path string) (*Object, error) {
 	result := &Object{
 		Type:        db.ObjectType(matches[1]),
 		Compression: db.CompressionTypeNone,
+	}
+
+	if result.Type == db.ObjectTypeDrv && path[:4] == "log/" {
+		// for some reason logs are written with the .drv extension but under the `log/` prefix
+		result.Type = db.ObjectTypeLog
 	}
 
 	if len(matches) == 4 && matches[3] != "" {

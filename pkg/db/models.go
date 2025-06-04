@@ -14,12 +14,18 @@ import (
 type CompressionType string
 
 const (
-	CompressionTypeBr    CompressionType = "br"
-	CompressionTypeXz    CompressionType = "xz"
-	CompressionTypeBzip2 CompressionType = "bzip2"
-	CompressionTypeGzip  CompressionType = "gzip"
-	CompressionTypeZstd  CompressionType = "zstd"
-	CompressionTypeNone  CompressionType = "none"
+	CompressionTypeBr       CompressionType = "br"
+	CompressionTypeCompress CompressionType = "compress"
+	CompressionTypeGrzip    CompressionType = "grzip"
+	CompressionTypeGzip     CompressionType = "gzip"
+	CompressionTypeLrzip    CompressionType = "lrzip"
+	CompressionTypeLz4      CompressionType = "lz4"
+	CompressionTypeLzip     CompressionType = "lzip"
+	CompressionTypeLzma     CompressionType = "lzma"
+	CompressionTypeLzop     CompressionType = "lzop"
+	CompressionTypeXz       CompressionType = "xz"
+	CompressionTypeZstd     CompressionType = "zstd"
+	CompressionTypeNone     CompressionType = "none"
 )
 
 func (e *CompressionType) Scan(src interface{}) error {
@@ -64,6 +70,7 @@ const (
 	ObjectTypeNarinfo ObjectType = "narinfo"
 	ObjectTypeLs      ObjectType = "ls"
 	ObjectTypeDrv     ObjectType = "drv"
+	ObjectTypeLog     ObjectType = "log"
 )
 
 func (e *ObjectType) Scan(src interface{}) error {
