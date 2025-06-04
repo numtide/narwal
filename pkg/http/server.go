@@ -51,8 +51,7 @@ func (s *Server) Listen() error {
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	s.addInfoRoutes(r)
-	s.addNarRoutes(r)
-	s.addNarInfoRoutes(r)
+	s.addObjectRoutes(r)
 
 	// start the server
 	addr := s.cfg.HTTP.ListenAddr

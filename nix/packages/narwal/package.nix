@@ -17,13 +17,15 @@ buildGo124Module (final: {
   src = fs.toSource {
     root = ../../..;
     fileset = fs.unions [
+      ../../../cmd
       ../../../pkg
       ../../../go.mod
       ../../../go.sum
+      ../../../main.go
     ];
   };
 
-  vendorHash = "sha256-Z2vdEdUi4wdrKsE41hRAqSQl1DdcEbeVMeUKbDCyG1s=";
+  vendorHash = "sha256-cee3DxoTC6FbZmZOZWLy+Tuo2rnGLXk6N09lbkHPw60=";
 
   ldflags = [
     "-X github.com/numtide/narwal/pkg/build.Name=${final.pname}"

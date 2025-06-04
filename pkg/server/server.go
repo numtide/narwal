@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,9 +36,15 @@ type Server struct {
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
+	// create an errgroup for background tasks
+	// constrain the max number of tasks
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
 	srv := &Server{
 		log:    log.WithPrefix("server"),
 		config: cfg,
+		eg:     eg,
 	}
 
 	var err error
@@ -59,7 +66,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// create a store
-	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client); err != nil {
+	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client, srv.eg); err != nil {
 		return nil, fmt.Errorf("failed to create store: %w", err)
 	}
 
@@ -72,8 +79,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 }
 
 func (s *Server) Start(_ context.Context) error {
-	s.eg = &errgroup.Group{}
-
 	// start the http server
 	s.eg.Go(s.http.Listen)
 
