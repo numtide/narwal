@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 
 	"github.com/andybalholm/brotli"
 
@@ -18,8 +17,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/db"
 )
-
-var objectTypeRegex = regexp.MustCompile(`\.(nar|narinfo|debug|ls|)(\.(xz|bzip2|gzip|zstd))?$`)
 
 type Object struct {
 	Type        db.ObjectType
@@ -86,43 +83,44 @@ func (s *Store) PutObject(
 	path string,
 	body io.Reader,
 ) error {
-	typeAndCompression, err := parseObjectTypeAndCompression(path)
+	analysis, err := analyzePath(path)
 	if err != nil {
 		return err
 	}
 
-	compression := typeAndCompression.Compression
+	// when hydra uploads to S3 it compress ls and log files with brotli
+	// we should ensure the same to preserve the same storage layout for direct reads against S3
 
-	body, compression = s.compressIfRequired(typeAndCompression.Type, body)
+	var compression db.CompressionType
+	body, compression = s.compressIfRequired(analysis.ObjectType, body)
 
-	var buf *bytes.Buffer
+	// if we are uploading a narinfo we will parse it and store it in the db
+	var narinfoBuf *bytes.Buffer
 
-	if typeAndCompression.Type == db.ObjectTypeNarinfo {
-		// retain a copy of the narinfo after uplaod to s3
-		buf = new(bytes.Buffer)
-		body = io.TeeReader(body, buf)
+	if analysis.ObjectType == db.ObjectTypeNarinfo {
+		// use a tee reader to retain a copy of the narinfo after we uplaod it to s3
+		narinfoBuf = new(bytes.Buffer)
+		body = io.TeeReader(body, narinfoBuf)
 	}
 
+	// put into S3
 	putOptions := minio.PutObjectOptions{
-		ContentType: mime.For(typeAndCompression.Type),
+		// set the appropriate content type
+		ContentType: mime.For(analysis.ObjectType),
 	}
 
-	if typeAndCompression.Compression != db.CompressionTypeNone {
+	if compression != db.CompressionTypeNone {
+		// set the appropriate content encoding if compressed
 		putOptions.ContentEncoding = string(compression)
 	}
 
-	objectInfo, err := s.s3.PutObject(
-		ctx,
-		s.bucketName,
-		path,
-		body,
-		-1,
-		putOptions,
-	)
+	// put into S3
+	objectInfo, err := s.s3.PutObject(ctx, s.bucketName, path, body, -1, putOptions)
 	if err != nil {
 		return fmt.Errorf("failed to upload object to s3: %w", err)
 	}
 
+	// get a connection to the db
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire db connection: %w", err)
@@ -131,93 +129,91 @@ func (s *Store) PutObject(
 
 	queries := db.New(conn)
 
-	var hash string
-
-	switch typeAndCompression.Type {
-	case db.ObjectTypeNar:
-		// path is prefixed with /nar
-		hash = path[4:56]
-	case db.ObjectTypeDebug:
-		hash = path[10:50]
-	default:
-		hash = path[:32]
+	hash, err := hashFromPath(path, analysis.ObjectType)
+	if err != nil {
+		return fmt.Errorf("failed to get hash from path: %w", err)
 	}
 
 	err = queries.PutObject(ctx, db.PutObjectParams{
 		Hash:            hash,
-		ObjectType:      typeAndCompression.Type,
+		ObjectType:      analysis.ObjectType,
 		CompressionType: compression,
 		Bucket:          objectInfo.Bucket,
 		Path:            objectInfo.Key,
 		Size:            objectInfo.Size,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to put nar in db: %w", err)
+		return fmt.Errorf("failed to put object in db: %w", err)
 	}
 
-	if buf != nil {
-		info, err := narinfo.Parse(bytes.NewReader(buf.Bytes()))
-		if err != nil {
-			return fmt.Errorf("failed to parse narinfo: %w", err)
-		}
+	if narinfoBuf == nil {
+		return nil
+	}
 
-		err = queries.PutNarInfo(ctx, db.PutNarInfoParams{
-			Hash:        hash,
-			StorePath:   info.StorePath,
-			Compression: db.CompressionType(info.Compression),
-			FileHash:    info.FileHash.String(),
-			//nolint:gosec
-			FileSize: int64(info.FileSize),
-			NarHash:  info.NarHash.String(),
-			//nolint:gosec
-			NarSize: int64(info.NarSize),
-			Deriver: info.Deriver,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to put nar in db: %w", err)
-		}
+	return putNarInfo(ctx, queries, hash, narinfoBuf.Bytes())
+}
 
-		// update signatures
-		if err = queries.DeleteNarInfoSignatures(ctx, hash); err != nil {
-			return fmt.Errorf("failed to delete narinfo signatures: %w", err)
-		}
+func putNarInfo(ctx context.Context, queries *db.Queries, hash string, buf []byte) error {
+	info, err := narinfo.Parse(bytes.NewReader(buf))
+	if err != nil {
+		return fmt.Errorf("failed to parse narinfo: %w", err)
+	}
 
-		signatures := make([]db.InsertNarInfoSignaturesParams, len(info.Signatures))
-		for idx, sig := range info.Signatures {
-			signatures[idx] = db.InsertNarInfoSignaturesParams{
-				Hash: hash,
-				Name: sig.Name,
-				Data: base64.StdEncoding.EncodeToString(sig.Data),
-			}
-		}
+	err = queries.PutNarInfo(ctx, db.PutNarInfoParams{
+		Hash:        hash,
+		StorePath:   info.StorePath,
+		Compression: db.CompressionType(info.Compression),
+		FileHash:    info.FileHash.String(),
+		//nolint:gosec
+		FileSize: int64(info.FileSize),
+		NarHash:  info.NarHash.String(),
+		//nolint:gosec
+		NarSize: int64(info.NarSize),
+		Deriver: info.Deriver,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to put narinfo in db: %w", err)
+	}
 
-		if _, err = queries.InsertNarInfoSignatures(ctx, signatures); err != nil {
-			return fmt.Errorf("failed to insert nar info signatures into db: %w", err)
-		}
+	// update signatures
+	if err = queries.DeleteNarInfoSignatures(ctx, hash); err != nil {
+		return fmt.Errorf("failed to delete narinfo signatures: %w", err)
+	}
 
-		// update references
-		references := make([]db.InsertNarInfoReferencesParams, len(info.References))
-		for idx, ref := range info.References {
-			references[idx] = db.InsertNarInfoReferencesParams{
-				Hash:     hash,
-				RefersTo: ref[:32],
-			}
+	signatures := make([]db.InsertNarInfoSignaturesParams, len(info.Signatures))
+	for idx, sig := range info.Signatures {
+		signatures[idx] = db.InsertNarInfoSignaturesParams{
+			Hash: hash,
+			Name: sig.Name,
+			Data: base64.StdEncoding.EncodeToString(sig.Data),
 		}
+	}
 
-		if _, err = queries.InsertNarInfoReferences(ctx, references); err != nil {
-			return fmt.Errorf("failed to insert nar info references into db: %w", err)
+	if _, err = queries.InsertNarInfoSignatures(ctx, signatures); err != nil {
+		return fmt.Errorf("failed to insert narinfo signatures into db: %w", err)
+	}
+
+	// update references
+	references := make([]db.InsertNarInfoReferencesParams, len(info.References))
+	for idx, ref := range info.References {
+		references[idx] = db.InsertNarInfoReferencesParams{
+			Hash:     hash,
+			RefersTo: ref[:32],
 		}
+	}
+
+	if _, err = queries.InsertNarInfoReferences(ctx, references); err != nil {
+		return fmt.Errorf("failed to insert narinfo references into db: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body io.Reader, compression db.CompressionType) {
+//nolint:nonamedreturns
+func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body io.Reader, comp db.CompressionType) {
 	// hydra is configured with Brotli compression for ls and logs
-
 	switch objectType {
 	case db.ObjectTypeLs, db.ObjectTypeLog:
-
 		pr, pw := io.Pipe()
 
 		// todo check what level nix is using
@@ -225,8 +221,10 @@ func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body 
 
 		// compress in a background task
 		s.eg.Go(func() error {
-			defer pw.Close()
-			defer bw.Close()
+			defer func() {
+				_ = bw.Close()
+				_ = pw.Close()
+			}()
 
 			_, err := io.Copy(bw, r)
 			if err != nil {
@@ -237,40 +235,12 @@ func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body 
 		})
 
 		body = pr
-		compression = db.CompressionTypeBr
+		comp = db.CompressionTypeBr
 
-	default:
+	case db.ObjectTypeNar, db.ObjectTypeNarinfo, db.ObjectTypeDebug:
 		body = r
-		compression = db.CompressionTypeNone
+		comp = db.CompressionTypeNone
 	}
 
-	return body, compression
-}
-
-func parseObjectTypeAndCompression(path string) (*Object, error) {
-	matches := objectTypeRegex.FindStringSubmatch(path)
-
-	if len(matches) <= 1 {
-		return nil, fmt.Errorf("could not parse object type: %s", path)
-	}
-
-	result := &Object{
-		Compression: db.CompressionTypeNone,
-	}
-
-	if path[:4] == "log/" {
-		// logs are written with the .drv extension and under the `log/` prefix
-		result.Type = db.ObjectTypeLog
-	} else if path[:10] == "debuginfo/" {
-		// some entries have the `.debug` suffix, others don't, so we force the type based on the prefix
-		result.Type = db.ObjectTypeDebug
-	} else {
-		result.Type = db.ObjectType(matches[1])
-	}
-
-	if len(matches) == 4 && matches[3] != "" {
-		result.Compression = db.CompressionType(matches[3])
-	}
-
-	return result, nil
+	return body, comp
 }

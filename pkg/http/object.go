@@ -70,7 +70,9 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 	path := r.RequestURI[1:] // strip leading '/'
 	if err := s.store.PutObject(r.Context(), path, r.Body); err != nil {
-		http.Error(w, "failed to put object in store", http.StatusInternalServerError)
+		s.log.Error("failed to put object in store", "path", path, "error", err)
+		http.Error(w, "internal failure", http.StatusInternalServerError)
+
 		return
 	}
 
