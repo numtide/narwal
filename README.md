@@ -9,6 +9,7 @@ To achieve this, we are looking to build the simplest solution we can think of f
 In order to make garbage collection atomic, we have to intercept uploads. Otherwise there is always a risk for narinfos to be uploaded, that reference items that we just removed from the bucket.
 
 So our plan looks like this:
+
 1. Setup a Postgres DB
 2. Have one fat server that receives and indexes the uploads into Postgres, and forwards them to S3.
 3. Build an importer tool that traverses the S3 bucket, and indexes all the information into Postgres.
@@ -22,15 +23,15 @@ The importer tool downloads the Parquet files from the s3 inventory bucket, then
 
 For the narinfo, it downloads and parses them, to collect the references.
 
-* /nix-cache-info => do not GC :)
-* dwarffs?
-    * https://github.com/NixOS/infra/issues/484
-* `nar/<nar-hash>.nar[.compression]`
-* `log/<drv-hash>-<name>.drv` files
-* `<drv-hash>.narinfo` files
-* `<drv-hash>[-<name>].ls[.xz]` files
-* TODO: Did I miss anything?
-    * `.drv`?
+- /nix-cache-info => do not GC :)
+- dwarffs?
+    - https://github.com/NixOS/infra/issues/484
+- `nar/<nar-hash>.nar[.compression]`
+- `log/<drv-hash>-<name>.drv` files
+- `<drv-hash>.narinfo` files
+- `<drv-hash>[-<name>].ls[.xz]` files
+- TODO: Did I miss anything?
+    - `.drv`?
 
 Then everything gets recorded into Postgres.
 
@@ -102,10 +103,10 @@ Once we feel confident, run the actual GC.
 
 ## Known risks
 
-* We might run out of steam if the rollout takes too long. I think we should create some sort of schedule to avoid that.
-* Is it possible to configure Hydra with a split upload/download cache?
-* We might find out that Postgres is too slow for that task. I don't think it's very likely, but let's see.
-* We might find out that the upload pauses are causing too much disruption.
+- We might run out of steam if the rollout takes too long. I think we should create some sort of schedule to avoid that.
+- Is it possible to configure Hydra with a split upload/download cache?
+- We might find out that Postgres is too slow for that task. I don't think it's very likely, but let's see.
+- We might find out that the upload pauses are causing too much disruption.
 
 ## Future work
 

@@ -85,7 +85,6 @@ Auditing
 
 # Research
 
-* Attic
-* Docker registries
-* Styx
-
+- Attic
+- Docker registries
+- Styx
