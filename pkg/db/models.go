@@ -56,30 +56,62 @@ func (ns NullCompressionType) Value() (driver.Value, error) {
 	return string(ns.CompressionType), nil
 }
 
-type NarFile struct {
-	Hash           string           `json:"hash"`
-	Compression    CompressionType  `json:"compression"`
-	Bucket         string           `json:"bucket"`
-	Path           string           `json:"path"`
-	Size           int64            `json:"size"`
-	CreatedAt      pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt pgtype.Timestamp `json:"last_accessed_at"`
+type ObjectType string
+
+const (
+	ObjectTypeNar     ObjectType = "nar"
+	ObjectTypeNarinfo ObjectType = "narinfo"
+	ObjectTypeLs      ObjectType = "ls"
+	ObjectTypeDrv     ObjectType = "drv"
+)
+
+func (e *ObjectType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ObjectType(s)
+	case string:
+		*e = ObjectType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ObjectType: %T", src)
+	}
+	return nil
+}
+
+type NullObjectType struct {
+	ObjectType ObjectType `json:"object_type"`
+	Valid      bool       `json:"valid"` // Valid is true if ObjectType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullObjectType) Scan(value interface{}) error {
+	if value == nil {
+		ns.ObjectType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ObjectType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullObjectType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ObjectType), nil
 }
 
 type NarInfo struct {
-	Hash           string           `json:"hash"`
-	StorePath      string           `json:"store_path"`
-	Compression    CompressionType  `json:"compression"`
-	FileHash       string           `json:"file_hash"`
-	FileSize       int64            `json:"file_size"`
-	NarHash        string           `json:"nar_hash"`
-	NarSize        int64            `json:"nar_size"`
-	Deriver        string           `json:"deriver"`
-	Bucket         string           `json:"bucket"`
-	Path           string           `json:"path"`
-	Size           int32            `json:"size"`
-	CreatedAt      pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt pgtype.Timestamp `json:"last_accessed_at"`
+	Hash        string          `json:"hash"`
+	StorePath   string          `json:"store_path"`
+	Compression CompressionType `json:"compression"`
+	FileHash    string          `json:"file_hash"`
+	FileSize    int64           `json:"file_size"`
+	NarHash     string          `json:"nar_hash"`
+	NarSize     int64           `json:"nar_size"`
+	Deriver     string          `json:"deriver"`
+	Bucket      string          `json:"bucket"`
+	Path        string          `json:"path"`
+	Size        int32           `json:"size"`
 }
 
 type NarInfoReference struct {
@@ -91,4 +123,15 @@ type NarInfoSignature struct {
 	Hash string `json:"hash"`
 	Name string `json:"name"`
 	Data string `json:"data"`
+}
+
+type Object struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Bucket          string           `json:"bucket"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
 }

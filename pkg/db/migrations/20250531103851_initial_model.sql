@@ -19,21 +19,25 @@
 -- +goose Up
 -- +goose StatementBegin
 
+create type object_type as enum('nar', 'narinfo', 'ls', 'drv');
 create type compression_type as enum ('xz', 'bzip2', 'gzip', 'zstd', 'none');
 
-create table nar_file
+create table object
 (
-    hash char(52) not null,
-    compression compression_type not null,
+    hash varchar(52) not null,
+    object_type object_type not null,
+    compression_type compression_type not null,
     bucket varchar(128) not null,
-    path varchar (128) not null,
+    path varchar(128) not null,
     size bigint constraint positive_size check (size > 0) not null,
     created_at timestamp not null,
     last_accessed_at timestamp,
-    primary key (hash, compression)
+
+    primary key (hash, object_type, compression_type)
 );
 
-create index idx_nar_file_hash on nar_file(hash);
+create index idx_object_type on object(object_type);
+create unique index idx_object_path on object(path);
 
 create table nar_info
 (
@@ -47,13 +51,7 @@ create table nar_info
     nar_hash varchar(128) not null,
     nar_size bigint constraint positive_nar_size check (nar_size > 0) not null,
 
-    deriver varchar(1024) not null,
-
-    bucket varchar(128) not null,
-    path varchar(128) not null,
-    size int not null,
-    created_at timestamp not null,
-    last_accessed_at timestamp
+    deriver varchar(1024) not null
 );
 
 create table nar_info_reference
@@ -83,13 +81,17 @@ create index idx_nar_info_signature_name on nar_info_signature(name);
 drop index idx_nar_info_signature_name;
 drop index idx_nar_info_reference_hash;
 drop index idx_nar_info_signature_hash;
-drop index idx_nar_file_hash;
+drop index idx_object_type;
+drop index idx_object_path;
+
+
 
 drop table nar_info_signature;
 drop table nar_info_reference;
 drop table nar_info;
-drop table nar_file;
+drop table object;
 
 drop type compression_type;
+drop type object_type;
 
 -- +goose StatementEnd

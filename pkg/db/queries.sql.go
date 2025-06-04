@@ -29,59 +29,27 @@ func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) erro
 	return err
 }
 
-const hasNar = `-- name: HasNar :one
+const hasObject = `-- name: HasObject :one
 with update_accessed as (
-    update nar_file
+    update object
     set last_accessed_at = timezone('UTC', now())
-    where hash = $1 and compression = $2
+    where path = $1
 )
-select bucket, path, size
-from nar_file as nf
-where nf.hash = $1
-  and nf.compression = $2
+select object_type, bucket, size
+from object as o
+where o.path = $1
 `
 
-type HasNarParams struct {
-	Hash        string          `json:"hash"`
-	Compression CompressionType `json:"compression"`
+type HasObjectRow struct {
+	ObjectType ObjectType `json:"object_type"`
+	Bucket     string     `json:"bucket"`
+	Size       int64      `json:"size"`
 }
 
-type HasNarRow struct {
-	Bucket string `json:"bucket"`
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-}
-
-func (q *Queries) HasNar(ctx context.Context, arg HasNarParams) (HasNarRow, error) {
-	row := q.db.QueryRow(ctx, hasNar, arg.Hash, arg.Compression)
-	var i HasNarRow
-	err := row.Scan(&i.Bucket, &i.Path, &i.Size)
-	return i, err
-}
-
-const hasNarInfo = `-- name: HasNarInfo :one
-with update_accessed as (
-    update nar_info
-    set last_accessed_at = timezone('UTC', now())
-    where hash = $1
-)
-select bucket,
-       path,
-       size
-from nar_info as nf
-where nf.hash = $1
-`
-
-type HasNarInfoRow struct {
-	Bucket string `json:"bucket"`
-	Path   string `json:"path"`
-	Size   int32  `json:"size"`
-}
-
-func (q *Queries) HasNarInfo(ctx context.Context, hash string) (HasNarInfoRow, error) {
-	row := q.db.QueryRow(ctx, hasNarInfo, hash)
-	var i HasNarInfoRow
-	err := row.Scan(&i.Bucket, &i.Path, &i.Size)
+func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, error) {
+	row := q.db.QueryRow(ctx, hasObject, path)
+	var i HasObjectRow
+	err := row.Scan(&i.ObjectType, &i.Bucket, &i.Size)
 	return i, err
 }
 
@@ -96,52 +64,18 @@ type InsertNarInfoSignaturesParams struct {
 	Data string `json:"data"`
 }
 
-const putNar = `-- name: PutNar :exec
-insert into nar_file (hash, compression, bucket, path, size, created_at)
-values ($1, $2, $3, $4, $5, timezone('UTC', now()))
-on conflict(hash, compression) do update
-    set bucket     = excluded.bucket,
-        path       = excluded.path,
-        size       = excluded.size,
-        created_at = timezone('UTC', now())
-`
-
-type PutNarParams struct {
-	Hash        string          `json:"hash"`
-	Compression CompressionType `json:"compression"`
-	Bucket      string          `json:"bucket"`
-	Path        string          `json:"path"`
-	Size        int64           `json:"size"`
-}
-
-func (q *Queries) PutNar(ctx context.Context, arg PutNarParams) error {
-	_, err := q.db.Exec(ctx, putNar,
-		arg.Hash,
-		arg.Compression,
-		arg.Bucket,
-		arg.Path,
-		arg.Size,
-	)
-	return err
-}
-
 const putNarInfo = `-- name: PutNarInfo :exec
 insert
-into nar_info (hash, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver, bucket, path, size,
-               created_at)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, timezone('UTC', now()))
+into nar_info (hash, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
 on conflict (hash) do update
-    set store_path  = excluded.store_path,
+    set store_path  = excluded.store_path ,
         compression = excluded.compression,
         file_hash   = excluded.file_hash,
         file_size   = excluded.file_size,
         nar_hash    = excluded.nar_hash,
         nar_size    = excluded.nar_size,
-        deriver     = excluded.deriver,
-        bucket      = excluded.bucket,
-        path        = excluded.path,
-        size        = excluded.size,
-        created_at  = timezone('UTC', now())
+        deriver     = excluded.deriver
 `
 
 type PutNarInfoParams struct {
@@ -153,9 +87,6 @@ type PutNarInfoParams struct {
 	NarHash     string          `json:"nar_hash"`
 	NarSize     int64           `json:"nar_size"`
 	Deriver     string          `json:"deriver"`
-	Bucket      string          `json:"bucket"`
-	Path        string          `json:"path"`
-	Size        int32           `json:"size"`
 }
 
 func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
@@ -168,6 +99,33 @@ func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
 		arg.NarHash,
 		arg.NarSize,
 		arg.Deriver,
+	)
+	return err
+}
+
+const putObject = `-- name: PutObject :exec
+insert into object (hash, object_type, compression_type, bucket, path, size, created_at)
+values ($1, $2, $3, $4, $5, $6, timezone('UTC', now()))
+on conflict(path) do update
+    set bucket     = excluded.bucket,
+        size       = excluded.size,
+        created_at = timezone('UTC', now())
+`
+
+type PutObjectParams struct {
+	Hash            string          `json:"hash"`
+	ObjectType      ObjectType      `json:"object_type"`
+	CompressionType CompressionType `json:"compression_type"`
+	Bucket          string          `json:"bucket"`
+	Path            string          `json:"path"`
+	Size            int64           `json:"size"`
+}
+
+func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
+	_, err := q.db.Exec(ctx, putObject,
+		arg.Hash,
+		arg.ObjectType,
+		arg.CompressionType,
 		arg.Bucket,
 		arg.Path,
 		arg.Size,
