@@ -59,6 +59,9 @@ perSystem.self.narwal.overrideAttrs (old: {
       gotools
       golangci-lint
 
+      # LSPs
+      nil
+
       # local dev services
       process-compose
       postgresql_16
