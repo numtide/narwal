@@ -19,7 +19,7 @@ import (
 	"github.com/numtide/narwal/pkg/db"
 )
 
-var objectTypeRegex = regexp.MustCompile(`\.(nar|narinfo|drv|ls)(\.(xz|bzip2|gzip|zstd))?$`)
+var objectTypeRegex = regexp.MustCompile(`\.(nar|narinfo|debug|ls|)(\.(xz|bzip2|gzip|zstd))?$`)
 
 type Object struct {
 	Type        db.ObjectType
@@ -132,9 +132,14 @@ func (s *Store) PutObject(
 	queries := db.New(conn)
 
 	var hash string
-	if typeAndCompression.Type == db.ObjectTypeNar {
-		hash = path[:52]
-	} else {
+
+	switch typeAndCompression.Type {
+	case db.ObjectTypeNar:
+		// path is prefixed with /nar
+		hash = path[4:56]
+	case db.ObjectTypeDebug:
+		hash = path[10:50]
+	default:
 		hash = path[:32]
 	}
 
@@ -216,7 +221,7 @@ func (s *Store) compressIfRequired(objectType db.ObjectType, r io.Reader) (body 
 		pr, pw := io.Pipe()
 
 		// todo check what level nix is using
-		bw := brotli.NewWriterLevel(pw, brotli.BestCompression)
+		bw := brotli.NewWriterLevel(pw, brotli.DefaultCompression)
 
 		// compress in a background task
 		s.eg.Go(func() error {
@@ -256,6 +261,9 @@ func parseObjectTypeAndCompression(path string) (*Object, error) {
 	if path[:4] == "log/" {
 		// logs are written with the .drv extension and under the `log/` prefix
 		result.Type = db.ObjectTypeLog
+	} else if path[:10] == "debuginfo/" {
+		// some entries have the `.debug` suffix, others don't, so we force the type based on the prefix
+		result.Type = db.ObjectTypeDebug
 	} else {
 		result.Type = db.ObjectType(matches[1])
 	}

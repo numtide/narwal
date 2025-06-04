@@ -70,6 +70,7 @@ const (
 	ObjectTypeNarinfo ObjectType = "narinfo"
 	ObjectTypeLs      ObjectType = "ls"
 	ObjectTypeLog     ObjectType = "log"
+	ObjectTypeDebug   ObjectType = "debug"
 )
 
 func (e *ObjectType) Scan(src interface{}) error {

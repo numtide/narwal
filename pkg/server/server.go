@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,11 +36,15 @@ type Server struct {
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
+	// create an errgroup for background tasks
+	// constrain the max number of tasks
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
 	srv := &Server{
 		log:    log.WithPrefix("server"),
 		config: cfg,
-		// todo configure max tasks?
-		eg: &errgroup.Group{},
+		eg:     eg,
 	}
 
 	var err error
