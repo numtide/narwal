@@ -4,7 +4,7 @@ with update_accessed as (
     set last_accessed_at = timezone('UTC', now())
     where path = $1
 )
-select object_type, bucket, size
+select object_type, compression_type, bucket, size
 from object as o
 where o.path = $1;
 

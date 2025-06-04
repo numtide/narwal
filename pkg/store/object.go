@@ -89,13 +89,21 @@ func (s *Store) PutObject(
 		body = io.TeeReader(body, buf)
 	}
 
+	putOptions := minio.PutObjectOptions{
+		ContentType: mime.For(typeAndCompression.Type),
+	}
+
+	if typeAndCompression.Compression != db.CompressionTypeNone {
+		putOptions.ContentEncoding = string(typeAndCompression.Compression)
+	}
+
 	objectInfo, err := s.s3.PutObject(
 		ctx,
 		s.bucketName,
 		path,
 		body,
 		-1,
-		minio.PutObjectOptions{ContentType: mime.For(typeAndCompression.Type)},
+		putOptions,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upload object to s3: %w", err)
@@ -197,7 +205,7 @@ func parseObjectTypeAndCompression(path string) (*Object, error) {
 		Compression: db.CompressionTypeNone,
 	}
 
-	if len(matches) == 4 {
+	if len(matches) == 4 && matches[3] != "" {
 		result.Compression = db.CompressionType(matches[3])
 	}
 

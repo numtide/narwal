@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/numtide/narwal/pkg/db"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/numtide/narwal/pkg/mime"
 	"github.com/numtide/narwal/pkg/store"
@@ -17,6 +19,16 @@ func (s *Server) addObjectRoutes(r *chi.Mux) {
 	r.Get(pattern, s.getObject)
 	r.Head(pattern, s.hasObject)
 	r.Put(pattern, s.putObject)
+}
+
+func setObjectResponseHeaders(w http.ResponseWriter, obj *store.Object) {
+	h := w.Header()
+	h.Set("Content-Type", mime.For(obj.Type))
+	h.Set("Content-Length", strconv.FormatUint(obj.Size, 10))
+
+	if obj.Compression != db.CompressionTypeNone {
+		h.Set("Content-Encoding", string(obj.Compression))
+	}
 }
 
 func (s *Server) hasObject(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +43,7 @@ func (s *Server) hasObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := w.Header()
-	h.Set("Content-Type", mime.For(obj.Type))
-	h.Set("Content-Length", strconv.FormatUint(obj.Size, 10))
+	setObjectResponseHeaders(w, obj)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -50,9 +60,7 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := w.Header()
-	h.Set("Content-Type", mime.For(obj.Type))
-	h.Set("Content-Length", strconv.FormatUint(obj.Size, 10))
+	setObjectResponseHeaders(w, obj)
 
 	if _, err = io.Copy(w, obj.Body); err != nil {
 		http.Error(w, "failed to write nar to response", http.StatusInternalServerError)

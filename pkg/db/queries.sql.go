@@ -35,21 +35,27 @@ with update_accessed as (
     set last_accessed_at = timezone('UTC', now())
     where path = $1
 )
-select object_type, bucket, size
+select object_type, compression_type, bucket, size
 from object as o
 where o.path = $1
 `
 
 type HasObjectRow struct {
-	ObjectType ObjectType `json:"object_type"`
-	Bucket     string     `json:"bucket"`
-	Size       int64      `json:"size"`
+	ObjectType      ObjectType      `json:"object_type"`
+	CompressionType CompressionType `json:"compression_type"`
+	Bucket          string          `json:"bucket"`
+	Size            int64           `json:"size"`
 }
 
 func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, error) {
 	row := q.db.QueryRow(ctx, hasObject, path)
 	var i HasObjectRow
-	err := row.Scan(&i.ObjectType, &i.Bucket, &i.Size)
+	err := row.Scan(
+		&i.ObjectType,
+		&i.CompressionType,
+		&i.Bucket,
+		&i.Size,
+	)
 	return i, err
 }
 
