@@ -69,7 +69,6 @@ const (
 	ObjectTypeNar     ObjectType = "nar"
 	ObjectTypeNarinfo ObjectType = "narinfo"
 	ObjectTypeLs      ObjectType = "ls"
-	ObjectTypeDrv     ObjectType = "drv"
 	ObjectTypeLog     ObjectType = "log"
 )
 

@@ -250,13 +250,14 @@ func parseObjectTypeAndCompression(path string) (*Object, error) {
 	}
 
 	result := &Object{
-		Type:        db.ObjectType(matches[1]),
 		Compression: db.CompressionTypeNone,
 	}
 
-	if result.Type == db.ObjectTypeDrv && path[:4] == "log/" {
-		// for some reason logs are written with the .drv extension but under the `log/` prefix
+	if path[:4] == "log/" {
+		// logs are written with the .drv extension and under the `log/` prefix
 		result.Type = db.ObjectTypeLog
+	} else {
+		result.Type = db.ObjectType(matches[1])
 	}
 
 	if len(matches) == 4 && matches[3] != "" {
