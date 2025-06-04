@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -94,28 +91,26 @@ func runE(v *viper.Viper, cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	ctx, cancel := context.WithCancelCause(cmd.Context())
-	defer cancel(nil)
+	ctx := cmd.Context()
 
 	if err = srv.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 
+	// monitor context for cancellation (from SIGINT/SIGTERM handled in main)
 	go func() {
-		// listen for shutdown signal
-		exit := make(chan os.Signal, 1)
-		signal.Notify(exit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-		<-exit
-
+		<-ctx.Done()
 		log.Info("shutdown signal received")
 
 		// stop the server, waiting up to 30 seconds for it to complete
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
-		err = srv.Stop(shutdownCtx)
-
-		cancel(err)
+		if err := srv.Stop(shutdownCtx); err != nil {
+			log.Error("error during server shutdown", "error", err)
+		} else {
+			log.Info("server shutdown completed")
+		}
 	}()
 
 	// block until the app context has completed
