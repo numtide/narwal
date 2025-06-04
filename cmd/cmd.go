@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/numtide/narwal/cmd/importer"
 	"github.com/numtide/narwal/cmd/server"
 	"github.com/numtide/narwal/pkg/build"
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ func New() *cobra.Command {
 
 	// add subcommands
 	cmd.AddCommand(server.NewCmd())
+	cmd.AddCommand(importer.NewCmd())
 
 	return cmd
 }
