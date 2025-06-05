@@ -33,9 +33,7 @@ func NewCmd() *cobra.Command {
 
   # Specify bucket region to skip auto-detection
   narwal importer --bucket nix-cache-inventory --bucket-region us-east-1 --prefix data/`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runE(cmd, args)
-		},
+		RunE: runE,
 	}
 
 	// add our config flags to the command's flag set
@@ -139,7 +137,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 	for i, file := range manifest.Files {
 		if ctx.Err() != nil {
 			log.Warn("Processing cancelled by user")
-			return ctx.Err()
+			return fmt.Errorf("processing cancelled by user: %w", ctx.Err())
 		}
 
 		log.Info("Processing file", "file", i+1, "total", len(manifest.Files), "key", file.Key)
@@ -157,13 +155,13 @@ func runE(cmd *cobra.Command, _ []string) error {
 		// Process all objects in this file
 		for {
 			if ctx.Err() != nil {
-				reader.Close()
-				return ctx.Err()
+				_ = reader.Close()
+				return fmt.Errorf("processing cancelled by user: %w", ctx.Err())
 			}
 
 			n, err := reader.Read(objects)
 			if err != nil {
-				reader.Close()
+				_ = reader.Close()
 				return fmt.Errorf("error reading from parquet file %s: %w", file.Key, err)
 			}
 
@@ -177,7 +175,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 			}
 		}
 
-		reader.Close()
+		_ = reader.Close()
 	}
 
 	elapsed := time.Since(progressTracker.StartTime)
@@ -210,8 +208,6 @@ func (op *OverallProgress) OnFileDownloadProgress(key string, downloaded int64, 
 
 	// Log progress every 5 seconds or every 25MB
 	now := time.Now()
-
-	const logInterval = 25 * 1024 * 1024 // 25MB
 
 	const timeInterval = 5 * time.Second
 
@@ -258,10 +254,12 @@ func (op *OverallProgress) OnFileDownloadCompleted(key string, size int64) {
 		avgSpeed = fmt.Sprintf(" | %s/s avg", formatBytes(int64(bytesPerSecond)))
 	}
 
+	overallBytes := fmt.Sprintf("%s/%s (%.1f%%)", formatBytes(op.BytesDownloaded), formatBytes(op.TotalSize), bytesPercent)
+
 	log.Info("File download completed",
 		"key", key,
 		"overallFiles", fmt.Sprintf("%d/%d (%.1f%%)", op.FilesCompleted, op.TotalFiles, filesPercent),
-		"overallBytes", fmt.Sprintf("%s/%s (%.1f%%)", formatBytes(op.BytesDownloaded), formatBytes(op.TotalSize), bytesPercent),
+		"overallBytes", overallBytes,
 		"elapsed", elapsed.Round(time.Second).String()+avgSpeed)
 }
 
