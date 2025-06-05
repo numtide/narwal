@@ -81,8 +81,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-
-
 	if cfg.ReportID == "" {
 		return fmt.Errorf("report ID is required for get-manifest command")
 	}

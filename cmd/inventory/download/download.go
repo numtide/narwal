@@ -161,7 +161,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 				err := bucket.Download(ctx, s3Client, file.Key, func(bucket, key string, downloaded, total int64) {
 					progressTracker.OnFileDownloadProgress(key, downloaded, total)
 				})
-
 				if err != nil {
 					log.Error("Failed to download file", "worker", workerID, "key", file.Key, "error", err)
 					continue

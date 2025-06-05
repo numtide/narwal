@@ -2,6 +2,7 @@ package gc
 
 import (
 	"fmt"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/numtide/narwal/pkg/db"
@@ -31,7 +32,6 @@ func planCreate() *cobra.Command {
 }
 
 func createPlan(cmd *cobra.Command, args []string) (err error) {
-
 	defer pg.Close()
 
 	ctx := cmd.Context()
@@ -128,14 +128,12 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 	deletionCount := 0
 
 	flush := func() error {
-
 		_, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{deletionsTableName},
 			[]string{"bucket", "path"},
 			pgx.CopyFromRows(rows),
 		)
-
 		if err != nil {
 			return fmt.Errorf("failed to copy rows: %w", err)
 		}
@@ -187,5 +185,4 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan %d created\n%d items processed\n%d items scheduled for deletion\n", planID, objectCount, deletionCount)
 
 	return nil
-
 }

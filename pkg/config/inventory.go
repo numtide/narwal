@@ -8,16 +8,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
-	"github.com/spf13/pflag"
 	"github.com/numtide/narwal/pkg/workarea"
+	"github.com/spf13/pflag"
 )
 
 type Inventory struct {
-	ReportID     string            `mapstructure:"report"`
-	Prefix       string            `mapstructure:"prefix"`
-	Bucket       string            `mapstructure:"bucket"`
-	BucketRegion string            `mapstructure:"region"`
-	Workdir      string            `mapstructure:"workdir"`
+	ReportID     string             `mapstructure:"report"`
+	Prefix       string             `mapstructure:"prefix"`
+	Bucket       string             `mapstructure:"bucket"`
+	BucketRegion string             `mapstructure:"region"`
+	Workdir      string             `mapstructure:"workdir"`
 	Workarea     *workarea.WorkArea `mapstructure:"-"`
 }
 
