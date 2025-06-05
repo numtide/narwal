@@ -74,3 +74,36 @@ Any given day gets a metadata.json which then references 516 parquet files.
 The total sizes of the Parquet files is 65 GB.
 
 It takes 80m to download all these files to Hetzner with no parallelism.
+
+clickhouse-local
+```sql
+-- First, check the schema of your parquet files
+DESCRIBE file('work/**/*.parquet', 'Parquet');
+
+-- Check total records before filtering
+SELECT count() as total_records FROM file('work/**/*.parquet', 'Parquet');
+-- => 982654362
+
+-- Sample some key values to verify the pattern
+SELECT DISTINCT key FROM file('work/**/*.parquet', 'Parquet')
+WHERE key LIKE '%.narinfo'
+LIMIT 5;
+```
+
+```sql
+-- More details on the .narinfo:
+SELECT
+    count() as narinfo_count,
+    sum(size) as total_size_bytes,
+    formatReadableSize(sum(size)) as total_size_readable,
+    avg(size) as avg_size_bytes,
+    min(size) as min_size,
+    max(size) as max_size
+FROM file('work/**/*.parquet', 'Parquet')
+WHERE endsWith(key, '.narinfo');
+```
+```
+┌─narinfo_count─┬─total_size_bytes─┬─total_size_readable─┬─────avg_size_bytes─┬─min_size─┬─max_size─┐
+│     275262016 │     567387296437 │ 528.42 GiB          │ 2061.2625914830182 │      434 │   484163 │
+└───────────────┴──────────────────┴─────────────────────┴────────────────────┴──────────┴──────────┘
+```
