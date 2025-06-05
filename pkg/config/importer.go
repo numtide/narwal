@@ -16,7 +16,7 @@ type Importer struct {
 	Prefix       string `mapstructure:"prefix"`
 	Bucket       string `mapstructure:"bucket"`
 	BucketRegion string `mapstructure:"region"`
-	WorkDir      string `mapstructure:"work_dir"`
+	Workdir      string `mapstructure:"workdir"`
 }
 
 func (i *Importer) Validate(ctx context.Context, awsCfg aws.Config) error {
@@ -51,7 +51,7 @@ func SetImporterFlags(fs *pflag.FlagSet) {
 	fs.String("region", "", "AWS region for the inventory bucket (e.g. 'us-east-1', 'eu-west-1'). If empty, auto-detects the region")
 	fs.String("prefix", "nix-cache/nix-cache-inventory", "Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
 	fs.String("date", "2025-06-03T01-00Z", "Specific inventory date to process (e.g. '2025-06-03T01-00Z'). If empty, uses the latest available date")
-	fs.String("work-dir", "./work", "Local directory to cache parquet files (reused across runs for efficiency)")
+	fs.String("workdir", "./work", "Local directory to cache parquet files (reused across runs for efficiency)")
 }
 
 // getBucketRegion gets the AWS region where the bucket is located.

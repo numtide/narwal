@@ -29,7 +29,7 @@ func NewCmd() *cobra.Command {
   narwal importer --bucket nix-cache-inventory --prefix data/ --date 2025-06-03T01-00Z
 
   # Use custom cache directory
-  narwal importer --bucket nix-cache-inventory --prefix data/ --work-dir /tmp/cache
+  narwal importer --bucket nix-cache-inventory --prefix data/ --workdir /tmp/cache
 
   # Specify bucket region to skip auto-detection
   narwal importer --bucket nix-cache-inventory --bucket-region us-east-1 --prefix data/`,
@@ -76,7 +76,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 	log.Info("Accessing S3 bucket", "bucket", cfg.Bucket, "prefix", cfg.Prefix, "region", cfg.BucketRegion)
 
-	log.Info("Using work directory", "workDir", cfg.WorkDir)
+	log.Info("Using work directory", "workdir", cfg.Workdir)
 
 	// Create a new S3 client with the correct region
 	regionCfg, err := awsconfig.LoadDefaultConfig(ctx,
@@ -91,7 +91,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 	s3Client := s3.NewFromConfig(regionCfg)
 
 	// Create inventory client with working directory support
-	inventoryClient, err := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix, cfg.WorkDir)
+	inventoryClient, err := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix, cfg.Workdir)
 	if err != nil {
 		return fmt.Errorf("error creating inventory client: %w", err)
 	}
@@ -182,7 +182,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 	elapsed := time.Since(progressTracker.StartTime)
 	log.Info("Processing completed", "elapsed", elapsed.Round(time.Second))
-	log.Info("Cached files retained for efficient future runs", "workDir", cfg.WorkDir)
+	log.Info("Cached files retained for efficient future runs", "workDir", cfg.Workdir)
 
 	return nil
 }
