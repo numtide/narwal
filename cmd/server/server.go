@@ -18,9 +18,7 @@ func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "server",
 		Short: "Run an instance of the Data Mesher server",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runE(cmd, args)
-		},
+		RunE:  runE,
 	}
 
 	// add our config flags to the command's flag set

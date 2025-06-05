@@ -17,7 +17,9 @@ import (
 
 // S3Client defines the interface for S3 operations needed by the inventory client.
 type S3Client interface {
-	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	ListObjectsV2(
+		ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options),
+	) (*s3.ListObjectsV2Output, error)
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
@@ -41,13 +43,13 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 	}
 
 	// Create working directory if it doesn't exist
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %w", err)
 	}
 
 	// Create temporary directory for downloads
 	tempDir := filepath.Join(workDir, ".tmp")
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+	if err := os.MkdirAll(tempDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
@@ -136,7 +138,7 @@ func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, p
 // downloadFile downloads a single file from S3 to the local path.
 func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int64, localPath string, progressCallback DownloadProgressCallback) error {
 	// Create directory structure if needed
-	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o750); err != nil {
 		return fmt.Errorf("failed to create directory structure: %w", err)
 	}
 
@@ -151,14 +153,14 @@ func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int6
 	if err != nil {
 		return fmt.Errorf("failed to get object from S3: %w", err)
 	}
-	defer result.Body.Close()
+	defer result.Body.Close() //nolint:errcheck
 
 	// Create temporary file
 	tempFile, err := os.Create(tempPath)
 	if err != nil {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
-	defer os.Remove(tempPath)
+	defer os.Remove(tempPath) //nolint:errcheck
 
 	// Create progress reader if we have progress tracking
 	var reader io.Reader = result.Body
@@ -174,7 +176,7 @@ func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int6
 
 	// Copy to temporary file
 	_, err = io.Copy(tempFile, reader)
-	tempFile.Close()
+	_ = tempFile.Close()
 
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
