@@ -1,0 +1,28 @@
+// Folder-specific settings
+//
+// For a full list of overridable settings, and general information on folder-specific settings,
+// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
+{
+  "lsp": {
+    "golangci-lint": {
+      "initialization_options": {
+        "command": [
+          "golangci-lint",
+          "run",
+          "--output.json.path",
+          "stdout",
+          "--issues-exit-code=1",
+          "--show-stats=false"
+        ]
+      }
+    }
+  },
+  "languages": {
+    "Go": {
+      "language_servers": ["gopls", "golangci-lint"]
+    },
+    "Nix": {
+      "language_servers": ["nil"]
+    }
+  }
+}
