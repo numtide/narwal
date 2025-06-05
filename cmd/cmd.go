@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/numtide/narwal/cmd/gc"
+
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/cmd/importer"
 	"github.com/numtide/narwal/cmd/server"
@@ -28,8 +30,9 @@ func New() *cobra.Command {
 	cmd.SetVersionTemplate(build.Name + " " + "{{.Version}}")
 
 	// add subcommands
-	cmd.AddCommand(server.NewCmd())
+	cmd.AddCommand(gc.NewCmd())
 	cmd.AddCommand(importer.NewCmd())
+	cmd.AddCommand(server.NewCmd())
 
 	// add some flags common to all subcommands
 	fs := cmd.PersistentFlags()
@@ -38,7 +41,10 @@ func New() *cobra.Command {
 	fs.StringVar(&configFile, "config-file", "", "Load the config file from the given path")
 
 	// add a log level flag
-	fs.StringVar(&logLevelStr, "log-level", "info", "Log level (warn, info, debug)")
+	fs.StringVar(&logLevelStr, "log-level", "warn", "Log level (warn, info, debug)")
+
+	// add flags shared by all sub commands
+	config.SetSharedFlags(fs)
 
 	// configure viper
 	if err := config.ConfigureViper(viper.GetViper()); err != nil {

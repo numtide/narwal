@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/pflag"
+
 	"github.com/adrg/xdg"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -59,4 +61,9 @@ func FromViper(v *viper.Viper, cfg any) error {
 	}
 
 	return nil
+}
+
+func SetSharedFlags(fs *pflag.FlagSet) {
+	setS3Flags(fs)
+	setPostgresFlags(fs)
 }

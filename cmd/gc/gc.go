@@ -1,0 +1,94 @@
+package gc
+
+import (
+	"fmt"
+	"regexp"
+
+	"github.com/charmbracelet/log"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/numtide/narwal/pkg/config"
+	"github.com/numtide/narwal/pkg/db"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+)
+
+//nolint:checknoglobals
+var (
+	cfg *config.GC
+
+	s3 *minio.Client
+	pg *pgxpool.Pool
+
+	storePathPattern = regexp.MustCompile(`^([a-z0-9]{32})|/nix/store/([a-z0-9]{32})-.*$`)
+)
+
+func NewCmd() *cobra.Command {
+	// create the command
+	cmd := &cobra.Command{
+		Use:   "gc",
+		Short: "Set GC roots and run garbage collection",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return runE(cmd, args)
+		},
+	}
+
+	// bind our command's flags to viper
+	if err := viper.BindPFlags(cmd.Flags()); err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
+	}
+
+	cmd.AddCommand(root())
+	cmd.AddCommand(plan())
+
+	// silence usage on error from this point forward
+	cmd.SilenceUsage = true
+
+	return cmd
+}
+
+func runE(cmd *cobra.Command, _ []string) error {
+	var err error
+
+	// parse viper into our config object
+	if err = config.FromViper(viper.GetViper(), &cfg); err != nil {
+		return fmt.Errorf("failed to create config from viper: %w", err)
+	}
+
+	if err = cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
+
+	// connect to postgres
+	pg, err = db.Connect(cmd.Context(), cfg.Postgres.URL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+
+	// connect to s3
+	if s3, err = minio.New(cfg.S3.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
+		Secure: cfg.S3.SSLEnabled,
+	}); err != nil {
+		return fmt.Errorf("failed to connect to s3: %w", err)
+	}
+
+	return nil
+}
+
+func extractNarHash(path string) (string, error) {
+	matches := storePathPattern.FindStringSubmatch(path)
+	if len(matches) != 3 {
+		return "", fmt.Errorf("could not extract nar hash: %s", path)
+	}
+
+	result := matches[1]
+	if result == "" {
+		result = matches[2]
+	}
+
+	return result, nil
+}
