@@ -8,11 +8,11 @@ import (
 
 func TestAnalyzePath(t *testing.T) {
 	tests := []struct {
-		name            string
-		path            string
-		expectedType    db.ObjectType
-		expectedComp    db.CompressionType
-		expectError     bool
+		name         string
+		path         string
+		expectedType db.ObjectType
+		expectedComp db.CompressionType
+		expectError  bool
 	}{
 		{
 			name:         "nar file uncompressed",
@@ -135,21 +135,20 @@ func TestAnalyzePath(t *testing.T) {
 
 func TestAnalyzePathCompressionTypes(t *testing.T) {
 	compressionTypes := []string{"br", "compress", "grzip", "gzip", "lrzip", "lz4", "lzip", "lzma", "lzop", "xz", "zstd"}
-	
+
 	for _, comp := range compressionTypes {
 		t.Run("compression_"+comp, func(t *testing.T) {
 			path := "12345678901234567890123456789012.narinfo." + comp
 			result, err := AnalyzePath(path)
-			
 			if err != nil {
 				t.Errorf("Unexpected error for compression %s: %v", comp, err)
 				return
 			}
-			
+
 			if result.ObjectType != db.ObjectTypeNarinfo {
 				t.Errorf("Expected ObjectTypeNarinfo, got %s", result.ObjectType)
 			}
-			
+
 			if result.Compression != db.CompressionType(comp) {
 				t.Errorf("Expected compression %s, got %s", comp, result.Compression)
 			}

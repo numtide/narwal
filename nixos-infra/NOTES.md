@@ -79,9 +79,10 @@ Any given day gets a metadata.json which then references 516 parquet files.
 The total sizes of the Parquet files is 65 GB.
 It takes ~80m to download all these files to Hetzner with no parallelism.
 
-Retrieval costs: 65 GB * 0.09$/GB = $5.85
+Retrieval costs: 65 GB \* 0.09$/GB = $5.85
 
 clickhouse-local
+
 ```sql
 -- First, check the schema of your parquet files
 DESCRIBE file('work/**/*.parquet', 'Parquet');
@@ -108,6 +109,7 @@ SELECT
 FROM file('work/**/*.parquet', 'Parquet')
 WHERE endsWith(key, '.narinfo');
 ```
+
 ```
 ┌─narinfo_count─┬─total_size_bytes─┬─total_size_readable─┬─────avg_size_bytes─┬─min_size─┬─max_size─┐
 │     275262016 │     567387296437 │ 528.42 GiB          │ 2061.2625914830182 │      434 │   484163 │
@@ -115,6 +117,7 @@ WHERE endsWith(key, '.narinfo');
 ```
 
 Retrieval:
-* Bandwidth costs: 528.42 GiB * 0.09$/GB = $47.55
-* GET requests: 275262016 * $0.0004 / 1000 = $110.10
-* Total costs: $47.55 + $110.10 = $157.65
+
+- Bandwidth costs: 528.42 GiB \* 0.09$/GB = $47.55
+- GET requests: 275262016 \* $0.0004 / 1000 = $110.10
+- Total costs: $47.55 + $110.10 = $157.65
