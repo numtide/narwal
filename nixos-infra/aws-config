@@ -1,3 +1,4 @@
+# Read-only profile to poke at cache.nixos.org
 [profile nixos-archeologist]
 sso_start_url = https://nixos.awsapps.com/start
 sso_region = eu-north-1
