@@ -104,7 +104,7 @@ func ExampleWorkArea_basic() {
 
 	// Output:
 	// File cached: true
-	// Cached at: /tmp/cache/my-s3-bucket/7af7e/data/inventory/2025-01-01/manifest.json
+	// Cached at: /tmp/cache/my-s3-bucket/7af7e/data_inventory_2025-01-01_manifest.json
 }
 
 func ExampleWorkArea_withProgress() { //nolint:testableexamples

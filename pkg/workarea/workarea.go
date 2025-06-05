@@ -298,11 +298,12 @@ func (wa *WorkArea) getShardedPath(bucket, key string) string {
 	hash := sha256.Sum256([]byte(key))
 	shard := hex.EncodeToString(hash[:3])[:5]
 
-	// Sanitize bucket name for filesystem use
+	// Sanitize bucket name and key for filesystem use
 	safeBucket := SanitizeForFilesystem(bucket)
+	safeKey := SanitizeForFilesystem(key)
 
 	// Build the path: basePath/bucket/shard/key
-	return filepath.Join(wa.BasePath, safeBucket, shard, key)
+	return filepath.Join(wa.BasePath, safeBucket, shard, safeKey)
 }
 
 // progressWriter wraps an io.Writer to provide progress tracking.

@@ -65,9 +65,10 @@ func TestGetPath(t *testing.T) {
 		t.Errorf("Path should contain bucket name: %s", path)
 	}
 
-	// Should contain key
-	if !strings.Contains(path, key) {
-		t.Errorf("Path should contain key: %s", path)
+	// Should contain sanitized key (slashes replaced with underscores)
+	sanitizedKey := "path_to_file.txt"
+	if !strings.Contains(path, sanitizedKey) {
+		t.Errorf("Path should contain sanitized key: %s", path)
 	}
 
 	// Should be under base path
