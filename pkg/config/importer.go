@@ -12,11 +12,12 @@ import (
 )
 
 type Importer struct {
-	Date         string `mapstructure:"date"`
-	Prefix       string `mapstructure:"prefix"`
-	Bucket       string `mapstructure:"bucket"`
-	BucketRegion string `mapstructure:"region"`
-	Workdir      string `mapstructure:"workdir"`
+	Date           string `mapstructure:"date"`
+	Prefix         string `mapstructure:"prefix"`
+	Bucket         string `mapstructure:"bucket"`
+	BucketRegion   string `mapstructure:"region"`
+	Workdir        string `mapstructure:"workdir"`
+	SkipProcessing bool   `mapstructure:"skip-processing"`
 }
 
 func (i *Importer) Validate(ctx context.Context, awsCfg aws.Config) error {
@@ -52,6 +53,7 @@ func SetImporterFlags(fs *pflag.FlagSet) {
 	fs.String("prefix", "nix-cache/nix-cache-inventory", "Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
 	fs.String("date", "2025-06-03T01-00Z", "Specific inventory date to process (e.g. '2025-06-03T01-00Z'). If empty, uses the latest available date")
 	fs.String("workdir", "./work", "Local directory to cache parquet files (reused across runs for efficiency)")
+	fs.Bool("skip-processing", false, "Skip processing parquet file contents, only download files")
 }
 
 // getBucketRegion gets the AWS region where the bucket is located.

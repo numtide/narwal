@@ -32,7 +32,10 @@ func NewCmd() *cobra.Command {
   narwal importer --bucket nix-cache-inventory --prefix data/ --workdir /tmp/cache
 
   # Specify bucket region to skip auto-detection
-  narwal importer --bucket nix-cache-inventory --bucket-region us-east-1 --prefix data/`,
+  narwal importer --bucket nix-cache-inventory --bucket-region us-east-1 --prefix data/
+
+  # Skip processing file contents, only download files
+  narwal importer --bucket nix-cache-inventory --prefix data/ --skip-processing`,
 		RunE: runE,
 	}
 
@@ -129,11 +132,16 @@ func runE(cmd *cobra.Command, _ []string) error {
 	}
 
 	log.Info("Starting inventory processing", "files", len(manifest.Files), "totalSize", formatBytes(totalSize))
-	log.Info("Parquet files will be downloaded and cached for efficient processing")
 
-	// Main processing loop - download and process each file
+	if cfg.SkipProcessing {
+		log.Info("Parquet files will be downloaded only (content processing skipped)")
+	} else {
+		log.Info("Parquet files will be downloaded and cached for efficient processing")
+	}
+
 	objects := make([]inventory.InventoryObject, 1000) // Fixed array for reading
 
+	// Main processing loop - download and optionally process each file
 	for i, file := range manifest.Files {
 		if ctx.Err() != nil {
 			log.Warn("Processing cancelled by user")
@@ -151,6 +159,15 @@ func runE(cmd *cobra.Command, _ []string) error {
 		}
 
 		progressTracker.OnFileDownloadCompleted(file.Key, file.Size)
+
+		if cfg.SkipProcessing {
+			log.Info("File downloaded (content processing skipped)", "key", file.Key)
+
+			// Skip content processing, just close the reader
+			_ = reader.Close()
+
+			continue
+		}
 
 		// Process all objects in this file
 		for {
