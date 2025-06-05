@@ -3,6 +3,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-// ParquetFileReader provides an interface for reading inventory objects from a parquet file
+// ParquetFileReader provides an interface for reading inventory objects from a parquet file.
 type ParquetFileReader interface {
 	// Read fills the provided array with inventory objects and returns how many were read
 	// Returns 0 when EOF is reached, or an error if reading fails
@@ -21,13 +22,13 @@ type ParquetFileReader interface {
 	Close() error
 }
 
-// parquetFileReader implements ParquetFileReader
+// parquetFileReader implements ParquetFileReader.
 type parquetFileReader struct {
 	file   *os.File
 	reader *parquet.GenericReader[InventoryObject]
 }
 
-// NewParquetFileReader creates a new parquet file reader for the given file
+// NewParquetFileReader creates a new parquet file reader for the given file.
 func NewParquetFileReader(localPath string, fileSize int64) (ParquetFileReader, error) {
 	file, err := os.Open(localPath)
 	if err != nil {
@@ -50,27 +51,30 @@ func NewParquetFileReader(localPath string, fileSize int64) (ParquetFileReader, 
 	}, nil
 }
 
-// Read implements ParquetFileReader
+// Read implements ParquetFileReader.
 func (r *parquetFileReader) Read(objects []InventoryObject) (int, error) {
 	n, err := r.reader.Read(objects)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return 0, fmt.Errorf("failed to read from parquet file: %w", err)
 	}
+
 	return n, nil
 }
 
-// Close implements ParquetFileReader
+// Close implements ParquetFileReader.
 func (r *parquetFileReader) Close() error {
 	if r.reader != nil {
 		r.reader.Close()
 	}
+
 	if r.file != nil {
 		return r.file.Close()
 	}
+
 	return nil
 }
 
-// ObjectProcessor defines the interface for processing inventory objects
+// ObjectProcessor defines the interface for processing inventory objects.
 type ObjectProcessor interface {
 	// ProcessBatch processes a batch of inventory objects
 	ProcessBatch(ctx context.Context, objects []InventoryObject) error
@@ -78,21 +82,19 @@ type ObjectProcessor interface {
 	ProcessObject(ctx context.Context, object InventoryObject) error
 }
 
-// ProcessorConfig contains configuration for parquet file processing
+// ProcessorConfig contains configuration for parquet file processing.
 type ProcessorConfig struct {
 	BatchSize int
 	LogBatch  bool
 }
 
-// DefaultProcessorConfig returns a default processor configuration
+// DefaultProcessorConfig returns a default processor configuration.
 func DefaultProcessorConfig() ProcessorConfig {
 	return ProcessorConfig{
 		BatchSize: 1000,
 		LogBatch:  true,
 	}
 }
-
-
 
 // InventoryObject represents a single object in an S3 inventory parquet file
 // This is the file schema we see in the manifest.json:
@@ -115,13 +117,13 @@ type InventoryObject struct {
 }
 
 // ProcessParquetFile reads and processes a parquet file from local storage
-// This is the legacy function that maintains backward compatibility
+// This is the legacy function that maintains backward compatibility.
 func ProcessParquetFile(ctx context.Context, localPath string) error {
 	processor := &LoggingProcessor{}
 	return ProcessParquetFileWithProcessor(ctx, localPath, processor, DefaultProcessorConfig())
 }
 
-// ProcessParquetFileWithProcessor reads and processes a parquet file using a custom processor
+// ProcessParquetFileWithProcessor reads and processes a parquet file using a custom processor.
 func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, processor ObjectProcessor, config ProcessorConfig) error {
 	log.Debug("Processing local parquet file", "path", localPath)
 
@@ -163,7 +165,7 @@ func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, proc
 
 		n, err := reader.Read(objects)
 
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("failed to read batch: %w", err)
 		}
 
@@ -185,24 +187,26 @@ func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, proc
 	return nil
 }
 
-// LoggingProcessor is a simple processor that logs inventory objects
+// LoggingProcessor is a simple processor that logs inventory objects.
 type LoggingProcessor struct{}
 
-// ProcessBatch processes a batch of inventory objects by logging each one
+// ProcessBatch processes a batch of inventory objects by logging each one.
 func (p *LoggingProcessor) ProcessBatch(ctx context.Context, objects []InventoryObject) error {
 	for _, object := range objects {
 		// Check if context was cancelled during batch processing
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
 		if err := p.ProcessObject(ctx, object); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// ProcessObject processes a single inventory object by logging it
+// ProcessObject processes a single inventory object by logging it.
 func (p *LoggingProcessor) ProcessObject(ctx context.Context, object InventoryObject) error {
 	log.Print(object)
 	return nil

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestProcessor is a test processor that records what it processes
+// TestProcessor is a test processor that records what it processes.
 type TestProcessor struct {
 	ProcessedObjects []InventoryObject
 	ProcessedBatches int
@@ -26,10 +26,12 @@ func (tp *TestProcessor) ProcessBatch(ctx context.Context, objects []InventoryOb
 		if tp.ShouldError && tp.processedCount >= tp.ErrorAfterN {
 			return errors.New("test error")
 		}
+
 		if err := tp.ProcessObject(ctx, obj); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -40,6 +42,7 @@ func (tp *TestProcessor) ProcessObject(ctx context.Context, object InventoryObje
 
 	tp.ProcessedObjects = append(tp.ProcessedObjects, object)
 	tp.processedCount++
+
 	return nil
 }
 
@@ -75,15 +78,19 @@ func TestProcessParquetFileWithProcessor_ValidFile(t *testing.T) {
 	if obj1.Bucket != "nix-cache" {
 		t.Errorf("Expected bucket 'nix-cache', got %s", obj1.Bucket)
 	}
+
 	if obj1.Key != "error-pages/403" {
 		t.Errorf("Expected key 'error-pages/403', got %s", obj1.Key)
 	}
+
 	if obj1.Size != 3 {
 		t.Errorf("Expected size 3, got %v", obj1.Size)
 	}
+
 	if obj1.Etag != "bbf94b34eb32268ada57a3be5062fe7d" {
 		t.Errorf("Expected etag 'bbf94b34eb32268ada57a3be5062fe7d', got %v", obj1.Etag)
 	}
+
 	if obj1.StorageClass != "STANDARD" {
 		t.Errorf("Expected storage class 'STANDARD', got %v", obj1.StorageClass)
 	}
@@ -92,6 +99,7 @@ func TestProcessParquetFileWithProcessor_ValidFile(t *testing.T) {
 	if obj2.Key != "error-pages/404" {
 		t.Errorf("Expected key 'error-pages/404', got %s", obj2.Key)
 	}
+
 	if obj2.Etag != "4f4adcbf8c6f66dcfc8a3282ac2bf10a" {
 		t.Errorf("Expected etag '4f4adcbf8c6f66dcfc8a3282ac2bf10a', got %v", obj2.Etag)
 	}
@@ -137,7 +145,7 @@ func TestProcessParquetFileWithProcessor_CancelledContext(t *testing.T) {
 		t.Error("Expected error for cancelled context")
 	}
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context.Canceled, got %v", err)
 	}
 }
@@ -145,6 +153,7 @@ func TestProcessParquetFileWithProcessor_CancelledContext(t *testing.T) {
 func TestProcessParquetFileWithProcessor_ContextCancelledDuringProcessing(t *testing.T) {
 	// Use a processor that will cause context cancellation during processing
 	processor := &TestProcessor{}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
 
@@ -159,7 +168,7 @@ func TestProcessParquetFileWithProcessor_ContextCancelledDuringProcessing(t *tes
 		t.Error("Expected error for cancelled context during processing")
 	}
 
-	if err != context.DeadlineExceeded && err != context.Canceled {
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context cancellation error, got %v", err)
 	}
 }
@@ -271,7 +280,7 @@ func TestProcessParquetFileWithProcessor_LargeBatchSize(t *testing.T) {
 	}
 }
 
-// CountingProcessor counts objects by storage class
+// CountingProcessor counts objects by storage class.
 type CountingProcessor struct {
 	Counts map[string]int
 }
@@ -286,6 +295,7 @@ func (cp *CountingProcessor) ProcessBatch(ctx context.Context, objects []Invento
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -295,6 +305,7 @@ func (cp *CountingProcessor) ProcessObject(ctx context.Context, object Inventory
 	}
 
 	cp.Counts[object.StorageClass]++
+
 	return nil
 }
 
@@ -318,7 +329,7 @@ func TestProcessParquetFileWithProcessor_CustomProcessor(t *testing.T) {
 	}
 }
 
-// DebugProcessor helps us understand what's happening during processing
+// DebugProcessor helps us understand what's happening during processing.
 type DebugProcessor struct {
 	ProcessedObjects []InventoryObject
 	ProcessedBatches int
@@ -334,6 +345,7 @@ func (dp *DebugProcessor) ProcessBatch(ctx context.Context, objects []InventoryO
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -343,6 +355,7 @@ func (dp *DebugProcessor) ProcessObject(ctx context.Context, object InventoryObj
 	}
 
 	dp.ProcessedObjects = append(dp.ProcessedObjects, object)
+
 	return nil
 }
 
@@ -355,6 +368,7 @@ func TestDebugProcessor(t *testing.T) {
 	}
 
 	t.Logf("Starting debug test")
+
 	err := ProcessParquetFileWithProcessor(ctx, "testdata/sample.parquet", processor, config)
 	if err != nil {
 		t.Fatalf("ProcessParquetFileWithProcessor failed: %v", err)
@@ -370,6 +384,7 @@ func TestDebugProcessor(t *testing.T) {
 
 	// Now test with the original TestProcessor to see if there's a difference
 	testProcessor := &TestProcessor{}
+
 	err2 := ProcessParquetFileWithProcessor(ctx, "testdata/sample.parquet", testProcessor, config)
 	if err2 != nil {
 		t.Fatalf("ProcessParquetFileWithProcessor with TestProcessor failed: %v", err2)

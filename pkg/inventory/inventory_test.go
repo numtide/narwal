@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,6 +50,7 @@ func TestLoggingProcessor(t *testing.T) {
 
 	// Test ProcessBatch
 	objects := []InventoryObject{obj, obj}
+
 	err = processor.ProcessBatch(ctx, objects)
 	if err != nil {
 		t.Errorf("ProcessBatch should not return error, got %v", err)
@@ -71,7 +73,7 @@ func TestLoggingProcessorWithCancelledContext(t *testing.T) {
 		t.Error("ProcessBatch should return error for cancelled context")
 	}
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context.Canceled, got %v", err)
 	}
 }
@@ -93,6 +95,7 @@ func (m *MockProcessor) ProcessBatch(ctx context.Context, objects []InventoryObj
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -106,6 +109,7 @@ func (m *MockProcessor) ProcessObject(ctx context.Context, object InventoryObjec
 	}
 
 	m.ProcessedObjects = append(m.ProcessedObjects, object)
+
 	return nil
 }
 
@@ -147,7 +151,7 @@ func TestMockProcessorWithError(t *testing.T) {
 		t.Error("ProcessBatch should return error when ShouldError is true")
 	}
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context.Canceled, got %v", err)
 	}
 }
@@ -161,12 +165,11 @@ func TestProcessParquetFile_WithSampleData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessParquetFile failed: %v", err)
 	}
-
 	// The function should complete without error
 	// The LoggingProcessor will have logged the objects but we can't easily verify that in this test
 }
 
-// MockS3Client implements the S3Client interface for testing
+// MockS3Client implements the S3Client interface for testing.
 type MockS3Client struct {
 	CommonPrefixes []string
 	ShouldError    bool
@@ -199,7 +202,7 @@ func (m *MockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput,
 
 func TestNewClient(t *testing.T) {
 	mockS3 := &MockS3Client{}
-	
+
 	tests := []struct {
 		name           string
 		bucket         string
@@ -209,12 +212,12 @@ func TestNewClient(t *testing.T) {
 		{
 			name:           "prefix without trailing slash",
 			bucket:         "test-bucket",
-			prefix:         "inventory/data", 
+			prefix:         "inventory/data",
 			expectedPrefix: "inventory/data/",
 		},
 		{
 			name:           "prefix with trailing slash",
-			bucket:         "test-bucket", 
+			bucket:         "test-bucket",
 			prefix:         "inventory/data/",
 			expectedPrefix: "inventory/data/",
 		},
@@ -232,11 +235,11 @@ func TestNewClient(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient failed: %v", err)
 			}
-			
+
 			if client.bucket != tt.bucket {
 				t.Errorf("Expected bucket %s, got %s", tt.bucket, client.bucket)
 			}
-			
+
 			if client.prefix != tt.expectedPrefix {
 				t.Errorf("Expected prefix %s, got %s", tt.expectedPrefix, client.prefix)
 			}
@@ -264,7 +267,7 @@ func TestClient_GetDates(t *testing.T) {
 			prefix: "inventory/",
 			expectedDates: []string{
 				"2025-06-01T01-00Z",
-				"2025-06-02T01-00Z", 
+				"2025-06-02T01-00Z",
 				"2025-06-03T01-00Z",
 			},
 		},
@@ -283,7 +286,7 @@ func TestClient_GetDates(t *testing.T) {
 			},
 		},
 		{
-			name:           "no valid dates",
+			name: "no valid dates",
 			commonPrefixes: []string{
 				"inventory/invalid-dir/",
 				"inventory/another-invalid/",
@@ -294,8 +297,8 @@ func TestClient_GetDates(t *testing.T) {
 		{
 			name:           "empty result",
 			commonPrefixes: []string{},
-			prefix:        "inventory/",
-			expectedDates: []string{},
+			prefix:         "inventory/",
+			expectedDates:  []string{},
 		},
 	}
 
@@ -305,30 +308,32 @@ func TestClient_GetDates(t *testing.T) {
 				CommonPrefixes: tt.commonPrefixes,
 				ShouldError:    tt.shouldError,
 			}
-			
+
 			client, err := NewClient(mockS3, "test-bucket", tt.prefix, "/tmp/test")
 			if err != nil {
 				t.Fatalf("NewClient failed: %v", err)
 			}
+
 			dates, err := client.GetDates(ctx)
-			
+
 			if tt.shouldError {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
+
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
 			}
-			
+
 			if len(dates) != len(tt.expectedDates) {
 				t.Errorf("Expected %d dates, got %d", len(tt.expectedDates), len(dates))
 				return
 			}
-			
+
 			for i, expectedDate := range tt.expectedDates {
 				if dates[i] != expectedDate {
 					t.Errorf("Expected date[%d] = %s, got %s", i, expectedDate, dates[i])
@@ -340,17 +345,18 @@ func TestClient_GetDates(t *testing.T) {
 
 func TestClient_GetDates_WithError(t *testing.T) {
 	ctx := context.Background()
-	
+
 	mockS3 := &MockS3Client{
 		ShouldError: true,
 	}
-	
+
 	client, err := NewClient(mockS3, "test-bucket", "inventory/", "/tmp/test")
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
+
 	_, err = client.GetDates(ctx)
-	
+
 	if err == nil {
 		t.Error("Expected error but got none")
 	}
@@ -366,6 +372,7 @@ func TestNewParquetFileReader(t *testing.T) {
 
 	// Test reading objects
 	objects := make([]InventoryObject, 10)
+
 	n, err := reader.Read(objects)
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
@@ -380,6 +387,7 @@ func TestNewParquetFileReader(t *testing.T) {
 	if obj1.Bucket != "nix-cache" {
 		t.Errorf("Expected bucket 'nix-cache', got %s", obj1.Bucket)
 	}
+
 	if obj1.Key != "error-pages/403" {
 		t.Errorf("Expected key 'error-pages/403', got %s", obj1.Key)
 	}
@@ -389,6 +397,7 @@ func TestNewParquetFileReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read at EOF failed: %v", err)
 	}
+
 	if n != 0 {
 		t.Errorf("Expected 0 objects at EOF, got %d", n)
 	}

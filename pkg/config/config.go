@@ -7,48 +7,13 @@ import (
 
 	"github.com/adrg/xdg"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
 // ErrInvalidConfig represents an error indicating that the provided configuration is invalid.
 var ErrInvalidConfig = errors.New("invalid config")
 
-type Config struct {
-	S3       S3       `mapstructure:"s3"`
-	HTTP     HTTP     `mapstructure:"http"`
-	Postgres Postgres `mapstructure:"postgres"`
-}
-
-func (c *Config) Validate() error {
-	if err := c.S3.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.HTTP.Validate(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// SetFlags configures the provided FlagSet with predefined flags. It modifies the passed FlagSet directly.
-func SetFlags(fs *pflag.FlagSet) {
-	fs.String("s3.endpoint", "", "S3 Endpoint URL")
-	fs.String("s3.access_key", "", "S3 Access Key")
-	fs.String("s3.secret_key", "", "S3 Secret Key")
-	fs.String("s3.bucket_name", "", "S3 Bucket Name")
-	fs.Bool("s3.ssl_enabled", false, "Use SSL when connecting to S3")
-
-	fs.Int16("http.port", 7777, "HTTP port to listen on")
-	fs.String("http.host", "127.0.0.1", "HTTP host to listen on")
-
-	fs.String("postgres.url", "", "Postgres URL")
-}
-
-func NewViper() (*viper.Viper, error) {
-	v := viper.New()
-
+func ConfigureViper(v *viper.Viper) error {
 	// set config type to TOML
 	v.SetConfigType("toml")
 
@@ -70,17 +35,15 @@ func NewViper() (*viper.Viper, error) {
 	// add the standard xdg config file path too
 	xdgPath, err := xdg.ConfigFile("narwal/narwal.toml")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create xdg path for config file: %w", err)
+		return fmt.Errorf("failed to create xdg path for config file: %w", err)
 	}
 
 	v.AddConfigPath(xdgPath)
 
-	return v, nil
+	return nil
 }
 
-func FromViper(v *viper.Viper) (*Config, error) {
-	cfg := &Config{}
-
+func FromViper(v *viper.Viper, cfg any) error {
 	// add some custom decoders
 	decoderOpts := viper.DecodeHook(
 		mapstructure.ComposeDecodeHookFunc(
@@ -92,13 +55,8 @@ func FromViper(v *viper.Viper) (*Config, error) {
 
 	// unmarshal into config instance
 	if err := v.Unmarshal(cfg, decoderOpts); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// validate the config
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate config: %w", err)
-	}
-
-	return cfg, nil
+	return nil
 }

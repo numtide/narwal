@@ -28,7 +28,7 @@ func (s *Store) Close() error {
 }
 
 func New(
-	cfg *config.Config,
+	cfg *config.Server,
 	pgPool *pgxpool.Pool,
 	s3 *minio.Client,
 	eg *errgroup.Group,

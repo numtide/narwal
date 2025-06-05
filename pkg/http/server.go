@@ -18,7 +18,7 @@ import (
 
 type Server struct {
 	log *log.Logger
-	cfg *config.Config
+	cfg *config.Server
 
 	store *store.Store
 
@@ -27,7 +27,7 @@ type Server struct {
 }
 
 func NewServer(
-	cfg *config.Config,
+	cfg *config.Server,
 	store *store.Store,
 ) (*Server, error) {
 	srv := &Server{

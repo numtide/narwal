@@ -1,21 +1,25 @@
 {
-  "sourceBucket" : "nix-cache",
-  "destinationBucket" : "arn:aws:s3:::nix-cache-inventory",
-  "version" : "2016-11-30",
-  "creationTimestamp" : "1747098000000",
-  "fileFormat" : "Parquet",
-  "fileSchema" : "message s3.inventory {  required binary bucket (STRING);  required binary key (STRING);  optional int64 size;  optional int64 last_modified_date (TIMESTAMP(MILLIS,true));  optional binary e_tag (STRING);  optional binary storage_class (STRING);}",
-  "files" : [ {
-    "key" : "nix-cache/nix-cache-inventory/data/970e1c02-f96c-488b-be19-ce40bc7d2c4b.parquet",
-    "size" : 236045595,
-    "MD5checksum" : "b71ad288b57ddcb1de6fe1eead620220"
-  }, {
-    "key" : "nix-cache/nix-cache-inventory/data/b526f0b7-5cbd-48b9-80a0-6c1509ac0dc0.parquet",
-    "size" : 78734754,
-    "MD5checksum" : "248c60d3cdf75ddd3e5ec5dcc8801230"
-  }, {
-    "key" : "nix-cache/nix-cache-inventory/data/34d0b787-0faa-407b-8845-1474ed55fa16.parquet",
-    "size" : 176089553,
-    "MD5checksum" : "1c6bedad89842dcf1ee647d5335f5dc7"
-  } ]
+    "sourceBucket": "nix-cache",
+    "destinationBucket": "arn:aws:s3:::nix-cache-inventory",
+    "version": "2016-11-30",
+    "creationTimestamp": "1747098000000",
+    "fileFormat": "Parquet",
+    "fileSchema": "message s3.inventory {  required binary bucket (STRING);  required binary key (STRING);  optional int64 size;  optional int64 last_modified_date (TIMESTAMP(MILLIS,true));  optional binary e_tag (STRING);  optional binary storage_class (STRING);}",
+    "files": [
+        {
+            "key": "nix-cache/nix-cache-inventory/data/970e1c02-f96c-488b-be19-ce40bc7d2c4b.parquet",
+            "size": 236045595,
+            "MD5checksum": "b71ad288b57ddcb1de6fe1eead620220"
+        },
+        {
+            "key": "nix-cache/nix-cache-inventory/data/b526f0b7-5cbd-48b9-80a0-6c1509ac0dc0.parquet",
+            "size": 78734754,
+            "MD5checksum": "248c60d3cdf75ddd3e5ec5dcc8801230"
+        },
+        {
+            "key": "nix-cache/nix-cache-inventory/data/34d0b787-0faa-407b-8845-1474ed55fa16.parquet",
+            "size": 176089553,
+            "MD5checksum": "1c6bedad89842dcf1ee647d5335f5dc7"
+        }
+    ]
 }

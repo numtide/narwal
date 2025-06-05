@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// mockS3Client implements S3Client for testing
+// mockS3Client implements S3Client for testing.
 type mockS3Client struct {
 	getObjectFunc func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
@@ -26,16 +26,19 @@ func (m *mockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput,
 	if m.getObjectFunc != nil {
 		return m.getObjectFunc(ctx, params, optFns...)
 	}
+
 	return nil, errors.New("not implemented")
 }
 
-// readTestData reads test manifest from testdata directory
+// readTestData reads test manifest from testdata directory.
 func readTestData(t *testing.T, filename string) []byte {
 	t.Helper()
+
 	data, err := os.ReadFile("testdata/" + filename)
 	if err != nil {
 		t.Fatalf("Failed to read test data %s: %v", filename, err)
 	}
+
 	return data
 }
 
@@ -62,6 +65,7 @@ func TestGetManifest(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	manifest, err := client.GetManifest(ctx, "2025-05-13T01-00Z")
 	if err != nil {
 		t.Fatalf("GetManifest failed: %v", err)
@@ -113,6 +117,7 @@ func TestGetManifest_S3Error(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	_, err := client.GetManifest(ctx, "nonexistent-date")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent manifest, got nil")
@@ -137,6 +142,7 @@ func TestGetManifest_InvalidJSON(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	_, err := client.GetManifest(ctx, "test-date")
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON, got nil")
@@ -237,6 +243,7 @@ func TestTotalSize(t *testing.T) {
 
 	expected := int64(6000)
 	actual := manifest.TotalSize()
+
 	if actual != expected {
 		t.Errorf("Expected total size %d, got %d", expected, actual)
 	}
@@ -249,6 +256,7 @@ func TestTotalSize_EmptyManifest(t *testing.T) {
 
 	expected := int64(0)
 	actual := manifest.TotalSize()
+
 	if actual != expected {
 		t.Errorf("Expected total size %d, got %d", expected, actual)
 	}

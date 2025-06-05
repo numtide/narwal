@@ -24,7 +24,7 @@ const (
 
 type Server struct {
 	log    *log.Logger
-	config *config.Config
+	config *config.Server
 
 	pgPool   *pgxpool.Pool
 	s3Client *minio.Client
@@ -35,7 +35,7 @@ type Server struct {
 	eg *errgroup.Group // for background tasks
 }
 
-func NewServer(cfg *config.Config) (*Server, error) {
+func NewServer(cfg *config.Server) (*Server, error) {
 	// create an errgroup for background tasks
 	// constrain the max number of tasks
 	eg := &errgroup.Group{}

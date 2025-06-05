@@ -6,23 +6,24 @@ import (
 	"log"
 )
 
-// ExampleCustomProcessor demonstrates how to create a custom processor
+// ExampleCustomProcessor demonstrates how to create a custom processor.
 type ExampleCustomProcessor struct {
 	processedCount int
 	totalSize      int64
 }
 
-// ProcessBatch processes a batch of inventory objects
+// ProcessBatch processes a batch of inventory objects.
 func (p *ExampleCustomProcessor) ProcessBatch(ctx context.Context, objects []InventoryObject) error {
 	for _, object := range objects {
 		if err := p.ProcessObject(ctx, object); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// ProcessObject processes a single inventory object
+// ProcessObject processes a single inventory object.
 func (p *ExampleCustomProcessor) ProcessObject(ctx context.Context, object InventoryObject) error {
 	p.processedCount++
 	p.totalSize += object.Size
@@ -35,12 +36,12 @@ func (p *ExampleCustomProcessor) ProcessObject(ctx context.Context, object Inven
 	return nil
 }
 
-// GetStats returns processing statistics
+// GetStats returns processing statistics.
 func (p *ExampleCustomProcessor) GetStats() (int, int64) {
 	return p.processedCount, p.totalSize
 }
 
-// Example_customProcessor demonstrates how to use a custom processor
+// Example_customProcessor demonstrates how to use a custom processor.
 func Example_customProcessor() {
 	ctx := context.Background()
 	processor := &ExampleCustomProcessor{}
@@ -64,7 +65,7 @@ func Example_customProcessor() {
 	_ = config
 }
 
-// Example_loggingProcessor demonstrates the default logging processor
+// Example_loggingProcessor demonstrates the default logging processor.
 func Example_loggingProcessor() {
 	ctx := context.Background()
 
@@ -89,17 +90,17 @@ func Example_loggingProcessor() {
 	_ = config
 }
 
-// Example_inventoryClient demonstrates how to use the inventory client to get available dates
+// Example_inventoryClient demonstrates how to use the inventory client to get available dates.
 func Example_inventoryClient() {
 	ctx := context.Background()
-	
+
 	// In real usage, you would create an S3 client like this:
 	// cfg, err := config.LoadDefaultConfig(ctx)
 	// if err != nil {
 	//     log.Fatal(err)
 	// }
 	// s3Client := s3.NewFromConfig(cfg)
-	
+
 	// For this example, we'll use a mock
 	mockS3 := &MockS3Client{
 		CommonPrefixes: []string{
@@ -108,24 +109,24 @@ func Example_inventoryClient() {
 			"inventory/2025-06-03T01-00Z/",
 		},
 	}
-	
+
 	// Create inventory client
 	client, err := NewClient(mockS3, "my-inventory-bucket", "inventory/", "/tmp/test-cache")
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Get available dates
 	dates, err := client.GetDates(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	if len(dates) > 0 {
 		fmt.Printf("Latest available date: %s\n", dates[len(dates)-1])
 		fmt.Printf("Total available dates: %d\n", len(dates))
 	}
-	
+
 	// Output:
 	// Latest available date: 2025-06-03T01-00Z
 	// Total available dates: 3

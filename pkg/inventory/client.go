@@ -15,16 +15,16 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// S3Client defines the interface for S3 operations needed by the inventory client
+// S3Client defines the interface for S3 operations needed by the inventory client.
 type S3Client interface {
 	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
-// DownloadProgressCallback is called during file download to report progress
+// DownloadProgressCallback is called during file download to report progress.
 type DownloadProgressCallback func(key string, downloaded int64, total int64)
 
-// Client provides functionality to interact with S3 inventory data
+// Client provides functionality to interact with S3 inventory data.
 type Client struct {
 	s3Client S3Client
 	bucket   string
@@ -33,7 +33,7 @@ type Client struct {
 	tempDir  string
 }
 
-// NewClient creates a new inventory client with working directory management
+// NewClient creates a new inventory client with working directory management.
 func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, error) {
 	// Ensure prefix ends with a slash if not empty
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
@@ -41,13 +41,13 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 	}
 
 	// Create working directory if it doesn't exist
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %w", err)
 	}
 
 	// Create temporary directory for downloads
 	tempDir := filepath.Join(workDir, ".tmp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
@@ -60,11 +60,12 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 	}, nil
 }
 
-// GetDates returns a list of available inventory dates, ordered lexicographically
+// GetDates returns a list of available inventory dates, ordered lexicographically.
 func (c *Client) GetDates(ctx context.Context) ([]string, error) {
 	log.Debug("Listing inventory dates", "bucket", c.bucket, "prefix", c.prefix)
 
 	var dates []string
+
 	paginator := s3.NewListObjectsV2Paginator(c.s3Client, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(c.bucket),
 		Prefix:    aws.String(c.prefix),
@@ -102,10 +103,11 @@ func (c *Client) GetDates(ctx context.Context) ([]string, error) {
 	sort.Strings(dates)
 
 	log.Debug("Found inventory dates", "count", len(dates), "dates", dates)
+
 	return dates, nil
 }
 
-// DownloadFile downloads a single parquet file if not already cached and returns a parquet reader
+// DownloadFile downloads a single parquet file if not already cached and returns a parquet reader.
 func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, progressCallback DownloadProgressCallback) (ParquetFileReader, error) {
 	localPath := filepath.Join(c.workDir, file.Key)
 
@@ -117,11 +119,13 @@ func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, p
 			if progressCallback != nil {
 				progressCallback(file.Key, file.Size, file.Size)
 			}
+
 			return NewParquetFileReader(localPath, file.Size)
 		}
 	}
 
 	log.Debug("Downloading parquet file", "key", file.Key)
+
 	if err := c.downloadFile(ctx, file.Key, file.Size, localPath, progressCallback); err != nil {
 		return nil, err
 	}
@@ -129,10 +133,10 @@ func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, p
 	return NewParquetFileReader(localPath, file.Size)
 }
 
-// downloadFile downloads a single file from S3 to the local path
+// downloadFile downloads a single file from S3 to the local path.
 func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int64, localPath string, progressCallback DownloadProgressCallback) error {
 	// Create directory structure if needed
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create directory structure: %w", err)
 	}
 
@@ -182,15 +186,16 @@ func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int6
 	}
 
 	log.Debug("File downloaded successfully", "key", key, "path", localPath, "size", formatBytes(expectedSize))
+
 	return nil
 }
 
-// GetLocalParquetPath returns the local path for a parquet file
+// GetLocalParquetPath returns the local path for a parquet file.
 func (c *Client) GetLocalParquetPath(key string) string {
 	return filepath.Join(c.workDir, key)
 }
 
-// progressReader wraps an io.Reader to provide download progress tracking
+// progressReader wraps an io.Reader to provide download progress tracking.
 type progressReader struct {
 	reader     io.Reader
 	total      int64
@@ -217,16 +222,18 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// formatBytes formats byte count in human readable format
+// formatBytes formats byte count in human readable format.
 func formatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}
+
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
+
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
