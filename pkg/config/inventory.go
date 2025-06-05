@@ -9,18 +9,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/pflag"
+	"github.com/numtide/narwal/pkg/workarea"
 )
 
-type Importer struct {
-	Date           string `mapstructure:"date"`
-	Prefix         string `mapstructure:"prefix"`
-	Bucket         string `mapstructure:"bucket"`
-	BucketRegion   string `mapstructure:"region"`
-	Workdir        string `mapstructure:"workdir"`
-	SkipProcessing bool   `mapstructure:"skip-processing"`
+type Inventory struct {
+	ReportID     string            `mapstructure:"report"`
+	Prefix       string            `mapstructure:"prefix"`
+	Bucket       string            `mapstructure:"bucket"`
+	BucketRegion string            `mapstructure:"region"`
+	Workdir      string            `mapstructure:"workdir"`
+	Workarea     *workarea.WorkArea `mapstructure:"-"`
 }
 
-func (i *Importer) Validate(ctx context.Context, awsCfg aws.Config) error {
+func (i *Inventory) Validate(ctx context.Context, awsCfg aws.Config) error {
 	var err error
 
 	if i.Bucket == "" {
@@ -44,19 +45,25 @@ func (i *Importer) Validate(ctx context.Context, awsCfg aws.Config) error {
 		i.Prefix += "/"
 	}
 
+	// Create workarea if workdir is specified
+	if i.Workdir != "" {
+		if i.Workarea, err = workarea.New(i.Workdir); err != nil {
+			return fmt.Errorf("failed to create workarea: %w", err)
+		}
+	}
+
 	return nil
 }
 
-func SetImporterFlags(fs *pflag.FlagSet) {
-	fs.String("bucket", "nix-cache-inventory", "S3 bucket name to import data from")
+func SetInventoryFlags(fs *pflag.FlagSet) {
+	fs.String("bucket", "nix-cache-inventory", "S3 bucket name containing inventory data")
 	fs.String("region", "",
 		"AWS region for the inventory bucket (e.g. 'us-east-1', 'eu-west-1'). If empty, auto-detects the region")
 	fs.String("prefix", "nix-cache/nix-cache-inventory",
 		"Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
-	fs.String("date", "2025-06-03T01-00Z",
-		"Specific inventory date to process (e.g. '2025-06-03T01-00Z'). If empty, uses the latest available date")
-	fs.String("workdir", "./work", "Local directory to cache parquet files (reused across runs for efficiency)")
-	fs.Bool("skip-processing", false, "Skip processing parquet file contents, only download files")
+	fs.String("report", "",
+		"Specific inventory report ID (e.g. '2025-06-03T01-00Z'). Required for get-manifest and download commands")
+	fs.String("workdir", "./work", "Local directory to cache files and manifests (reused across runs for efficiency)")
 }
 
 // getBucketRegion gets the AWS region where the bucket is located.

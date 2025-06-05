@@ -6,7 +6,7 @@ import (
 	"github.com/numtide/narwal/cmd/gc"
 
 	"github.com/charmbracelet/log"
-	"github.com/numtide/narwal/cmd/importer"
+	"github.com/numtide/narwal/cmd/inventory"
 	"github.com/numtide/narwal/cmd/server"
 	"github.com/numtide/narwal/pkg/build"
 	"github.com/numtide/narwal/pkg/config"
@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	configFile  string
-	logLevelStr string
+	configFile  string //nolint:gochecknoglobals
+	logLevelStr string //nolint:gochecknoglobals
 )
 
 func New() *cobra.Command {
@@ -31,7 +31,7 @@ func New() *cobra.Command {
 
 	// add subcommands
 	cmd.AddCommand(gc.NewCmd())
-	cmd.AddCommand(importer.NewCmd())
+	cmd.AddCommand(inventory.NewCmd())
 	cmd.AddCommand(server.NewCmd())
 
 	// add some flags common to all subcommands
