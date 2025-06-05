@@ -84,7 +84,7 @@ func (s *Store) PutObject(
 	body io.Reader,
 	size int64,
 ) error {
-	analysis, err := analyzePath(path)
+	analysis, err := AnalyzePath(path)
 	if err != nil {
 		return err
 	}

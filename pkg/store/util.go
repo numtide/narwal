@@ -16,7 +16,7 @@ type pathAnalysis struct {
 	Compression db.CompressionType
 }
 
-func analyzePath(path string) (*pathAnalysis, error) {
+func AnalyzePath(path string) (*pathAnalysis, error) {
 	matches := suffixRegex.FindStringSubmatch(path)
 
 	if len(matches) <= 1 {
