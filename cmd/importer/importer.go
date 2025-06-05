@@ -25,8 +25,8 @@ func NewCmd() *cobra.Command {
 		Example: `  # Process latest available inventory data
   narwal importer --bucket nix-cache-inventory --prefix data/
 
-  # Process specific inventory date
-  narwal importer --bucket nix-cache-inventory --prefix data/ --date 2025-06-03T01-00Z
+  # Process specific inventory report
+  narwal importer --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
   # Use custom cache directory
   narwal importer --bucket nix-cache-inventory --prefix data/ --workdir /tmp/cache
@@ -97,25 +97,25 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("error creating inventory client: %w", err)
 	}
 
-	inventoryDate := cfg.Date
-	if inventoryDate == "" {
-		dates, err := inventoryClient.GetDates(ctx)
+	reportID := cfg.ReportID
+	if reportID == "" {
+		reports, err := inventoryClient.GetReports(ctx)
 		if err != nil {
-			return fmt.Errorf("error getting available dates: %w", err)
+			return fmt.Errorf("error getting available reports: %w", err)
 		}
 
-		if len(dates) == 0 {
-			return errors.New("no inventory dates found in bucket")
+		if len(reports) == 0 {
+			return errors.New("no inventory reports found in bucket")
 		}
 
-		inventoryDate = dates[len(dates)-1] // Get the latest date (lexicographically last)
-		log.Info("Found latest inventory date", "date", inventoryDate)
+		reportID = reports[len(reports)-1] // Get the latest report (lexicographically last)
+		log.Info("Found latest inventory report", "report", reportID)
 	}
 
-	log.Info("Processing data for date", "date", inventoryDate)
+	log.Info("Processing data for report", "report", reportID)
 
 	// Get manifest info
-	manifest, err := inventoryClient.GetManifest(ctx, inventoryDate)
+	manifest, err := inventoryClient.GetManifest(ctx, reportID)
 	if err != nil {
 		return fmt.Errorf("error getting manifest: %w", err)
 	}

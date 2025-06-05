@@ -12,7 +12,7 @@ import (
 )
 
 type Inventory struct {
-	Date         string `mapstructure:"date"`
+	ReportID     string `mapstructure:"report"`
 	Prefix       string `mapstructure:"prefix"`
 	Bucket       string `mapstructure:"bucket"`
 	BucketRegion string `mapstructure:"region"`
@@ -51,6 +51,6 @@ func SetInventoryFlags(fs *pflag.FlagSet) {
 		"AWS region for the inventory bucket (e.g. 'us-east-1', 'eu-west-1'). If empty, auto-detects the region")
 	fs.String("prefix", "nix-cache/nix-cache-inventory",
 		"Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
-	fs.String("date", "",
-		"Specific inventory date (e.g. '2025-06-03T01-00Z'). Required for manifest command")
+	fs.String("report", "",
+		"Specific inventory report ID (e.g. '2025-06-03T01-00Z'). Required for manifest command")
 }

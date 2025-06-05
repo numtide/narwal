@@ -90,7 +90,7 @@ func Example_loggingProcessor() {
 	_ = config
 }
 
-// Example_inventoryClient demonstrates how to use the inventory client to get available dates.
+// Example_inventoryClient demonstrates how to use the inventory client to get available reports.
 func Example_inventoryClient() {
 	ctx := context.Background()
 
@@ -116,18 +116,18 @@ func Example_inventoryClient() {
 		log.Fatal(err)
 	}
 
-	// Get available dates
-	dates, err := client.GetDates(ctx)
+	// Get available reports
+	reports, err := client.GetReports(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if len(dates) > 0 {
-		fmt.Printf("Latest available date: %s\n", dates[len(dates)-1])
-		fmt.Printf("Total available dates: %d\n", len(dates))
+	if len(reports) > 0 {
+		fmt.Printf("Latest available report: %s\n", reports[len(reports)-1])
+		fmt.Printf("Total available reports: %d\n", len(reports))
 	}
 
 	// Output:
-	// Latest available date: 2025-06-03T01-00Z
-	// Total available dates: 3
+	// Latest available report: 2025-06-03T01-00Z
+	// Total available reports: 3
 }

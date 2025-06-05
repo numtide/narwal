@@ -29,9 +29,9 @@ type InventoryManifestInfo struct {
 	MD5Checksum string `json:"MD5checksum"`
 }
 
-// GetManifest retrieves and parses the inventory manifest for a given date.
-func (c *Client) GetManifest(ctx context.Context, date string) (*InventoryManifest, error) {
-	manifestKey := c.prefix + date + "/manifest.json"
+// GetManifest retrieves and parses the inventory manifest for a given report ID.
+func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryManifest, error) {
+	manifestKey := c.prefix + reportID + "/manifest.json"
 	log.Debug("Fetching inventory manifest", "bucket", c.bucket, "key", manifestKey)
 
 	// Get the manifest.json file from S3

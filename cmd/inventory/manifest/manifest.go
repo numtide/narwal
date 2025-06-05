@@ -22,18 +22,18 @@ var (
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manifest",
-		Short: "Get manifest information for a specific inventory date",
-		Long: `Gets and displays manifest information for a specific inventory date.
+		Short: "Get manifest information for a specific inventory report",
+		Long: `Gets and displays manifest information for a specific inventory report.
 The manifest contains metadata about all parquet files in the inventory, including
 file paths, sizes, and checksums.`,
-		Example: `  # Get manifest for a specific date
-  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --date 2025-06-03T01-00Z
+		Example: `  # Get manifest for a specific report
+  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
   # Get manifest in JSON format
-  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --date 2025-06-03T01-00Z --format json
+  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z --format json
 
   # Show only statistics
-  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --date 2025-06-03T01-00Z --stats`,
+  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z --stats`,
 		RunE: runE,
 	}
 
@@ -74,9 +74,9 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Require date for manifest command
-	if cfg.Date == "" {
-		return fmt.Errorf("date is required for manifest command (use --date flag)")
+	// Require report ID for manifest command
+	if cfg.ReportID == "" {
+		return fmt.Errorf("report ID is required for manifest command (use --report flag)")
 	}
 
 	log.Info("Accessing S3 bucket", "bucket", cfg.Bucket, "prefix", cfg.Prefix, "region", cfg.BucketRegion)
@@ -99,12 +99,12 @@ func runE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Get manifest
-	manifest, err := inventoryClient.GetManifest(ctx, cfg.Date)
+	manifest, err := inventoryClient.GetManifest(ctx, cfg.ReportID)
 	if err != nil {
-		return fmt.Errorf("error getting manifest for date %s: %w", cfg.Date, err)
+		return fmt.Errorf("error getting manifest for report %s: %w", cfg.ReportID, err)
 	}
 
-	log.Info("Retrieved manifest", "date", cfg.Date, "files", len(manifest.Files))
+	log.Info("Retrieved manifest", "report", cfg.ReportID, "files", len(manifest.Files))
 
 	// Display results based on format
 	switch {

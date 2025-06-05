@@ -1,4 +1,4 @@
-package latest
+package reports
 
 import (
 	"errors"
@@ -13,22 +13,31 @@ import (
 	"github.com/spf13/viper"
 )
 
+var latest bool //nolint:gochecknoglobals
+
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "latest",
-		Short: "Get the latest available inventory date",
-		Long: `Gets the latest available inventory date from the S3 bucket.
-This is useful for scripts or automation that need to process the most recent inventory data.`,
-		Example: `  # Get the latest date
-  narwal inventory latest --bucket nix-cache-inventory --prefix data/
+		Use:   "reports",
+		Short: "List available inventory reports",
+		Long: `Lists all available inventory reports from the S3 bucket.
+Reports are returned in lexicographical order (oldest to newest for ISO 8601 format).
+Use --latest flag to get only the most recent report.`,
+		Example: `  # List all available reports
+  narwal inventory reports --bucket nix-cache-inventory --prefix data/
 
-  # Get latest date with custom bucket region
-  narwal inventory latest --bucket nix-cache-inventory --prefix data/ --region us-east-1`,
+  # Get only the latest report
+  narwal inventory reports --bucket nix-cache-inventory --prefix data/ --latest
+
+  # List reports with custom bucket region
+  narwal inventory reports --bucket nix-cache-inventory --prefix data/ --region us-east-1`,
 		RunE: runE,
 	}
 
 	// Add inventory-specific flags
 	appconfig.SetInventoryFlags(cmd.Flags())
+
+	// Add command-specific flags
+	cmd.Flags().BoolVar(&latest, "latest", false, "Show only the latest report")
 
 	// bind our command's flags to viper
 	if err := viper.BindPFlags(cmd.Flags()); err != nil {
@@ -79,23 +88,34 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("error creating inventory client: %w", err)
 	}
 
-	// Get available dates
-	dates, err := inventoryClient.GetDates(ctx)
+	// Get available reports
+	reports, err := inventoryClient.GetReports(ctx)
 	if err != nil {
-		return fmt.Errorf("error getting available dates: %w", err)
+		return fmt.Errorf("error getting available reports: %w", err)
 	}
 
-	if len(dates) == 0 {
-		return errors.New("no inventory dates found")
+	if len(reports) == 0 {
+		if latest {
+			return errors.New("no inventory reports found")
+		}
+
+		fmt.Println("No inventory reports found")
+
+		return nil
 	}
 
-	// Get the latest date (lexicographically last)
-	latestDate := dates[len(dates)-1]
-
-	log.Info("Latest inventory date found", "date", latestDate)
-
-	// Print the latest date
-	fmt.Println(latestDate)
+	if latest {
+		// Get the latest report (lexicographically last)
+		latestReport := reports[len(reports)-1]
+		log.Info("Latest inventory report found", "report", latestReport)
+		fmt.Println(latestReport)
+	} else {
+		log.Info("Found inventory reports", "count", len(reports))
+		// Print all reports
+		for _, report := range reports {
+			fmt.Println(report)
+		}
+	}
 
 	return nil
 }

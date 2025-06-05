@@ -42,7 +42,7 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 		prefix += "/"
 	}
 
-	// FIXME: my abstraction sucks. some client interactions, like getting the date range doesn't require the work directory.
+	// FIXME: my abstraction sucks. some client interactions, like getting the report range doesn't require the work directory.
 	tempDir := ""
 	if workDir != "" {
 		// Create working directory if it doesn't exist
@@ -66,11 +66,11 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 	}, nil
 }
 
-// GetDates returns a list of available inventory dates, ordered lexicographically.
-func (c *Client) GetDates(ctx context.Context) ([]string, error) {
-	log.Debug("Listing inventory dates", "bucket", c.bucket, "prefix", c.prefix)
+// GetReports returns a list of available inventory reports, ordered lexicographically.
+func (c *Client) GetReports(ctx context.Context) ([]string, error) {
+	log.Debug("Listing inventory reports", "bucket", c.bucket, "prefix", c.prefix)
 
-	var dates []string
+	var reports []string
 
 	paginator := s3.NewListObjectsV2Paginator(c.s3Client, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(c.bucket),
@@ -84,33 +84,33 @@ func (c *Client) GetDates(ctx context.Context) ([]string, error) {
 			return nil, fmt.Errorf("failed to list objects: %w", err)
 		}
 
-		// Extract date directories from common prefixes
+		// Extract report directories from common prefixes
 		for _, commonPrefix := range page.CommonPrefixes {
 			if commonPrefix.Prefix == nil {
 				continue
 			}
 
-			// Extract the date part from the prefix
+			// Extract the report ID part from the prefix
 			// Example: "nix-cache/nix-cache-inventory/2025-06-03T01-00Z/" -> "2025-06-03T01-00Z"
 			prefixStr := *commonPrefix.Prefix
 			if strings.HasPrefix(prefixStr, c.prefix) {
-				dateDir := strings.TrimPrefix(prefixStr, c.prefix)
-				dateDir = strings.TrimSuffix(dateDir, "/")
+				reportDir := strings.TrimPrefix(prefixStr, c.prefix)
+				reportDir = strings.TrimSuffix(reportDir, "/")
 
-				// Basic validation that this looks like a date directory
-				if len(dateDir) > 0 && strings.Contains(dateDir, "T") {
-					dates = append(dates, dateDir)
+				// Basic validation that this looks like a report directory
+				if len(reportDir) > 0 && strings.Contains(reportDir, "T") {
+					reports = append(reports, reportDir)
 				}
 			}
 		}
 	}
 
 	// Sort lexicographically (which works for ISO 8601 date format)
-	sort.Strings(dates)
+	sort.Strings(reports)
 
-	log.Debug("Found inventory dates", "count", len(dates), "dates", dates)
+	log.Debug("Found inventory reports", "count", len(reports), "reports", reports)
 
-	return dates, nil
+	return reports, nil
 }
 
 // DownloadFile downloads a single parquet file if not already cached and returns a parquet reader.

@@ -11,6 +11,8 @@ import (
 )
 
 func TestInventoryManifest(t *testing.T) {
+	t.Parallel()
+
 	manifest := InventoryManifest{
 		Files: []InventoryManifestInfo{
 			{Key: "test/file1.parquet", Size: 1024},
@@ -32,6 +34,8 @@ func TestInventoryManifest(t *testing.T) {
 }
 
 func TestLoggingProcessor(t *testing.T) {
+	t.Parallel()
+
 	processor := &LoggingProcessor{}
 	ctx := context.Background()
 
@@ -58,6 +62,8 @@ func TestLoggingProcessor(t *testing.T) {
 }
 
 func TestLoggingProcessorWithCancelledContext(t *testing.T) {
+	t.Parallel()
+
 	processor := &LoggingProcessor{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -114,6 +120,8 @@ func (m *MockProcessor) ProcessObject(ctx context.Context, object InventoryObjec
 }
 
 func TestMockProcessor(t *testing.T) {
+	t.Parallel()
+
 	processor := &MockProcessor{}
 	ctx := context.Background()
 
@@ -138,6 +146,8 @@ func TestMockProcessor(t *testing.T) {
 }
 
 func TestMockProcessorWithError(t *testing.T) {
+	t.Parallel()
+
 	processor := &MockProcessor{ShouldError: true}
 	ctx := context.Background()
 
@@ -157,6 +167,8 @@ func TestMockProcessorWithError(t *testing.T) {
 }
 
 func TestProcessParquetFile_WithSampleData(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	// This test uses the legacy ProcessParquetFile function with sample.parquet
@@ -247,25 +259,25 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-func TestClient_GetDates(t *testing.T) {
+func TestClient_GetReports(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name           string
-		commonPrefixes []string
-		prefix         string
-		expectedDates  []string
-		shouldError    bool
+		name            string
+		commonPrefixes  []string
+		prefix          string
+		expectedReports []string
+		shouldError     bool
 	}{
 		{
-			name: "valid dates sorted lexicographically",
+			name: "valid reports sorted lexicographically",
 			commonPrefixes: []string{
 				"inventory/2025-06-01T01-00Z/",
 				"inventory/2025-06-03T01-00Z/",
 				"inventory/2025-06-02T01-00Z/",
 			},
 			prefix: "inventory/",
-			expectedDates: []string{
+			expectedReports: []string{
 				"2025-06-01T01-00Z",
 				"2025-06-02T01-00Z",
 				"2025-06-03T01-00Z",
@@ -280,25 +292,25 @@ func TestClient_GetDates(t *testing.T) {
 				"inventory/another-invalid/",
 			},
 			prefix: "inventory/",
-			expectedDates: []string{
+			expectedReports: []string{
 				"2025-06-01T01-00Z",
 				"2025-06-02T01-00Z",
 			},
 		},
 		{
-			name: "no valid dates",
+			name: "no valid reports",
 			commonPrefixes: []string{
 				"inventory/invalid-dir/",
 				"inventory/another-invalid/",
 			},
-			prefix:        "inventory/",
-			expectedDates: []string{},
+			prefix:          "inventory/",
+			expectedReports: []string{},
 		},
 		{
-			name:           "empty result",
-			commonPrefixes: []string{},
-			prefix:         "inventory/",
-			expectedDates:  []string{},
+			name:            "empty result",
+			commonPrefixes:  []string{},
+			prefix:          "inventory/",
+			expectedReports: []string{},
 		},
 	}
 
@@ -314,13 +326,12 @@ func TestClient_GetDates(t *testing.T) {
 				t.Fatalf("NewClient failed: %v", err)
 			}
 
-			dates, err := client.GetDates(ctx)
+			reports, err := client.GetReports(ctx)
 
 			if tt.shouldError {
 				if err == nil {
-					t.Error("Expected error but got none")
+					t.Errorf("Expected error but got none")
 				}
-
 				return
 			}
 
@@ -329,21 +340,21 @@ func TestClient_GetDates(t *testing.T) {
 				return
 			}
 
-			if len(dates) != len(tt.expectedDates) {
-				t.Errorf("Expected %d dates, got %d", len(tt.expectedDates), len(dates))
+			if len(reports) != len(tt.expectedReports) {
+				t.Errorf("Expected %d reports, got %d", len(tt.expectedReports), len(reports))
 				return
 			}
 
-			for i, expectedDate := range tt.expectedDates {
-				if dates[i] != expectedDate {
-					t.Errorf("Expected date[%d] = %s, got %s", i, expectedDate, dates[i])
+			for i, expected := range tt.expectedReports {
+				if reports[i] != expected {
+					t.Errorf("Expected report %s at index %d, got %s", expected, i, reports[i])
 				}
 			}
 		})
 	}
 }
 
-func TestClient_GetDates_WithError(t *testing.T) {
+func TestClient_GetReports_WithError(t *testing.T) {
 	ctx := context.Background()
 
 	mockS3 := &MockS3Client{
@@ -355,7 +366,7 @@ func TestClient_GetDates_WithError(t *testing.T) {
 		t.Fatalf("NewClient failed: %v", err)
 	}
 
-	_, err = client.GetDates(ctx)
+	_, err = client.GetReports(ctx)
 
 	if err == nil {
 		t.Error("Expected error but got none")
