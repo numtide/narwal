@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// GetReports returns a list of available inventory reports, ordered lexicographically.
-func (c *Client) GetReports(ctx context.Context) ([]string, error) {
+// ListReports returns a list of available inventory reports, ordered lexicographically.
+func (c *Client) ListReports(ctx context.Context) ([]string, error) {
 	log.Debug("Listing inventory reports", "bucket", c.bucket, "prefix", c.prefix)
 
 	var reports []string

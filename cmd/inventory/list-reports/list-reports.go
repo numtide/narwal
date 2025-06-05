@@ -1,4 +1,4 @@
-package reports
+package list_reports
 
 import (
 	"errors"
@@ -17,19 +17,19 @@ var latest bool //nolint:gochecknoglobals
 
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "reports",
+		Use:   "list-reports",
 		Short: "List available inventory reports",
 		Long: `Lists all available inventory reports from the S3 bucket.
 Reports are returned in lexicographical order (oldest to newest for ISO 8601 format).
 Use --latest flag to get only the most recent report.`,
 		Example: `  # List all available reports
-  narwal inventory reports --bucket nix-cache-inventory --prefix data/
+  narwal inventory list-reports --bucket nix-cache-inventory --prefix data/
 
   # Get only the latest report
-  narwal inventory reports --bucket nix-cache-inventory --prefix data/ --latest
+  narwal inventory list-reports --bucket nix-cache-inventory --prefix data/ --latest
 
   # List reports with custom bucket region
-  narwal inventory reports --bucket nix-cache-inventory --prefix data/ --region us-east-1`,
+  narwal inventory list-reports --bucket nix-cache-inventory --prefix data/ --region us-east-1`,
 		RunE: runE,
 	}
 
@@ -86,7 +86,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 	inventoryClient := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix)
 
 	// Get available reports
-	reports, err := inventoryClient.GetReports(ctx)
+	reports, err := inventoryClient.ListReports(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting available reports: %w", err)
 	}

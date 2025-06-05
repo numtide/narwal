@@ -15,9 +15,6 @@ type S3Client interface {
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
-// DownloadProgressCallback is called during file download to report progress.
-type DownloadProgressCallback func(key string, downloaded int64, total int64)
-
 // Client provides functionality to interact with S3 inventory data.
 type Client struct {
 	s3Client S3Client
