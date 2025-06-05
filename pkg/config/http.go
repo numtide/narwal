@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/spf13/pflag"
+)
 
 // HTTP represents the configuration for an HTTP server, including port and interface.
 type HTTP struct {
@@ -24,4 +28,11 @@ func (h *HTTP) Validate() error {
 	h.ListenAddr = fmt.Sprintf("%s:%d", h.Host, h.Port)
 
 	return nil
+}
+
+func setHttpFlags(fs *pflag.FlagSet) {
+	fs.Int16("http.port", 7777, "HTTP port to listen on")
+	fs.String("http.host", "127.0.0.1", "HTTP host to listen on")
+
+	fs.String("postgres.url", "", "Postgres URL")
 }

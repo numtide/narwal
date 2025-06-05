@@ -1,21 +1,3 @@
--- Basic structure of a binary cache:
---   ././
---  ├──  26xbg1ndr7hbcncrlf9nhx5is2b25d13.narinfo
---  ├──  4hcdxyjf9yiq7qf3i4548drb6sjmwa1v.narinfo
---  ├──  jwsdpq2yxw43ixalh93z726czz7bay2j.narinfo
---  ├──  log/
---  ├──  nar/
---  │   ├──  08242al70hn299yh1vk6il2cyahh6p86qvm72rmqz1z07q36vsk2.nar.xz
---  │   ├──  1767a9kz9xjpy5nh94d1prn3wv8rlcw7k9xhcsm0qcnx4l5qhq2n.nar.xz
---  │   ├──  17fm917985vcvrkrsckjb3i7q6rsxc4xlw8m1d6i5hdmxf9rxhh2.nar.xz
---  │   ├──  1ngi2dxw1f7khrrjamzkkdai393lwcm8s78gvs1ag8k3n82w7bvp.nar.xz
---  │   └──  1qva1j5l6gwjlj2xw69r3w8ldcgs14vp33hl7rm124r6q3fw13il.nar.xz
---  ├──  nix-cache-info
---  ├──  realisations/
---  │   └──  sha256:9d7d12c511042dac015ce38181f045b86da5a8d83a6d0364fa3b3fc48d28c203!out.doi
---  ├──  sl141d1g77wvhr050ah87lcyz2czdxa3.narinfo
---  └──  w19cxz37j5nrkg8w80y91bga89310jgi.narinfo
---
 -- +goose Up
 -- +goose StatementBegin
 
@@ -62,6 +44,7 @@ create table nar_info_reference
 );
 
 create index idx_nar_info_reference_hash on nar_info_reference(hash);
+create index idx_nar_info_reference_refers_to on nar_info_reference(refers_to);
 
 create table nar_info_signature
 (
@@ -74,18 +57,86 @@ create table nar_info_signature
 create index idx_nar_info_signature_hash on nar_info_signature(hash);
 create index idx_nar_info_signature_name on nar_info_signature(name);
 
+create table gc_root
+(
+    hash varchar(32) primary key
+        references nar_info(hash) on delete restrict,
+    created_at timestamp not null
+);
+
+create table gc_plan
+(
+    id serial primary key,
+    name varchar(64) null,
+    created_at timestamp not null,
+    applied_at timestamp null
+);
+
+create function generate_gc_root_closure(plan_id integer) returns void AS
+$$
+declare
+    table_name text;
+    gc_root_record RECORD;
+begin
+    -- Create dynamic table name
+    table_name := format('gc_plan_%s_closure', plan_id);
+
+    -- Create the dynamic table if it doesn't exist
+    execute format('create table if not exists %I (hash varchar(32) primary key)', table_name);
+
+    -- Clear existing data from the table if it already exists
+    execute format('truncate table %I', table_name);
+
+    -- There will be duplicate entries so we create an index to make a distinct() query faster
+    execute format('create index if not exists idx_%I_hash on %I(hash)', table_name, table_name);
+
+    for gc_root_record in select * from gc_root
+        loop
+            -- Insert the GC root
+            execute format('insert into %I (hash) values (%L) on conflict (hash) do nothing', table_name, gc_root_record.hash);
+
+            -- For each hash in nar_info, apply the recursive query and insert results
+            execute format('
+            with recursive reference_closure as (
+                select
+                    hash,
+                    refers_to
+                from nar_info_reference
+                where
+                    hash = %L
+                union
+                select
+                    rc.hash,
+                    nir.refers_to
+                from nar_info_reference nir
+                inner join reference_closure rc on nir.hash = rc.refers_to
+                where
+                    nir.hash != nir.refers_to
+            )
+            insert into %I (hash)
+            (select distinct refers_to as hash from reference_closure)
+            on conflict (hash) do nothing
+        ', gc_root_record.hash, table_name);
+
+        end loop;
+
+end;
+$$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+drop function generate_gc_root_closure;
+
 drop index idx_nar_info_signature_name;
 drop index idx_nar_info_reference_hash;
 drop index idx_nar_info_signature_hash;
 drop index idx_object_type;
 drop index idx_object_path;
 
-
-
+drop table gc_plan;
+drop table gc_root;
 drop table nar_info_signature;
 drop table nar_info_reference;
 drop table nar_info;

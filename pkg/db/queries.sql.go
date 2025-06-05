@@ -7,7 +7,22 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const deleteGCRoot = `-- name: DeleteGCRoot :one
+with deleted as (
+    delete from gc_root where hash = $1 returning hash, created_at
+) select count(*) from deleted
+`
+
+func (q *Queries) DeleteGCRoot(ctx context.Context, hash string) (int64, error) {
+	row := q.db.QueryRow(ctx, deleteGCRoot, hash)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const deleteNarInfoReferences = `-- name: DeleteNarInfoReferences :exec
 delete from nar_info_reference
@@ -59,6 +74,19 @@ func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, err
 	return i, err
 }
 
+const insertGCPlan = `-- name: InsertGCPlan :one
+insert into gc_plan (name, created_at)
+values ($1, timezone('UTC', now()))
+returning id
+`
+
+func (q *Queries) InsertGCPlan(ctx context.Context, name pgtype.Text) (int32, error) {
+	row := q.db.QueryRow(ctx, insertGCPlan, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
 type InsertNarInfoReferencesParams struct {
 	Hash     string `json:"hash"`
 	RefersTo string `json:"refers_to"`
@@ -68,6 +96,70 @@ type InsertNarInfoSignaturesParams struct {
 	Hash string `json:"hash"`
 	Name string `json:"name"`
 	Data string `json:"data"`
+}
+
+const listGCPlans = `-- name: ListGCPlans :many
+select id, name, created_at, applied_at from gc_plan
+`
+
+func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
+	rows, err := q.db.Query(ctx, listGCPlans)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GcPlan
+	for rows.Next() {
+		var i GcPlan
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.AppliedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGCRoots = `-- name: ListGCRoots :many
+select hash from gc_root
+`
+
+func (q *Queries) ListGCRoots(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listGCRoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		items = append(items, hash)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const putGCRoot = `-- name: PutGCRoot :exec
+insert into gc_root (hash, created_at)
+values ($1, timezone('UTC', now()))
+on conflict(hash) do nothing
+`
+
+func (q *Queries) PutGCRoot(ctx context.Context, hash string) error {
+	_, err := q.db.Exec(ctx, putGCRoot, hash)
+	return err
 }
 
 const putNarInfo = `-- name: PutNarInfo :exec

@@ -44,3 +44,25 @@ where hash = $1;
 -- name: InsertNarInfoSignatures :copyfrom
 insert into nar_info_signature (hash, name, data)
 values ($1, $2, $3);
+
+-- name: PutGCRoot :exec
+insert into gc_root (hash, created_at)
+values ($1, timezone('UTC', now()))
+on conflict(hash) do nothing;
+
+-- name: DeleteGCRoot :one
+with deleted as (
+    delete from gc_root where hash = $1 returning *
+) select count(*) from deleted;
+
+-- name: InsertGCPlan :one
+insert into gc_plan (name, created_at)
+values ($1, timezone('UTC', now()))
+returning id;
+
+-- name: ListGCPlans :many
+select * from gc_plan;
+
+
+-- name: ListGCRoots :many
+select hash from gc_root;

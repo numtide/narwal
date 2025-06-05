@@ -28,6 +28,8 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 	db := stdlib.OpenDBFromPool(pool)
 
+	goose.SetLogger(log.StandardLog())
+
 	if err = goose.SetDialect("postgres"); err != nil {
 		return nil, fmt.Errorf("failed to set dialect: %w", err)
 	} else if err = goose.Up(db, "migrations"); err != nil {

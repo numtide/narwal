@@ -108,6 +108,18 @@ func (ns NullObjectType) Value() (driver.Value, error) {
 	return string(ns.ObjectType), nil
 }
 
+type GcPlan struct {
+	ID        int32            `json:"id"`
+	Name      pgtype.Text      `json:"name"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	AppliedAt pgtype.Timestamp `json:"applied_at"`
+}
+
+type GcRoot struct {
+	Hash      string           `json:"hash"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
 type NarInfo struct {
 	Hash        string          `json:"hash"`
 	StorePath   string          `json:"store_path"`
