@@ -49,9 +49,12 @@ func (i *Importer) Validate(ctx context.Context, awsCfg aws.Config) error {
 
 func SetImporterFlags(fs *pflag.FlagSet) {
 	fs.String("bucket", "nix-cache-inventory", "S3 bucket name to import data from")
-	fs.String("region", "", "AWS region for the inventory bucket (e.g. 'us-east-1', 'eu-west-1'). If empty, auto-detects the region")
-	fs.String("prefix", "nix-cache/nix-cache-inventory", "Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
-	fs.String("date", "2025-06-03T01-00Z", "Specific inventory date to process (e.g. '2025-06-03T01-00Z'). If empty, uses the latest available date")
+	fs.String("region", "",
+		"AWS region for the inventory bucket (e.g. 'us-east-1', 'eu-west-1'). If empty, auto-detects the region")
+	fs.String("prefix", "nix-cache/nix-cache-inventory",
+		"Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
+	fs.String("date", "2025-06-03T01-00Z",
+		"Specific inventory date to process (e.g. '2025-06-03T01-00Z'). If empty, uses the latest available date")
 	fs.String("workdir", "./work", "Local directory to cache parquet files (reused across runs for efficiency)")
 	fs.Bool("skip-processing", false, "Skip processing parquet file contents, only download files")
 }
@@ -64,17 +67,18 @@ func getBucketRegion(ctx context.Context, client *s3.Client, bucket string) (str
 		Bucket: aws.String(bucket),
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get bucket location: %w", err)
 	}
 
 	// Convert the region enum to a string
 	var region string
-	if string(result.LocationConstraint) == "EU" {
+
+	switch string(result.LocationConstraint) {
+	case "EU":
 		region = "eu-west-1"
-	} else if string(result.LocationConstraint) == "" {
-		// Empty location constraint means the bucket is in us-east-1
+	case "":
 		region = "us-east-1"
-	} else {
+	default:
 		region = string(result.LocationConstraint)
 	}
 

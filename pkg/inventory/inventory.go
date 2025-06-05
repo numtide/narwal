@@ -29,8 +29,8 @@ type parquetFileReader struct {
 }
 
 // NewParquetFileReader creates a new parquet file reader for the given file.
-func NewParquetFileReader(localPath string, fileSize int64) (ParquetFileReader, error) {
-	file, err := os.Open(localPath)
+func NewParquetFileReader(localPath string, fileSize int64) (*parquetFileReader, error) {
+	file, err := os.Open(localPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open parquet file: %w", err)
 	}
@@ -38,7 +38,7 @@ func NewParquetFileReader(localPath string, fileSize int64) (ParquetFileReader, 
 	// Create parquet file reader
 	pf, err := parquet.OpenFile(file, fileSize)
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, fmt.Errorf("failed to open parquet file: %w", err)
 	}
 
@@ -64,11 +64,11 @@ func (r *parquetFileReader) Read(objects []InventoryObject) (int, error) {
 // Close implements ParquetFileReader.
 func (r *parquetFileReader) Close() error {
 	if r.reader != nil {
-		r.reader.Close()
+		_ = r.reader.Close()
 	}
 
 	if r.file != nil {
-		return r.file.Close()
+		_ = r.file.Close()
 	}
 
 	return nil
@@ -124,15 +124,17 @@ func ProcessParquetFile(ctx context.Context, localPath string) error {
 }
 
 // ProcessParquetFileWithProcessor reads and processes a parquet file using a custom processor.
-func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, processor ObjectProcessor, config ProcessorConfig) error {
+func ProcessParquetFileWithProcessor(
+	ctx context.Context, localPath string, processor ObjectProcessor, config ProcessorConfig,
+) error {
 	log.Debug("Processing local parquet file", "path", localPath)
 
 	// Open the parquet file
-	file, err := os.Open(localPath)
+	file, err := os.Open(localPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to open parquet file: %w", err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	// Get file info for size
 	stat, err := file.Stat()
@@ -152,7 +154,7 @@ func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, proc
 
 	// Create reader for InventoryObject
 	reader := parquet.NewGenericReader[InventoryObject](pf)
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 
 	// Read and process objects in batches to avoid memory issues
 	objects := make([]InventoryObject, config.BatchSize)
@@ -160,7 +162,7 @@ func ProcessParquetFileWithProcessor(ctx context.Context, localPath string, proc
 	for {
 		// Check if context was cancelled
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		}
 
 		n, err := reader.Read(objects)
@@ -195,7 +197,7 @@ func (p *LoggingProcessor) ProcessBatch(ctx context.Context, objects []Inventory
 	for _, object := range objects {
 		// Check if context was cancelled during batch processing
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		}
 
 		if err := p.ProcessObject(ctx, object); err != nil {

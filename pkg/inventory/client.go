@@ -110,7 +110,9 @@ func (c *Client) GetDates(ctx context.Context) ([]string, error) {
 }
 
 // DownloadFile downloads a single parquet file if not already cached and returns a parquet reader.
-func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, progressCallback DownloadProgressCallback) (ParquetFileReader, error) {
+func (c *Client) DownloadFile(
+	ctx context.Context, file InventoryManifestInfo, progressCallback DownloadProgressCallback,
+) (*parquetFileReader, error) {
 	localPath := filepath.Join(c.workDir, file.Key)
 
 	// Check if file already exists and has correct size
@@ -136,7 +138,11 @@ func (c *Client) DownloadFile(ctx context.Context, file InventoryManifestInfo, p
 }
 
 // downloadFile downloads a single file from S3 to the local path.
-func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int64, localPath string, progressCallback DownloadProgressCallback) error {
+//
+//nolint:funcorder
+func (c *Client) downloadFile(
+	ctx context.Context, key string, expectedSize int64, localPath string, progressCallback DownloadProgressCallback,
+) error {
 	// Create directory structure if needed
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o750); err != nil {
 		return fmt.Errorf("failed to create directory structure: %w", err)
@@ -156,7 +162,7 @@ func (c *Client) downloadFile(ctx context.Context, key string, expectedSize int6
 	defer result.Body.Close() //nolint:errcheck
 
 	// Create temporary file
-	tempFile, err := os.Create(tempPath)
+	tempFile, err := os.Create(tempPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
@@ -210,7 +216,7 @@ type progressReader struct {
 func (pr *progressReader) Read(p []byte) (int, error) {
 	// Check if context was cancelled
 	if pr.ctx.Err() != nil {
-		return 0, pr.ctx.Err()
+		return 0, fmt.Errorf("download cancelled: %w", pr.ctx.Err())
 	}
 
 	n, err := pr.reader.Read(p)
@@ -221,7 +227,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 		pr.callback(pr.key, pr.downloaded, pr.total)
 	}
 
-	return n, err
+	return n, fmt.Errorf("failed to read data: %w", err)
 }
 
 // formatBytes formats byte count in human readable format.
