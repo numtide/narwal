@@ -1,8 +1,9 @@
-{ inputs, pkgs, ... }:
+{ inputs, ... }:
 {
   imports = [
     "${inputs.disko}/module.nix"
     ./disko.nix
+    ./narwal.nix
     inputs.srvos.nixosModules.hardware-hetzner-online-amd
     inputs.srvos.nixosModules.mixins-nginx
     inputs.srvos.nixosModules.server
@@ -18,12 +19,6 @@
     users.users.root.openssh.authorizedKeys.keyFiles = [
       ../../users/zimbatm.keys
       ../../users/brianmcgee.keys
-    ];
-
-    environment.systemPackages = [
-      pkgs.htop
-      pkgs.kitty.terminfo
-      pkgs.tmux
     ];
 
     system.stateVersion = "25.05";
