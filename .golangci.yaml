@@ -1,23 +1,24 @@
 version: "2"
 
 linters:
-    default: all
-    disable:
-        - err113
-        - depguard
-        - exhaustruct
-        - funlen
-        - godox
-        - mnd
-        - varnamelen
-        - forbidigo
-        - tagliatelle
-        - nlreturn
+  default: all
+  disable:
+    - cyclop
+    - err113
+    - depguard
+    - exhaustruct
+    - funlen
+    - godox
+    - mnd
+    - varnamelen
+    - forbidigo
+    - tagliatelle
+    - nlreturn
 
-    settings:
-        cyclop:
-            max-complexity: 15
-        revive:
-            rules:
-                - name: "exported"
-                  disabled: true
+  settings:
+    cyclop:
+      max-complexity: 15
+    revive:
+      rules:
+        - name: "exported"
+          disabled: true
