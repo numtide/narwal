@@ -42,15 +42,19 @@ func NewClient(s3Client S3Client, bucket, prefix, workDir string) (*Client, erro
 		prefix += "/"
 	}
 
-	// Create working directory if it doesn't exist
-	if err := os.MkdirAll(workDir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create work directory: %w", err)
-	}
+	// FIXME: my abstraction sucks. some client interactions, like getting the date range doesn't require the work directory.
+	tempDir := ""
+	if workDir != "" {
+		// Create working directory if it doesn't exist
+		if err := os.MkdirAll(workDir, 0o750); err != nil {
+			return nil, fmt.Errorf("failed to create work directory: %w", err)
+		}
 
-	// Create temporary directory for downloads
-	tempDir := filepath.Join(workDir, ".tmp")
-	if err := os.MkdirAll(tempDir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+		// Create temporary directory for downloads
+		tempDir := filepath.Join(workDir, ".tmp")
+		if err := os.MkdirAll(tempDir, 0o750); err != nil {
+			return nil, fmt.Errorf("failed to create temp directory: %w", err)
+		}
 	}
 
 	return &Client{
@@ -227,7 +231,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 		pr.callback(pr.key, pr.downloaded, pr.total)
 	}
 
-	return n, fmt.Errorf("failed to read data: %w", err)
+	return n, err
 }
 
 // formatBytes formats byte count in human readable format.

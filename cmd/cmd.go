@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/cmd/importer"
+	"github.com/numtide/narwal/cmd/inventory"
 	"github.com/numtide/narwal/cmd/server"
 	"github.com/numtide/narwal/pkg/build"
 	"github.com/numtide/narwal/pkg/config"
@@ -30,6 +31,7 @@ func New() *cobra.Command {
 	// add subcommands
 	cmd.AddCommand(server.NewCmd())
 	cmd.AddCommand(importer.NewCmd())
+	cmd.AddCommand(inventory.NewCmd())
 
 	// add some flags common to all subcommands
 	fs := cmd.PersistentFlags()
