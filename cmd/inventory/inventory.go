@@ -1,12 +1,11 @@
 package inventory
 
 import (
-	"fmt"
-
+	"github.com/numtide/narwal/cmd/inventory/download"
+	getmanifest "github.com/numtide/narwal/cmd/inventory/get-manifest"
 	"github.com/numtide/narwal/cmd/inventory/manifest"
 	"github.com/numtide/narwal/cmd/inventory/reports"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func NewCmd() *cobra.Command {
@@ -29,11 +28,10 @@ get the latest inventory report, or examine manifest information.`,
 	// Add sub-commands
 	cmd.AddCommand(reports.NewCmd())
 	cmd.AddCommand(manifest.NewCmd())
+	cmd.AddCommand(getmanifest.NewCmd())
+	cmd.AddCommand(download.NewCmd())
 
-	// bind our command's flags to viper
-	if err := viper.BindPFlags(cmd.Flags()); err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
-	}
+	// Note: Sub-commands handle their own flag binding
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

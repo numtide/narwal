@@ -94,10 +94,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 	s3Client := s3.NewFromConfig(regionCfg)
 
 	// Create inventory client
-	inventoryClient, err := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix, "")
-	if err != nil {
-		return fmt.Errorf("error creating inventory client: %w", err)
-	}
+	inventoryClient := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix)
 
 	// Get manifest
 	manifest, err := inventoryClient.GetManifest(ctx, cfg.ReportID)
