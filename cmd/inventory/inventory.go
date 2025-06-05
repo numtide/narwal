@@ -2,7 +2,6 @@ package inventory
 
 import (
 	"github.com/numtide/narwal/cmd/inventory/download"
-	getmanifest "github.com/numtide/narwal/cmd/inventory/get-manifest"
 	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
 	"github.com/numtide/narwal/cmd/inventory/manifest"
 	"github.com/spf13/cobra"
@@ -28,7 +27,6 @@ get the latest inventory report, or examine manifest information.`,
 	// Add sub-commands
 	cmd.AddCommand(listreports.NewCmd())
 	cmd.AddCommand(manifest.NewCmd())
-	cmd.AddCommand(getmanifest.NewCmd())
 	cmd.AddCommand(download.NewCmd())
 
 	// Note: Sub-commands handle their own flag binding
