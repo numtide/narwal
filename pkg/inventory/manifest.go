@@ -42,7 +42,7 @@ func (c *Client) GetManifest(ctx context.Context, date string) (*InventoryManife
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest file: %w", err)
 	}
-	defer result.Body.Close()
+	defer result.Body.Close() //nolint:errcheck
 
 	// Parse the JSON manifest directly from the stream
 	var manifest InventoryManifest

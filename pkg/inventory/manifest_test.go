@@ -1,28 +1,43 @@
-package inventory
+package inventory_test
 
 import (
 	"context"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/numtide/narwal/pkg/inventory"
 )
 
 // mockS3Client implements S3Client for testing.
 type mockS3Client struct {
-	getObjectFunc func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	getObjectFunc func(
+		ctx context.Context,
+		params *s3.GetObjectInput,
+		optFns ...func(*s3.Options),
+	) (*s3.GetObjectOutput, error)
 }
 
-func (m *mockS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-	return nil, nil // Not used in manifest tests
+func (m *mockS3Client) ListObjectsV2(
+	ctx context.Context,
+	params *s3.ListObjectsV2Input,
+	optFns ...func(*s3.Options),
+) (*s3.ListObjectsV2Output, error) {
+	return &s3.ListObjectsV2Output{}, nil // Not used in manifest tests
 }
 
-func (m *mockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+func (m *mockS3Client) GetObject(
+	ctx context.Context,
+	params *s3.GetObjectInput,
+	optFns ...func(*s3.Options),
+) (*s3.GetObjectOutput, error) {
 	if m.getObjectFunc != nil {
 		return m.getObjectFunc(ctx, params, optFns...)
 	}
@@ -34,7 +49,8 @@ func (m *mockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput,
 func readTestData(t *testing.T, filename string) []byte {
 	t.Helper()
 
-	data, err := os.ReadFile("testdata/" + filename)
+	// #nosec G304 - This is test code reading from testdata directory
+	data, err := os.ReadFile(filepath.Join("testdata", filename))
 	if err != nil {
 		t.Fatalf("Failed to read test data %s: %v", filename, err)
 	}
@@ -43,28 +59,34 @@ func readTestData(t *testing.T, filename string) []byte {
 }
 
 func TestGetManifest(t *testing.T) {
+	t.Parallel()
 	testData := readTestData(t, "manifest.json")
 
-	client := &Client{
-		s3Client: &mockS3Client{
-			getObjectFunc: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-				if *params.Bucket != "test-bucket" {
-					t.Errorf("Expected bucket 'test-bucket', got %s", *params.Bucket)
-				}
-				if *params.Key != "test-prefix/2025-05-13T01-00Z/manifest.json" {
-					t.Errorf("Expected key 'test-prefix/2025-05-13T01-00Z/manifest.json', got %s", *params.Key)
-				}
+	mockS3 := &mockS3Client{
+		getObjectFunc: func(
+			ctx context.Context,
+			params *s3.GetObjectInput,
+			optFns ...func(*s3.Options),
+		) (*s3.GetObjectOutput, error) {
+			if *params.Bucket != "test-bucket" {
+				t.Errorf("Expected bucket 'test-bucket', got %s", *params.Bucket)
+			}
+			if *params.Key != "test-prefix/2025-05-13T01-00Z/manifest.json" {
+				t.Errorf("Expected key 'test-prefix/2025-05-13T01-00Z/manifest.json', got %s", *params.Key)
+			}
 
-				return &s3.GetObjectOutput{
-					Body: io.NopCloser(strings.NewReader(string(testData))),
-				}, nil
-			},
+			return &s3.GetObjectOutput{
+				Body: io.NopCloser(strings.NewReader(string(testData))),
+			}, nil
 		},
-		bucket: "test-bucket",
-		prefix: "test-prefix/",
 	}
 
-	ctx := context.Background()
+	client, err := inventory.NewClient(mockS3, "test-bucket", "test-prefix", "/tmp/test")
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	ctx := t.Context()
 
 	manifest, err := client.GetManifest(ctx, "2025-05-13T01-00Z")
 	if err != nil {
@@ -104,21 +126,28 @@ func TestGetManifest(t *testing.T) {
 }
 
 func TestGetManifest_S3Error(t *testing.T) {
-	client := &Client{
-		s3Client: &mockS3Client{
-			getObjectFunc: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-				return nil, &types.NoSuchKey{
-					Message: aws.String("The specified key does not exist."),
-				}
-			},
+	t.Parallel()
+
+	mockS3 := &mockS3Client{
+		getObjectFunc: func(
+			ctx context.Context,
+			params *s3.GetObjectInput,
+			optFns ...func(*s3.Options),
+		) (*s3.GetObjectOutput, error) {
+			return nil, &types.NoSuchKey{
+				Message: aws.String("The specified key does not exist."),
+			}
 		},
-		bucket: "test-bucket",
-		prefix: "test-prefix/",
 	}
 
-	ctx := context.Background()
+	client, err := inventory.NewClient(mockS3, "test-bucket", "test-prefix", "/tmp/test")
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.GetManifest(ctx, "nonexistent-date")
+	ctx := t.Context()
+
+	_, err = client.GetManifest(ctx, "nonexistent-date")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent manifest, got nil")
 	}
@@ -129,21 +158,28 @@ func TestGetManifest_S3Error(t *testing.T) {
 }
 
 func TestGetManifest_InvalidJSON(t *testing.T) {
-	client := &Client{
-		s3Client: &mockS3Client{
-			getObjectFunc: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-				return &s3.GetObjectOutput{
-					Body: io.NopCloser(strings.NewReader(`{"invalid": json,}`)),
-				}, nil
-			},
+	t.Parallel()
+
+	mockS3 := &mockS3Client{
+		getObjectFunc: func(
+			ctx context.Context,
+			params *s3.GetObjectInput,
+			optFns ...func(*s3.Options),
+		) (*s3.GetObjectOutput, error) {
+			return &s3.GetObjectOutput{
+				Body: io.NopCloser(strings.NewReader(`{"invalid": json,}`)),
+			}, nil
 		},
-		bucket: "test-bucket",
-		prefix: "test-prefix/",
 	}
 
-	ctx := context.Background()
+	client, err := inventory.NewClient(mockS3, "test-bucket", "test-prefix", "/tmp/test")
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 
-	_, err := client.GetManifest(ctx, "test-date")
+	ctx := t.Context()
+
+	_, err = client.GetManifest(ctx, "test-date")
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON, got nil")
 	}
@@ -154,17 +190,19 @@ func TestGetManifest_InvalidJSON(t *testing.T) {
 }
 
 func TestValidateManifest(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
-		manifest    InventoryManifest
+		manifest    inventory.InventoryManifest
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name: "valid manifest",
-			manifest: InventoryManifest{
+			manifest: inventory.InventoryManifest{
 				FileFormat: "Parquet",
-				Files: []InventoryManifestInfo{
+				Files: []inventory.InventoryManifestInfo{
 					{Key: "test/file1.parquet", Size: 1000, MD5Checksum: "abc123"},
 					{Key: "test/file2.parquet", Size: 2000, MD5Checksum: "def456"},
 				},
@@ -173,17 +211,17 @@ func TestValidateManifest(t *testing.T) {
 		},
 		{
 			name: "empty files",
-			manifest: InventoryManifest{
+			manifest: inventory.InventoryManifest{
 				FileFormat: "Parquet",
-				Files:      []InventoryManifestInfo{},
+				Files:      []inventory.InventoryManifestInfo{},
 			},
 			expectError: true,
 			errorMsg:    "manifest contains no files",
 		},
 		{
 			name: "missing file format",
-			manifest: InventoryManifest{
-				Files: []InventoryManifestInfo{
+			manifest: inventory.InventoryManifest{
+				Files: []inventory.InventoryManifestInfo{
 					{Key: "test/file1.parquet", Size: 1000, MD5Checksum: "abc123"},
 				},
 			},
@@ -192,9 +230,9 @@ func TestValidateManifest(t *testing.T) {
 		},
 		{
 			name: "file missing key",
-			manifest: InventoryManifest{
+			manifest: inventory.InventoryManifest{
 				FileFormat: "Parquet",
-				Files: []InventoryManifestInfo{
+				Files: []inventory.InventoryManifestInfo{
 					{Key: "", Size: 1000, MD5Checksum: "abc123"},
 				},
 			},
@@ -203,9 +241,9 @@ func TestValidateManifest(t *testing.T) {
 		},
 		{
 			name: "file invalid size",
-			manifest: InventoryManifest{
+			manifest: inventory.InventoryManifest{
 				FileFormat: "Parquet",
-				Files: []InventoryManifestInfo{
+				Files: []inventory.InventoryManifestInfo{
 					{Key: "test/file1.parquet", Size: 0, MD5Checksum: "abc123"},
 				},
 			},
@@ -216,7 +254,10 @@ func TestValidateManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.manifest.Validate()
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error, got nil")
@@ -233,8 +274,10 @@ func TestValidateManifest(t *testing.T) {
 }
 
 func TestTotalSize(t *testing.T) {
-	manifest := InventoryManifest{
-		Files: []InventoryManifestInfo{
+	t.Parallel()
+
+	manifest := inventory.InventoryManifest{
+		Files: []inventory.InventoryManifestInfo{
 			{Key: "file1.parquet", Size: 1000},
 			{Key: "file2.parquet", Size: 2000},
 			{Key: "file3.parquet", Size: 3000},
@@ -250,8 +293,10 @@ func TestTotalSize(t *testing.T) {
 }
 
 func TestTotalSize_EmptyManifest(t *testing.T) {
-	manifest := InventoryManifest{
-		Files: []InventoryManifestInfo{},
+	t.Parallel()
+
+	manifest := inventory.InventoryManifest{
+		Files: []inventory.InventoryManifestInfo{},
 	}
 
 	expected := int64(0)
