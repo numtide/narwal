@@ -67,13 +67,19 @@ $ aws s3 cp s3://nix-cache-inventory/nix-cache/nix-cache-inventory/2025-06-02T01
   ...<snip>
 ```
 
+## AWS Costs
+
+S3 egress: $0.09/GB max, lower on higher volume
+
+GET requests: $0.0004 per 1,000 requests
+
 ## AWS inventory notes
 
 Any given day gets a metadata.json which then references 516 parquet files.
-
 The total sizes of the Parquet files is 65 GB.
+It takes ~80m to download all these files to Hetzner with no parallelism.
 
-It takes 80m to download all these files to Hetzner with no parallelism.
+Retrieval costs: 65 GB * 0.09$/GB = $5.85
 
 clickhouse-local
 ```sql
@@ -107,3 +113,8 @@ WHERE endsWith(key, '.narinfo');
 │     275262016 │     567387296437 │ 528.42 GiB          │ 2061.2625914830182 │      434 │   484163 │
 └───────────────┴──────────────────┴─────────────────────┴────────────────────┴──────────┴──────────┘
 ```
+
+Retrieval:
+* Bandwidth costs: 528.42 GiB * 0.09$/GB = $47.55
+* GET requests: 275262016 * $0.0004 / 1000 = $110.10
+* Total costs: $47.55 + $110.10 = $157.65
