@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	configFile  string
-	logLevelStr string
+	configFile  string //nolint:gochecknoglobals
+	logLevelStr string //nolint:gochecknoglobals
 )
 
 func New() *cobra.Command {

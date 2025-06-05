@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -15,8 +16,8 @@ import (
 )
 
 var (
-	outputFormat string
-	showStats    bool
+	outputFormat string //nolint:gochecknoglobals
+	showStats    bool   //nolint:gochecknoglobals
 )
 
 func NewCmd() *cobra.Command {
@@ -76,7 +77,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 	// Require report ID for manifest command
 	if cfg.ReportID == "" {
-		return fmt.Errorf("report ID is required for manifest command (use --report flag)")
+		return errors.New("report ID is required for manifest command (use --report flag)")
 	}
 
 	log.Info("Accessing S3 bucket", "bucket", cfg.Bucket, "prefix", cfg.Prefix, "region", cfg.BucketRegion)
