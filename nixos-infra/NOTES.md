@@ -66,3 +66,11 @@ $ aws s3 cp s3://nix-cache-inventory/nix-cache/nix-cache-inventory/2025-06-02T01
   },
   ...<snip>
 ```
+
+## AWS inventory notes
+
+Any given day gets a metadata.json which then references 516 parquet files.
+
+The total sizes of the Parquet files is 65 GB.
+
+It takes 80m to download all these files to Hetzner with no parallelism.
