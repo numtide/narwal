@@ -24,10 +24,11 @@ on conflict(path) do update
 
 -- name: PutNarInfo :exec
 insert
-into nar_info (hash, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+into nar_info (hash, url, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 on conflict (hash) do update
-    set store_path  = excluded.store_path ,
+    set url = excluded.url,
+        store_path  = excluded.store_path ,
         compression = excluded.compression,
         file_hash   = excluded.file_hash,
         file_size   = excluded.file_size,

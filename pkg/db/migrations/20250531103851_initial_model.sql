@@ -24,6 +24,7 @@ create unique index idx_object_path on object(path);
 create table nar_info
 (
     hash char(32) primary key,
+    url varchar(128) not null,
     store_path varchar(1024) not null,
     compression compression_type not null,
 

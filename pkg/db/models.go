@@ -121,6 +121,7 @@ type GcRoot struct {
 
 type NarInfo struct {
 	Hash        string          `json:"hash"`
+	Url         string          `json:"url"`
 	StorePath   string          `json:"store_path"`
 	Compression CompressionType `json:"compression"`
 	FileHash    string          `json:"file_hash"`

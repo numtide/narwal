@@ -12,9 +12,11 @@ import (
 )
 
 type closureEntry struct {
-	Hash   string `db:"hash"`
-	Bucket string `db:"bucket"`
-	Path   string `db:"path"`
+	Hash       string `db:"hash"`
+	ObjectType string `db:"object_type"`
+	Bucket     string `db:"bucket"`
+	Path       string `db:"path"`
+	NarUrl     string `db:"nar_url"`
 }
 
 func planCreate() *cobra.Command {
@@ -117,7 +119,12 @@ func createPlan(cmd *cobra.Command, args []string) error {
 	// everything except nars is keyed by the same hash
 	objectIter, err := ci.NewCursorIterator(
 		tx, cursorValues,
-		`select hash, bucket, path from object where object_type != 'nar'`,
+		`
+			select 
+			    o.hash, o.object_type, o.bucket, o.path, ni.url as nar_url 
+			from object o 
+			left join nar_info ni on o.hash = ni.hash 
+			where o.object_type != 'nar'`,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create object iterator: %w", err)
@@ -159,6 +166,11 @@ func createPlan(cmd *cobra.Command, args []string) error {
 		}
 
 		rows = append(rows, []any{entry.Bucket, entry.Path})
+
+		// we get the nar url from the nar_info table if it exists
+		if entry.ObjectType == "nar" && entry.NarUrl != "" {
+			rows = append(rows, []any{entry.Bucket, entry.NarUrl})
+		}
 
 		if len(rows) == batchSize {
 			if err = flush(); err != nil {

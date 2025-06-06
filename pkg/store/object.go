@@ -167,6 +167,7 @@ func putNarInfo(ctx context.Context, queries *db.Queries, hash string, buf []byt
 
 	err = queries.PutNarInfo(ctx, db.PutNarInfoParams{
 		Hash:        hash,
+		Url:         info.URL,
 		StorePath:   info.StorePath,
 		Compression: db.CompressionType(info.Compression),
 		FileHash:    info.FileHash.String(),
