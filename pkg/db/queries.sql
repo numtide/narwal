@@ -79,3 +79,6 @@ select * from gc_plan where id = $1;
 with deleted as (
     delete from gc_plan where id = $1 returning *
 ) select count(*) from deleted;
+
+-- name: SetGCPlanAsCompleted :exec
+update gc_plan set completed_at = timezone('UTC', now()) where id = $1 and completed_at is null;

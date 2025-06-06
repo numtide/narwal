@@ -38,7 +38,7 @@ create table nar_info
 
 create table nar_info_reference
 (
-    hash varchar(32) not null,
+    hash varchar(32) not null references nar_info on delete cascade,
     refers_to varchar(32) not null,
     primary key (hash, refers_to)
 );
@@ -48,7 +48,7 @@ create index idx_nar_info_reference_refers_to on nar_info_reference(refers_to);
 
 create table nar_info_signature
 (
-    hash varchar(32) not null,
+    hash varchar(32) not null references nar_info on delete cascade,
     name varchar(128) not null,
     data varchar(512) not null,
     primary key (hash, name)
@@ -68,9 +68,7 @@ create table gc_plan
 (
     id serial primary key,
     created_at timestamp not null,
-    applied_at timestamp null,
-    completed_at timestamp null,
-    error text null
+    completed_at timestamp null
 );
 
 create function generate_gc_root_closure(plan_id integer) returns void AS
