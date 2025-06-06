@@ -8,7 +8,7 @@ import (
 )
 
 var suffixRegex = regexp.MustCompile(
-	`\.(nar|narinfo|debug|ls|)(\.(br|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`,
+	`\.(nar|narinfo|debug|ls|drv)(\.(br|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`,
 )
 
 type pathAnalysis struct {
@@ -58,13 +58,19 @@ func hashFromPath(path string, objectType db.ObjectType) (string, error) {
 
 		hash = path[4:56]
 	case db.ObjectTypeDebug:
-		// prefixed with 'debuginfo/' and a hash size of 30
+		// prefixed with 'debuginfo/' and a hash size of 40
 		if len(path) < 50 {
 			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
 
 		hash = path[10:50]
-	case db.ObjectTypeNarinfo, db.ObjectTypeLs, db.ObjectTypeLog:
+	case db.ObjectTypeLog:
+		// 'log/<hash>-<pname>.drv'
+		if len(path) < 36 {
+			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
+		}
+		hash = path[4:]
+	case db.ObjectTypeNarinfo, db.ObjectTypeLs:
 		// all other hashes are at the beginning of the path and of size 32
 		if len(path) < 32 {
 			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
