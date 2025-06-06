@@ -73,6 +73,7 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 		//nolint:wrapcheck
 		return err
 	}
+
 	return nil
 }
 

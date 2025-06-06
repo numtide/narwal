@@ -27,7 +27,7 @@ func (s *S3) Connect() (*minio.Client, error) {
 		return nil, fmt.Errorf("failed to connect to s3: %w", err)
 	}
 
-	return s3, err
+	return s3, nil
 }
 
 func (s *S3) Validate() error {
