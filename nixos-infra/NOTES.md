@@ -121,3 +121,11 @@ Retrieval:
 - Bandwidth costs: 528.42 GiB \* 0.09$/GB = $47.55
 - GET requests: 275262016 \* $0.0004 / 1000 = $110.10
 - Total costs: $47.55 + $110.10 = $157.65
+
+TODO:
+* Find out what the biggest narinfo is
+* How many references is has
+* Is there a limit on the size of name in Nix?
+* Play with bloom filter and roaring bitmap generation from the inventory, to see how it compresses.
+* Download releases
+* Add clickhouse-local command from an inventory
