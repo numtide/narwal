@@ -1,0 +1,37 @@
+# Narwal Configuration File
+# This file contains all configuration options with their default values.
+# Copy this file to one of the following locations:
+# - ./narwal.toml (current directory)
+# - /etc/narwal/narwal.toml
+# - ~/.config/narwal/narwal.toml (XDG config directory)
+
+[s3]
+# S3 endpoint URL (required)
+endpoint = ""
+
+# S3 access credentials (required)
+access_key = ""
+secret_key = ""
+
+# S3 bucket name (required)
+bucket_name = ""
+
+# Enable SSL for S3 connections
+ssl_enabled = false
+
+[postgres]
+# PostgreSQL connection URL (required)
+# Example: "postgres://user:pass@localhost:5432/narwal?sslmode=disable"
+url = ""
+
+[http]
+# HTTP server host to bind to
+host = "127.0.0.1"
+
+# HTTP server port to listen on
+port = 7777
+
+# Example inventory configuration for reference
+# [inventory]
+# bucket_name = "nix-cache-inventory"
+# prefix = "data/"
