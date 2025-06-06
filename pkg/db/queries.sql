@@ -61,6 +61,9 @@ with deleted as (
     delete from gc_root where hash = $1 returning *
 ) select count(*) from deleted;
 
+-- name: ListGCRoots :many
+select hash from gc_root;
+
 -- name: InsertGCPlan :one
 insert into gc_plan (created_at)
 values (timezone('UTC', now()))
@@ -69,6 +72,10 @@ returning id;
 -- name: ListGCPlans :many
 select * from gc_plan;
 
+-- name: GetGCPlan :one
+select * from gc_plan where id = $1;
 
--- name: ListGCRoots :many
-select hash from gc_root;
+-- name: DeleteGCPlan :one
+with deleted as (
+    delete from gc_plan where id = $1 returning *
+) select count(*) from deleted;

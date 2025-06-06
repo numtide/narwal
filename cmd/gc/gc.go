@@ -27,11 +27,10 @@ var (
 func NewCmd() *cobra.Command {
 	// create the command
 	cmd := &cobra.Command{
-		Use:   "gc",
-		Short: "Set GC roots and run garbage collection",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return runE(cmd, args)
-		},
+		Use:                "gc",
+		Short:              "Set GC roots and run garbage collection",
+		PersistentPreRunE:  preRunE,
+		PersistentPostRunE: postRunE,
 	}
 
 	// bind our command's flags to viper
@@ -48,7 +47,7 @@ func NewCmd() *cobra.Command {
 	return cmd
 }
 
-func runE(cmd *cobra.Command, _ []string) error {
+func preRunE(cmd *cobra.Command, _ []string) error {
 	var err error
 
 	// parse viper into our config object
@@ -76,6 +75,11 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to connect to s3: %w", err)
 	}
 
+	return nil
+}
+
+func postRunE(cmd *cobra.Command, _ []string) error {
+	pg.Close()
 	return nil
 }
 

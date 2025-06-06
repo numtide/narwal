@@ -9,6 +9,19 @@ import (
 	"context"
 )
 
+const deleteGCPlan = `-- name: DeleteGCPlan :one
+with deleted as (
+    delete from gc_plan where id = $1 returning id, created_at, applied_at
+) select count(*) from deleted
+`
+
+func (q *Queries) DeleteGCPlan(ctx context.Context, id int32) (int64, error) {
+	row := q.db.QueryRow(ctx, deleteGCPlan, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteGCRoot = `-- name: DeleteGCRoot :one
 with deleted as (
     delete from gc_root where hash = $1 returning hash, created_at
@@ -40,6 +53,17 @@ where hash = $1
 func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) error {
 	_, err := q.db.Exec(ctx, deleteNarInfoSignatures, hash)
 	return err
+}
+
+const getGCPlan = `-- name: GetGCPlan :one
+select id, created_at, applied_at from gc_plan where id = $1
+`
+
+func (q *Queries) GetGCPlan(ctx context.Context, id int32) (GcPlan, error) {
+	row := q.db.QueryRow(ctx, getGCPlan, id)
+	var i GcPlan
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.AppliedAt)
+	return i, err
 }
 
 const getObjectByHash = `-- name: GetObjectByHash :one

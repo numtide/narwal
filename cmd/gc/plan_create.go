@@ -21,7 +21,7 @@ func planCreate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a GC plan",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.NoArgs,
 		RunE:  createPlan,
 	}
 
