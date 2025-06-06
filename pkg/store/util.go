@@ -69,6 +69,7 @@ func hashFromPath(path string, objectType db.ObjectType) (string, error) {
 		if len(path) < 36 {
 			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
+
 		hash = path[4:]
 	case db.ObjectTypeNarinfo, db.ObjectTypeLs:
 		// all other hashes are at the beginning of the path and of size 32

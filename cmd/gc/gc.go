@@ -9,7 +9,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/numtide/narwal/pkg/config"
-	"github.com/numtide/narwal/pkg/db"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -64,9 +63,10 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
 
 	// connect to postgres
-	pg, err = db.Connect(cmd.Context(), cfg.Postgres.URL)
+	pg, err = cfg.Postgres.Connect(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to connect to postgres: %w", err)
+		//nolint:wrapcheck
+		return err
 	}
 
 	// connect to s3

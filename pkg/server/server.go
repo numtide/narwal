@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/numtide/narwal/pkg/db"
 	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/charmbracelet/log"
@@ -53,8 +52,9 @@ func NewServer(cfg *config.Server) (*Server, error) {
 	defer cancel()
 
 	// connect to postgres
-	if srv.pgPool, err = db.Connect(ctx, cfg.Postgres.URL); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	if srv.pgPool, err = cfg.Postgres.Connect(ctx); err != nil {
+		//nolint:wrapcheck
+		return nil, err
 	}
 
 	// connect to s3
