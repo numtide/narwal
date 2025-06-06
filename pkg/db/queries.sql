@@ -8,6 +8,12 @@ select object_type, compression_type, bucket, size
 from object as o
 where o.path = $1;
 
+-- name: GetObjectByHash :one
+select object_type, compression_type, bucket, size
+from object as o
+where o.hash = $1;
+
+
 -- name: PutObject :exec
 insert into object (hash, object_type, compression_type, bucket, path, size, created_at)
 values ($1, $2, $3, $4, $5, $6, timezone('UTC', now()))

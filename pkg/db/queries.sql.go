@@ -42,6 +42,31 @@ func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) erro
 	return err
 }
 
+const getObjectByHash = `-- name: GetObjectByHash :one
+select object_type, compression_type, bucket, size
+from object as o
+where o.hash = $1
+`
+
+type GetObjectByHashRow struct {
+	ObjectType      ObjectType      `json:"object_type"`
+	CompressionType CompressionType `json:"compression_type"`
+	Bucket          string          `json:"bucket"`
+	Size            int64           `json:"size"`
+}
+
+func (q *Queries) GetObjectByHash(ctx context.Context, hash string) (GetObjectByHashRow, error) {
+	row := q.db.QueryRow(ctx, getObjectByHash, hash)
+	var i GetObjectByHashRow
+	err := row.Scan(
+		&i.ObjectType,
+		&i.CompressionType,
+		&i.Bucket,
+		&i.Size,
+	)
+	return i, err
+}
+
 const hasObject = `-- name: HasObject :one
 with update_accessed as (
     update object

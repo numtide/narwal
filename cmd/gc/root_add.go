@@ -1,7 +1,10 @@
 package gc
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/numtide/narwal/pkg/db"
 	"github.com/spf13/cobra"
@@ -31,6 +34,16 @@ func rootAdd() *cobra.Command {
 			defer conn.Release()
 
 			queries := db.New(conn)
+
+			// check if the object exists
+			_, err = queries.GetObjectByHash(ctx, narHash)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("object not found: %s", path)
+			} else if err != nil {
+				return fmt.Errorf("failed to get object: %w", err)
+			}
+
+			// add the gc root
 			if err = queries.PutGCRoot(ctx, narHash); err != nil {
 				return fmt.Errorf("failed to add gc root: %w", err)
 			}
