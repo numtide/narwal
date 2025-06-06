@@ -17,6 +17,7 @@ func plan() *cobra.Command {
 	cmd.AddCommand(planCreate())
 	cmd.AddCommand(planList())
 	cmd.AddCommand(planRemove())
+	cmd.AddCommand(planApply())
 
 	return cmd
 }
