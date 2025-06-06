@@ -1,0 +1,40 @@
+# Narwal Configuration File for the NixOS infrastructure.
+#
+# TODO: This is not a correct configuration file.
+
+[aws]
+access_key_id = ""
+secret_access_key = ""
+
+[workarea]
+directory = "/var/lib/narwal/workarea"
+
+[bucket.cache]
+name = "nix-cache"
+region = "us-east-1"
+
+[bucket.cache-inventory]
+name = "nix-cache-inventory"
+region = "us-east-1"
+
+[bucket.releases]
+name = "nix-releases"
+region = "eu-west-1"
+
+[bucket.releases-inventory]
+bucket_name = "nix-releases-inventory220231029182031496800000001"
+bucket_region = "us-east-1"
+
+[fastly_logs_bucket]
+bucket_name = "fastly-logs-20220622145016462800000001"
+bucket_region = "eu-west-1"
+
+[postgres]
+url = "postgres://narwal@localhost:5432/narwal?sslmode=disable"
+
+[http]
+# HTTP server host to bind to
+host = "127.0.0.1"
+
+# HTTP server port to listen on
+port = 7777
