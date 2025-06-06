@@ -25,15 +25,14 @@ func planRemove() *cobra.Command {
 }
 
 func removePlan(cmd *cobra.Command, args []string) error {
-	defer pg.Close()
-
 	ctx := cmd.Context()
 
-	planID, err := strconv.Atoi(args[0])
+	planID, err := strconv.ParseInt(args[0], 10, 32)
 	if err != nil {
 		return fmt.Errorf("failed to parse plan id: %w", err)
 	}
 
+	// acquire a db connection
 	conn, err := pg.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire db connection: %w", err)
@@ -41,6 +40,7 @@ func removePlan(cmd *cobra.Command, args []string) error {
 
 	defer conn.Release()
 
+	// start a transaction
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -52,7 +52,7 @@ func removePlan(cmd *cobra.Command, args []string) error {
 	queries := db.New(tx)
 
 	// check the plan exists
-	//nolint:gosec
+
 	_, err = queries.GetGCPlan(ctx, int32(planID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("plan not found: %d", planID)
@@ -61,20 +61,17 @@ func removePlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// remove all associated tables
-	//nolint:gosec
+
 	count, err := queries.DeleteGCPlan(ctx, int32(planID))
 	if err != nil || count == 0 {
 		return fmt.Errorf("failed to delete gc plan: %w", err)
 	}
 
-	if _, err = tx.Exec(ctx, fmt.Sprintf("drop table gc_plan_%d_closure", planID)); err != nil {
-		return fmt.Errorf("failed to drop gc plan closure table: %w", err)
+	if err = removePlanTables(ctx, tx, int32(planID)); err != nil {
+		return errors.New("failed to remove plan tables")
 	}
 
-	if _, err = tx.Exec(ctx, fmt.Sprintf("drop table gc_plan_%d_deletions", planID)); err != nil {
-		return fmt.Errorf("failed to drop gc plan deletions table: %w", err)
-	}
-
+	// commit changes to the db
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}

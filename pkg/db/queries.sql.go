@@ -11,7 +11,7 @@ import (
 
 const deleteGCPlan = `-- name: DeleteGCPlan :one
 with deleted as (
-    delete from gc_plan where id = $1 returning id, created_at, applied_at
+    delete from gc_plan where id = $1 returning id, created_at, applied_at, completed_at, error
 ) select count(*) from deleted
 `
 
@@ -56,13 +56,19 @@ func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) erro
 }
 
 const getGCPlan = `-- name: GetGCPlan :one
-select id, created_at, applied_at from gc_plan where id = $1
+select id, created_at, applied_at, completed_at, error from gc_plan where id = $1
 `
 
 func (q *Queries) GetGCPlan(ctx context.Context, id int32) (GcPlan, error) {
 	row := q.db.QueryRow(ctx, getGCPlan, id)
 	var i GcPlan
-	err := row.Scan(&i.ID, &i.CreatedAt, &i.AppliedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.AppliedAt,
+		&i.CompletedAt,
+		&i.Error,
+	)
 	return i, err
 }
 
@@ -134,7 +140,7 @@ type InsertNarInfoSignaturesParams struct {
 }
 
 const listGCPlans = `-- name: ListGCPlans :many
-select id, created_at, applied_at from gc_plan
+select id, created_at, applied_at, completed_at, error from gc_plan
 `
 
 func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
@@ -146,7 +152,13 @@ func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
 	var items []GcPlan
 	for rows.Next() {
 		var i GcPlan
-		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.AppliedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.AppliedAt,
+			&i.CompletedAt,
+			&i.Error,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

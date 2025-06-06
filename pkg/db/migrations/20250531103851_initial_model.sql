@@ -68,7 +68,9 @@ create table gc_plan
 (
     id serial primary key,
     created_at timestamp not null,
-    applied_at timestamp null
+    applied_at timestamp null,
+    completed_at timestamp null,
+    error text null
 );
 
 create function generate_gc_root_closure(plan_id integer) returns void AS

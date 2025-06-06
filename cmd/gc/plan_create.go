@@ -32,10 +32,9 @@ func planCreate() *cobra.Command {
 }
 
 func createPlan(cmd *cobra.Command, _ []string) error {
-	defer pg.Close()
-
 	ctx := cmd.Context()
 
+	// acquire a db connection
 	conn, err := pg.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to acquire db connection: %w", err)
@@ -43,6 +42,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 
 	defer conn.Release()
 
+	// start a transaction
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -53,42 +53,27 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 
 	queries := db.New(tx)
 
-	// create a new plan
+	// insert a new plan entry
 	planID, err := queries.InsertGCPlan(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to insert gc plan: %w", err)
+	}
+
+	// create a table to store the deletions we need to make
+	if err := addDeletionsTable(ctx, tx, planID); err != nil {
+		return err
+	}
+
+	// generate a new root closure table with the list of all nar hashes we need to retain
+	// this is done via a function within the db to avoid round-trip latency
+	if _, err = tx.Exec(ctx, `select generate_gc_root_closure($1)`, planID); err != nil {
+		return fmt.Errorf("failed to generate gc root closure: %w", err)
 	}
 
 	// create a bloom filter to filter out all nar hashes we don't need to retain'
 	// todo make parameters configurable
 	// current value is based on cache.nixos.org total nars
 	filter := bloom.NewWithEstimates(275000000, 0.01)
-
-	// create a table to store the deletions we need to make
-	deletionsTableName := fmt.Sprintf("gc_plan_%d_deletions", planID)
-
-	deletionPlanQuery := fmt.Sprintf(
-		`create table if not exists %s (		     
-		    path varchar(128) primary key, 
-		    applied bool		    
-		)`,
-		deletionsTableName,
-	)
-
-	_, err = tx.Exec(ctx, deletionPlanQuery)
-	if err != nil {
-		return fmt.Errorf("failed to create %s table: %w", deletionsTableName, err)
-	}
-
-	// truncate if the table already exists and we are re-running the plan
-	if _, err = tx.Exec(ctx, "truncate table "+deletionsTableName); err != nil {
-		return fmt.Errorf("failed to truncate %s table: %w", deletionsTableName, err)
-	}
-
-	// generate a new root closure table with the list of all nar hashes we need to retain
-	if _, err = tx.Exec(ctx, `select generate_gc_root_closure($1)`, planID); err != nil {
-		return fmt.Errorf("failed to generate gc root closure: %w", err)
-	}
 
 	// stream each entry in the closure table and add it to the filter
 	cursorValues := make([]closureEntry, 1024)
@@ -133,15 +118,13 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 	objectCount := 0
 	deletionCount := 0
 
+	deletionsTable := deletionsTableName(planID)
+
+	// copy paths into the deletion table in batches
 	flush := func() error {
-		_, err := tx.CopyFrom(
-			ctx,
-			pgx.Identifier{deletionsTableName},
-			[]string{"path"},
-			pgx.CopyFromRows(rows),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to copy rows: %w", err)
+		_, copyErr := tx.CopyFrom(ctx, pgx.Identifier{deletionsTable}, []string{"path"}, pgx.CopyFromRows(rows))
+		if copyErr != nil {
+			return fmt.Errorf("failed to copy rows: %w", copyErr)
 		}
 
 		deletionCount += len(rows)
@@ -152,6 +135,9 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// iterate the closure and compare with the filter
+	// if the hash is in the filter, then we need to keep it
+	// if not, we can delete it
 	for objectIter.Next(ctx) {
 		entry := cursorValues[objectIter.ValueIndex()]
 
@@ -176,7 +162,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// flush any remaining rows
+	// flush any remaining paths
 	if err = flush(); err != nil {
 		return fmt.Errorf("failed to flush rows: %w", err)
 	}
@@ -189,6 +175,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to close object iterator: %w", err)
 	}
 
+	// commit changes to the db
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}

@@ -45,6 +45,7 @@ func (s *S3) Validate() error {
 		if err != nil {
 			return fmt.Errorf("%w: failed to read s3 access key file", ErrInvalidConfig)
 		}
+
 		s.AccessKey = strings.TrimSpace(string(buf))
 	} else if s.AccessKey == "" {
 		return fmt.Errorf("%w: s3 access key is required", ErrInvalidConfig)
@@ -55,6 +56,7 @@ func (s *S3) Validate() error {
 		if err != nil {
 			return fmt.Errorf("%w: failed to read s3 secret key file", ErrInvalidConfig)
 		}
+
 		s.SecretKey = strings.TrimSpace(string(buf))
 	} else if s.SecretKey == "" {
 		return fmt.Errorf("%w: s3 secret key is required", ErrInvalidConfig)
