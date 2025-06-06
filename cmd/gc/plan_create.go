@@ -14,7 +14,6 @@ import (
 type closureEntry struct {
 	Hash       string `db:"hash"`
 	ObjectType string `db:"object_type"`
-	Bucket     string `db:"bucket"`
 	Path       string `db:"path"`
 	NarUrl     string `db:"nar_url"`
 }
@@ -32,7 +31,7 @@ func planCreate() *cobra.Command {
 	return cmd
 }
 
-func createPlan(cmd *cobra.Command, args []string) error {
+func createPlan(cmd *cobra.Command, _ []string) error {
 	defer pg.Close()
 
 	ctx := cmd.Context()
@@ -69,11 +68,9 @@ func createPlan(cmd *cobra.Command, args []string) error {
 	deletionsTableName := fmt.Sprintf("gc_plan_%d_deletions", planID)
 
 	deletionPlanQuery := fmt.Sprintf(
-		`create table if not exists %s (
-		    bucket varchar(128), 
-		    path varchar(128), 
-		    applied bool, 
-		    primary key (bucket, path)
+		`create table if not exists %s (		     
+		    path varchar(128) primary key, 
+		    applied bool		    
 		)`,
 		deletionsTableName,
 	)
@@ -121,7 +118,7 @@ func createPlan(cmd *cobra.Command, args []string) error {
 		tx, cursorValues,
 		`
 			select 
-			    o.hash, o.object_type, o.bucket, o.path, ni.url as nar_url 
+			    o.hash, o.object_type, o.path, ni.url as nar_url 
 			from object o 
 			left join nar_info ni on o.hash = ni.hash 
 			where o.object_type != 'nar'`,
@@ -140,7 +137,7 @@ func createPlan(cmd *cobra.Command, args []string) error {
 		_, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{deletionsTableName},
-			[]string{"bucket", "path"},
+			[]string{"path"},
 			pgx.CopyFromRows(rows),
 		)
 		if err != nil {
@@ -165,11 +162,11 @@ func createPlan(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		rows = append(rows, []any{entry.Bucket, entry.Path})
+		rows = append(rows, []any{entry.Path})
 
 		// we get the nar url from the nar_info table if it exists
 		if entry.ObjectType == "nar" && entry.NarUrl != "" {
-			rows = append(rows, []any{entry.Bucket, entry.NarUrl})
+			rows = append(rows, []any{entry.NarUrl})
 		}
 
 		if len(rows) == batchSize {

@@ -9,7 +9,6 @@ create table object
     hash varchar(52) not null,
     object_type object_type not null,
     compression_type compression_type not null,
-    bucket varchar(128) not null,
     path varchar(128) not null,
     size bigint constraint positive_size check (size > 0) not null,
     created_at timestamp not null,

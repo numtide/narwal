@@ -4,22 +4,21 @@ with update_accessed as (
     set last_accessed_at = timezone('UTC', now())
     where path = $1
 )
-select object_type, compression_type, bucket, size
+select object_type, compression_type, size
 from object as o
 where o.path = $1;
 
 -- name: GetObjectByHash :one
-select object_type, compression_type, bucket, size
+select object_type, compression_type, size
 from object as o
 where o.hash = $1;
 
 
 -- name: PutObject :exec
-insert into object (hash, object_type, compression_type, bucket, path, size, created_at)
-values ($1, $2, $3, $4, $5, $6, timezone('UTC', now()))
+insert into object (hash, object_type, compression_type, path, size, created_at)
+values ($1, $2, $3, $4, $5, timezone('UTC', now()))
 on conflict(path) do update
-    set bucket     = excluded.bucket,
-        size       = excluded.size,
+    set size       = excluded.size,
         created_at = timezone('UTC', now());
 
 -- name: PutNarInfo :exec

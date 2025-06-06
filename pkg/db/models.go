@@ -146,7 +146,6 @@ type Object struct {
 	Hash            string           `json:"hash"`
 	ObjectType      ObjectType       `json:"object_type"`
 	CompressionType CompressionType  `json:"compression_type"`
-	Bucket          string           `json:"bucket"`
 	Path            string           `json:"path"`
 	Size            int64            `json:"size"`
 	CreatedAt       pgtype.Timestamp `json:"created_at"`

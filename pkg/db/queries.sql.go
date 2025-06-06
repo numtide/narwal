@@ -67,7 +67,7 @@ func (q *Queries) GetGCPlan(ctx context.Context, id int32) (GcPlan, error) {
 }
 
 const getObjectByHash = `-- name: GetObjectByHash :one
-select object_type, compression_type, bucket, size
+select object_type, compression_type, size
 from object as o
 where o.hash = $1
 `
@@ -75,19 +75,13 @@ where o.hash = $1
 type GetObjectByHashRow struct {
 	ObjectType      ObjectType      `json:"object_type"`
 	CompressionType CompressionType `json:"compression_type"`
-	Bucket          string          `json:"bucket"`
 	Size            int64           `json:"size"`
 }
 
 func (q *Queries) GetObjectByHash(ctx context.Context, hash string) (GetObjectByHashRow, error) {
 	row := q.db.QueryRow(ctx, getObjectByHash, hash)
 	var i GetObjectByHashRow
-	err := row.Scan(
-		&i.ObjectType,
-		&i.CompressionType,
-		&i.Bucket,
-		&i.Size,
-	)
+	err := row.Scan(&i.ObjectType, &i.CompressionType, &i.Size)
 	return i, err
 }
 
@@ -97,7 +91,7 @@ with update_accessed as (
     set last_accessed_at = timezone('UTC', now())
     where path = $1
 )
-select object_type, compression_type, bucket, size
+select object_type, compression_type, size
 from object as o
 where o.path = $1
 `
@@ -105,19 +99,13 @@ where o.path = $1
 type HasObjectRow struct {
 	ObjectType      ObjectType      `json:"object_type"`
 	CompressionType CompressionType `json:"compression_type"`
-	Bucket          string          `json:"bucket"`
 	Size            int64           `json:"size"`
 }
 
 func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, error) {
 	row := q.db.QueryRow(ctx, hasObject, path)
 	var i HasObjectRow
-	err := row.Scan(
-		&i.ObjectType,
-		&i.CompressionType,
-		&i.Bucket,
-		&i.Size,
-	)
+	err := row.Scan(&i.ObjectType, &i.CompressionType, &i.Size)
 	return i, err
 }
 
@@ -247,11 +235,10 @@ func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
 }
 
 const putObject = `-- name: PutObject :exec
-insert into object (hash, object_type, compression_type, bucket, path, size, created_at)
-values ($1, $2, $3, $4, $5, $6, timezone('UTC', now()))
+insert into object (hash, object_type, compression_type, path, size, created_at)
+values ($1, $2, $3, $4, $5, timezone('UTC', now()))
 on conflict(path) do update
-    set bucket     = excluded.bucket,
-        size       = excluded.size,
+    set size       = excluded.size,
         created_at = timezone('UTC', now())
 `
 
@@ -259,7 +246,6 @@ type PutObjectParams struct {
 	Hash            string          `json:"hash"`
 	ObjectType      ObjectType      `json:"object_type"`
 	CompressionType CompressionType `json:"compression_type"`
-	Bucket          string          `json:"bucket"`
 	Path            string          `json:"path"`
 	Size            int64           `json:"size"`
 }
@@ -269,7 +255,6 @@ func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
 		arg.Hash,
 		arg.ObjectType,
 		arg.CompressionType,
-		arg.Bucket,
 		arg.Path,
 		arg.Size,
 	)

@@ -65,7 +65,7 @@ func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
 		return nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
-	body, err := s.s3.GetObject(ctx, entry.Bucket, path, minio.GetObjectOptions{})
+	body, err := s.s3.GetObject(ctx, s.bucketName, path, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object from s3: %w", err)
 	}
@@ -144,7 +144,6 @@ func (s *Store) PutObject(
 		Hash:            hash,
 		ObjectType:      analysis.ObjectType,
 		CompressionType: compression,
-		Bucket:          objectInfo.Bucket,
 		Path:            objectInfo.Key,
 		Size:            objectInfo.Size,
 	})
