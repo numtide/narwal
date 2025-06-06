@@ -7,7 +7,6 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -70,13 +69,10 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// connect to s3
-	if s3, err = minio.New(cfg.S3.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
-		Secure: cfg.S3.SSLEnabled,
-	}); err != nil {
-		return fmt.Errorf("failed to connect to s3: %w", err)
+	if s3, err = cfg.S3.Connect(); err != nil {
+		//nolint:wrapcheck
+		return err
 	}
-
 	return nil
 }
 

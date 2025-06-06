@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+
 	"github.com/spf13/pflag"
 )
 
@@ -12,6 +15,19 @@ type S3 struct {
 	SecretKey  string `mapstructure:"secret_key"`
 	BucketName string `mapstructure:"bucket_name"`
 	SSLEnabled bool   `mapstructure:"ssl_enabled"`
+}
+
+func (s *S3) Connect() (*minio.Client, error) {
+	// connect to s3
+	s3, err := minio.New(s.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(s.AccessKey, s.SecretKey, ""),
+		Secure: s.SSLEnabled,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to s3: %w", err)
+	}
+
+	return s3, err
 }
 
 func (s *S3) Validate() error {

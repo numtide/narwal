@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/charmbracelet/log"
@@ -58,11 +57,9 @@ func NewServer(cfg *config.Server) (*Server, error) {
 	}
 
 	// connect to s3
-	if srv.s3Client, err = minio.New(cfg.S3.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
-		Secure: cfg.S3.SSLEnabled,
-	}); err != nil {
-		return nil, fmt.Errorf("failed to connect to s3: %w", err)
+	if srv.s3Client, err = cfg.S3.Connect(); err != nil {
+		//nolint:wrapcheck
+		return nil, err
 	}
 
 	// create a store
