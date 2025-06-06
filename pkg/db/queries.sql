@@ -56,8 +56,8 @@ with deleted as (
 ) select count(*) from deleted;
 
 -- name: InsertGCPlan :one
-insert into gc_plan (name, created_at)
-values ($1, timezone('UTC', now()))
+insert into gc_plan (created_at)
+values (timezone('UTC', now()))
 returning id;
 
 -- name: ListGCPlans :many

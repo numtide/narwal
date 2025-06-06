@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/numtide/narwal/pkg/db"
 
 	ci "github.com/Eun/go-pgx-cursor-iterator/v2"
@@ -35,7 +34,6 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 	defer pg.Close()
 
 	ctx := cmd.Context()
-	name := args[0]
 
 	conn, err := pg.Acquire(ctx)
 	if err != nil {
@@ -54,7 +52,7 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 	queries := db.New(tx)
 
 	// create a new plan
-	planID, err := queries.InsertGCPlan(ctx, pgtype.Text{String: name, Valid: true})
+	planID, err := queries.InsertGCPlan(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to insert gc plan: %w", err)
 	}

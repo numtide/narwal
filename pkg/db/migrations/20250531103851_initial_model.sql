@@ -67,7 +67,6 @@ create table gc_root
 create table gc_plan
 (
     id serial primary key,
-    name varchar(64) null,
     created_at timestamp not null,
     applied_at timestamp null
 );

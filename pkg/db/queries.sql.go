@@ -7,8 +7,6 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteGCRoot = `-- name: DeleteGCRoot :one
@@ -75,13 +73,13 @@ func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, err
 }
 
 const insertGCPlan = `-- name: InsertGCPlan :one
-insert into gc_plan (name, created_at)
-values ($1, timezone('UTC', now()))
+insert into gc_plan (created_at)
+values (timezone('UTC', now()))
 returning id
 `
 
-func (q *Queries) InsertGCPlan(ctx context.Context, name pgtype.Text) (int32, error) {
-	row := q.db.QueryRow(ctx, insertGCPlan, name)
+func (q *Queries) InsertGCPlan(ctx context.Context) (int32, error) {
+	row := q.db.QueryRow(ctx, insertGCPlan)
 	var id int32
 	err := row.Scan(&id)
 	return id, err
@@ -99,7 +97,7 @@ type InsertNarInfoSignaturesParams struct {
 }
 
 const listGCPlans = `-- name: ListGCPlans :many
-select id, name, created_at, applied_at from gc_plan
+select id, created_at, applied_at from gc_plan
 `
 
 func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
@@ -111,12 +109,7 @@ func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
 	var items []GcPlan
 	for rows.Next() {
 		var i GcPlan
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.CreatedAt,
-			&i.AppliedAt,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.AppliedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

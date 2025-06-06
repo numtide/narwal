@@ -33,7 +33,7 @@ func planList() *cobra.Command {
 			}
 
 			for _, plan := range plans {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%v\t%v\n", plan.ID, plan.Name.String, plan.CreatedAt.Time, plan.AppliedAt.Time)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%d\t%v\t%v\n", plan.ID, plan.CreatedAt.Time, plan.AppliedAt.Time)
 			}
 
 			return nil
