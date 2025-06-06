@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/numtide/narwal/pkg/db"
 )
@@ -28,13 +29,12 @@ func AnalyzePath(path string) (*pathAnalysis, error) {
 	}
 
 	// logs are written with the .drv suffix and under the `log/` prefix
-	if path[:4] == "log/" && matches[1] == "drv" {
+	if path[:4] == "log/" && strings.Contains(path, ".drv") {
 		result.ObjectType = db.ObjectTypeLog
-		return result, nil
+	} else {
+		// otherwise we rely on the suffix to determine the object type
+		result.ObjectType = db.ObjectType(matches[1])
 	}
-
-	// otherwise we rely on the suffix
-	result.ObjectType = db.ObjectType(matches[1])
 
 	// determine compression
 	if len(matches) == 4 && matches[3] != "" {
