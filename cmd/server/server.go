@@ -70,6 +70,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
+		//nolint:contextcheck
 		if err := srv.Stop(shutdownCtx); err != nil {
 			log.Error("error during server shutdown", "error", err)
 		} else {

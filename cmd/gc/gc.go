@@ -14,10 +14,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-//nolint:checknoglobals
+//nolint:gochecknoglobals
 var (
 	cfg *config.GC
 
+	// s3 client will be used when we implement deletions
+	//nolint:unused
 	s3 *minio.Client
 	pg *pgxpool.Pool
 

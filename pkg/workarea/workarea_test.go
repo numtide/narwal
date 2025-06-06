@@ -144,7 +144,7 @@ func TestExists(t *testing.T) {
 	content := testContent + " for downloading"
 	client.addObject(testBucket, key, content)
 
-	err = bucket.Download(context.Background(), client, key, nil)
+	err = bucket.Download(t.Context(), client, key, nil)
 	if err != nil {
 		t.Fatalf("Failed to download content: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestDownload(t *testing.T) {
 	client.addObject(testBucket, key, content)
 
 	// Test downloading
-	err = bucket.Download(context.Background(), client, key, nil)
+	err = bucket.Download(t.Context(), client, key, nil)
 	if err != nil {
 		t.Fatalf("Failed to download content: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestDownloadWithProgress(t *testing.T) {
 	client := newMockS3Client()
 	client.addObject(testBucket, key, content)
 
-	err = bucket.Download(context.Background(), client, key, progressCallback)
+	err = bucket.Download(t.Context(), client, key, progressCallback)
 	if err != nil {
 		t.Fatalf("Failed to download content: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestDownloadSizeMismatch(t *testing.T) {
 		size:    999, // Wrong size
 	}
 
-	err = bucket.Download(context.Background(), client, key, nil)
+	err = bucket.Download(t.Context(), client, key, nil)
 
 	if err == nil {
 		t.Error("Expected error for size mismatch, got nil")
@@ -302,7 +302,7 @@ func TestDownloadCancellation(t *testing.T) {
 	key := testFile
 
 	// Create a context that's already cancelled
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	// Create mock S3 client that will fail with context error
@@ -338,7 +338,7 @@ func TestRemove(t *testing.T) {
 	client := newMockS3Client()
 	client.addObject(testBucket, key, content)
 
-	err = bucket.Download(context.Background(), client, key, nil)
+	err = bucket.Download(t.Context(), client, key, nil)
 	if err != nil {
 		t.Fatalf("Failed to download content: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestRemoveAll(t *testing.T) {
 		content := "content for " + key
 		client.addObject(testBucket, key, content)
 
-		err = bucket.Download(context.Background(), client, key, nil)
+		err = bucket.Download(t.Context(), client, key, nil)
 		if err != nil {
 			t.Fatalf("Failed to download %s: %v", key, err)
 		}
@@ -534,7 +534,7 @@ func TestSharding(t *testing.T) {
 		content := "content for " + key
 		client.addObject("test-bucket", key, content)
 
-		err = bucket.Download(context.Background(), client, key, nil)
+		err = bucket.Download(t.Context(), client, key, nil)
 		if err != nil {
 			t.Fatalf("Failed to download %s: %v", key, err)
 		}

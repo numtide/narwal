@@ -1,12 +1,16 @@
-package store
+package store_test
 
 import (
 	"testing"
+
+	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/numtide/narwal/pkg/db"
 )
 
 func TestAnalyzePath(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		path         string
@@ -103,12 +107,15 @@ func TestAnalyzePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := AnalyzePath(tt.path)
+			t.Parallel()
+
+			result, err := store.AnalyzePath(tt.path)
 
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error for path %s, but got none", tt.path)
 				}
+
 				return
 			}
 
@@ -134,12 +141,17 @@ func TestAnalyzePath(t *testing.T) {
 }
 
 func TestAnalyzePathCompressionTypes(t *testing.T) {
+	t.Parallel()
+
 	compressionTypes := []string{"br", "compress", "grzip", "gzip", "lrzip", "lz4", "lzip", "lzma", "lzop", "xz", "zstd"}
 
 	for _, comp := range compressionTypes {
 		t.Run("compression_"+comp, func(t *testing.T) {
+			t.Parallel()
+
 			path := "12345678901234567890123456789012.narinfo." + comp
-			result, err := AnalyzePath(path)
+
+			result, err := store.AnalyzePath(path)
 			if err != nil {
 				t.Errorf("Unexpected error for compression %s: %v", comp, err)
 				return

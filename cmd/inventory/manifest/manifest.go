@@ -133,7 +133,12 @@ func displayStats(manifest *inventory.InventoryManifest) error {
 func displayJSON(manifest *inventory.InventoryManifest) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(manifest)
+
+	if err := encoder.Encode(manifest.Files); err != nil {
+		return fmt.Errorf("error encoding manifest files: %w", err)
+	}
+
+	return nil
 }
 
 func displayTable(manifest *inventory.InventoryManifest) error {
@@ -154,6 +159,7 @@ func displayTable(manifest *inventory.InventoryManifest) error {
 		fmt.Printf("  %d. %s\n", i+1, file.Key)
 		fmt.Printf("     Size: %s\n", formatBytes(file.Size))
 		fmt.Printf("     MD5: %s\n", file.MD5Checksum)
+
 		if i < len(manifest.Files)-1 {
 			fmt.Println()
 		}

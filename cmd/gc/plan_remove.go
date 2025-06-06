@@ -24,7 +24,7 @@ func planRemove() *cobra.Command {
 	return cmd
 }
 
-func removePlan(cmd *cobra.Command, args []string) (err error) {
+func removePlan(cmd *cobra.Command, args []string) error {
 	defer pg.Close()
 
 	ctx := cmd.Context()
@@ -46,11 +46,13 @@ func removePlan(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
+	//nolint:errcheck
 	defer tx.Rollback(ctx)
 
 	queries := db.New(tx)
 
 	// check the plan exists
+	//nolint:gosec
 	_, err = queries.GetGCPlan(ctx, int32(planID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("plan not found: %d", planID)
@@ -59,6 +61,7 @@ func removePlan(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// remove all associated tables
+	//nolint:gosec
 	count, err := queries.DeleteGCPlan(ctx, int32(planID))
 	if err != nil || count == 0 {
 		return fmt.Errorf("failed to delete gc plan: %w", err)

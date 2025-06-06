@@ -30,7 +30,7 @@ func planCreate() *cobra.Command {
 	return cmd
 }
 
-func createPlan(cmd *cobra.Command, args []string) (err error) {
+func createPlan(cmd *cobra.Command, args []string) error {
 	defer pg.Close()
 
 	ctx := cmd.Context()
@@ -47,6 +47,7 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
+	//nolint:errcheck
 	defer tx.Rollback(ctx)
 
 	queries := db.New(tx)
@@ -81,7 +82,7 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// truncate if the table already exists and we are re-running the plan
-	if _, err = tx.Exec(ctx, fmt.Sprintf("truncate table %s", deletionsTableName)); err != nil {
+	if _, err = tx.Exec(ctx, "truncate table "+deletionsTableName); err != nil {
 		return fmt.Errorf("failed to truncate %s table: %w", deletionsTableName, err)
 	}
 
@@ -114,7 +115,10 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 
 	// stream every object (except nars) and add their hashes to the filter
 	// everything except nars is keyed by the same hash
-	objectIter, err := ci.NewCursorIterator(tx, cursorValues, `select hash, bucket, path from object where object_type != 'nar'`)
+	objectIter, err := ci.NewCursorIterator(
+		tx, cursorValues,
+		`select hash, bucket, path from object where object_type != 'nar'`,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create object iterator: %w", err)
 	}
@@ -180,7 +184,11 @@ func createPlan(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "plan %d created\n%d items processed\n%d items scheduled for deletion\n", planID, objectCount, deletionCount)
+	_, _ = fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"plan %d created\n%d items processed\n%d items scheduled for deletion\n",
+		planID, objectCount, deletionCount,
+	)
 
 	return nil
 }

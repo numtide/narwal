@@ -24,6 +24,7 @@ func main() {
 
 	root := cmd.New()
 	if err := root.ExecuteContext(ctx); err != nil {
+		//nolint:gocritic
 		os.Exit(1)
 	}
 }

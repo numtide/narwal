@@ -63,18 +63,23 @@ func runE(cmd *cobra.Command, _ []string) error {
 	if reportFlag := cmd.Flag("report"); reportFlag != nil && reportFlag.Changed {
 		viper.Set("report", reportFlag.Value.String())
 	}
+
 	if bucketFlag := cmd.Flag("bucket"); bucketFlag != nil && bucketFlag.Changed {
 		viper.Set("bucket", bucketFlag.Value.String())
 	}
+
 	if regionFlag := cmd.Flag("region"); regionFlag != nil && regionFlag.Changed {
 		viper.Set("region", regionFlag.Value.String())
 	}
+
 	if prefixFlag := cmd.Flag("prefix"); prefixFlag != nil && prefixFlag.Changed {
 		viper.Set("prefix", prefixFlag.Value.String())
 	}
+
 	if workdirFlag := cmd.Flag("workdir"); workdirFlag != nil && workdirFlag.Changed {
 		viper.Set("workdir", workdirFlag.Value.String())
 	}
+
 	if parallelFlag := cmd.Flag("parallel"); parallelFlag != nil && parallelFlag.Changed {
 		viper.Set("parallel", parallelFlag.Value.String())
 	}
@@ -135,26 +140,34 @@ func runE(cmd *cobra.Command, _ []string) error {
 	return model.err
 }
 
-// loadOrDownloadManifest loads manifest from cache or downloads it if not present
-func loadOrDownloadManifest(ctx context.Context, s3Client *s3.Client, cfg *appconfig.Inventory) (*inventory.InventoryManifest, error) {
+// loadOrDownloadManifest loads manifest from cache or downloads it if not present.
+func loadOrDownloadManifest(
+	ctx context.Context, s3Client *s3.Client, cfg *appconfig.Inventory,
+) (*inventory.InventoryManifest, error) {
 	// Check if manifest exists in workarea
 	manifestPath := filepath.Join(cfg.Workarea.GetBasePath(), "manifests", cfg.Bucket, cfg.ReportID, "manifest.json")
 
+	//nolint:gosec
 	if manifestFile, err := os.Open(manifestPath); err == nil {
+		//nolint:errcheck
 		defer manifestFile.Close()
+
 		var manifest inventory.InventoryManifest
+
 		decoder := json.NewDecoder(manifestFile)
 		if err := decoder.Decode(&manifest); err == nil {
 			log.Info("Loaded manifest from cache", "path", manifestPath)
 			return &manifest, nil
 		}
-		manifestFile.Close()
+
+		_ = manifestFile.Close()
 	}
 
 	// Download manifest
 	log.Info("Downloading manifest", "bucket", cfg.Bucket, "reportID", cfg.ReportID)
 
 	inventoryClient := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix)
+
 	manifest, err := inventoryClient.GetManifest(ctx, cfg.ReportID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download manifest: %w", err)
@@ -165,23 +178,27 @@ func loadOrDownloadManifest(ctx context.Context, s3Client *s3.Client, cfg *appco
 		return nil, fmt.Errorf("failed to create manifest directory: %w", err)
 	}
 
+	//nolint:gosec
 	manifestFile, err := os.Create(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create manifest file: %w", err)
 	}
+	//nolint:errcheck
 	defer manifestFile.Close()
 
 	encoder := json.NewEncoder(manifestFile)
 	encoder.SetIndent("", "  ")
+
 	if err := encoder.Encode(manifest); err != nil {
 		return nil, fmt.Errorf("failed to save manifest: %w", err)
 	}
 
 	log.Info("Manifest downloaded and cached", "files", len(manifest.Files), "path", manifestPath)
+
 	return manifest, nil
 }
 
-// Bubble Tea Model
+// Bubble Tea Model.
 type model struct {
 	cfg         *appconfig.Inventory
 	s3Client    *s3.Client
@@ -225,7 +242,9 @@ type progressUpdate struct {
 	err       error
 }
 
-func newModel(cfg *appconfig.Inventory, s3Client *s3.Client, manifest *inventory.InventoryManifest, parallelism int) *model {
+func newModel(
+	cfg *appconfig.Inventory, s3Client *s3.Client, manifest *inventory.InventoryManifest, parallelism int,
+) *model {
 	downloads := make([]downloadState, len(manifest.Files))
 	for i, file := range manifest.Files {
 		downloads[i] = downloadState{
@@ -256,11 +275,13 @@ func (m *model) Init() tea.Cmd {
 	)
 }
 
+//nolint:ireturn
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
 		return m, nil
 
 	case tea.KeyMsg:
@@ -274,6 +295,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+
 		return m, nil
 
 	case progressUpdate:
@@ -291,11 +313,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.downloads[msg.index].error = msg.err
 			}
 		}
+
 		return m, m.listenForProgress()
 
 	case errMsg:
 		m.err = msg.err
 		m.done = true
+
 		return m, nil
 
 	case doneMsg:
@@ -327,7 +351,9 @@ func (m *model) View() string {
 	bytesPercent := float64(m.downloadedSize) / float64(m.totalSize) * 100
 
 	elapsed := time.Since(m.startTime)
+
 	var speed string
+
 	if elapsed.Seconds() > 0 && m.downloadedSize > 0 {
 		bytesPerSecond := float64(m.downloadedSize) / elapsed.Seconds()
 		speed = fmt.Sprintf(" (%s/s)", formatBytes(int64(bytesPerSecond)))
@@ -349,10 +375,12 @@ func (m *model) View() string {
 	}
 
 	activeDownloads := 0
+
 	for _, download := range m.downloads {
 		if download.completed {
 			continue
 		}
+
 		if activeDownloads >= maxVisible {
 			break
 		}
@@ -389,6 +417,7 @@ func (m *model) View() string {
 
 	// Footer
 	b.WriteString("\n")
+
 	if m.done {
 		if m.err != nil {
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Render(
@@ -397,6 +426,7 @@ func (m *model) View() string {
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render(
 				fmt.Sprintf("✓ Download completed in %v", elapsed.Round(time.Second))))
 		}
+
 		b.WriteString("\nPress Enter to exit or Ctrl+C to quit")
 	} else {
 		b.WriteString("Press Ctrl+C to cancel")
@@ -405,6 +435,7 @@ func (m *model) View() string {
 	return b.String()
 }
 
+//nolint:gocognit
 func (m *model) startDownloads() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -412,13 +443,16 @@ func (m *model) startDownloads() tea.Cmd {
 
 		// Create worker pool
 		fileChan := make(chan int, len(m.downloads))
+
 		var wg sync.WaitGroup
 
 		// Start workers
-		for i := 0; i < m.parallelism; i++ {
+		for range m.parallelism {
 			wg.Add(1)
+
 			go func() {
 				defer wg.Done()
+
 				for fileIndex := range fileChan {
 					if fileIndex >= len(m.downloads) {
 						continue
@@ -456,6 +490,7 @@ func (m *model) startDownloads() tea.Cmd {
 						case m.errorChan <- fmt.Errorf("failed to download %s: %w", download.key, err):
 						default:
 						}
+
 						return
 					}
 				}
@@ -465,6 +500,7 @@ func (m *model) startDownloads() tea.Cmd {
 		// Send file indices to workers
 		go func() {
 			defer close(fileChan)
+
 			for i := range m.downloads {
 				select {
 				case fileChan <- i:
@@ -500,13 +536,13 @@ func (m *model) listenForProgress() tea.Cmd {
 	}
 }
 
-// Custom message types
+// Custom message types.
 type (
 	errMsg  struct{ err error }
 	doneMsg struct{}
 )
 
-// Helper functions
+// Helper functions.
 func createProgressBar(percent float64, width int) string {
 	if width < 2 {
 		return ""
@@ -516,18 +552,21 @@ func createProgressBar(percent float64, width int) string {
 	if filled > width-2 {
 		filled = width - 2
 	}
+
 	if filled < 0 {
 		filled = 0
 	}
 
 	bar := "["
-	for i := 0; i < width-2; i++ {
+
+	for i := range width - 2 {
 		if i < filled {
 			bar += "█"
 		} else {
 			bar += "░"
 		}
 	}
+
 	bar += "]"
 
 	return bar
