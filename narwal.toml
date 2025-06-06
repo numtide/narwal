@@ -7,28 +7,37 @@
 
 [s3]
 # S3 endpoint URL (required)
+# ENV $NARWAL_S3__ENDPOINT
 endpoint = ""
 
 # S3 access credentials (required)
-access_key = ""
-secret_key = ""
+
+# ENV $NARWAL_S3__ACCESS_KEY_FILE
+access_key_file = ".data/s3_access_key"
+# ENV $NARWAL_S3__SECRET_KEY_FILE
+secret_key_file = ".data/s3_secret_key"
 
 # S3 bucket name (required)
+# ENV $NARWAL_S3__BUCKET_NAME
 bucket_name = ""
 
 # Enable SSL for S3 connections
+# ENV $NARWAL_S3__SSL_ENABLED
 ssl_enabled = false
 
 [postgres]
 # PostgreSQL connection URL (required)
 # Example: "postgres://user:pass@localhost:5432/narwal?sslmode=disable"
+# ENV $NARWAL_POSTGRES__URL
 url = ""
 
 [http]
 # HTTP server host to bind to
+# ENV $NARWAL_HTTP__HOST
 host = "127.0.0.1"
 
 # HTTP server port to listen on
+# ENV $NARWAL_HTTP__PORT
 port = 7777
 
 # Example inventory configuration for reference

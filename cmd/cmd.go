@@ -41,7 +41,7 @@ func New() *cobra.Command {
 	fs.StringVar(&configFile, "config-file", "", "Load the config file from the given path")
 
 	// add a log level flag
-	fs.StringVar(&logLevelStr, "log-level", "warn", "Log level (warn, info, debug)")
+	fs.StringVar(&logLevelStr, "log_level", "info", "Log level (warn, info, debug)")
 
 	// add flags shared by all sub commands
 	config.SetSharedFlags(fs)
