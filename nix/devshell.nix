@@ -5,7 +5,7 @@ let
 
   postgres-init = pkgs.writeShellApplication {
     name = "postgres-init";
-    runtimeInputs = [ pkgs.postgresql_16 ];
+    runtimeInputs = [ pkgs.postgresql_17 ];
     text =
       let
 
@@ -64,7 +64,7 @@ perSystem.self.narwal.overrideAttrs (old: {
 
       # local dev services
       process-compose
-      postgresql_16
+      postgresql_17
       postgres-init
       minio
 
