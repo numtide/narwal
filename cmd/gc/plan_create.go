@@ -151,8 +151,9 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		rows = append(rows, []any{entry.Path})
 
 		// we get the nar url from the nar_info table if it exists
-		if entry.ObjectType == "nar" && entry.NarUrl != "" {
+		if entry.ObjectType == "narinfo" && entry.NarUrl != "" {
 			rows = append(rows, []any{entry.NarUrl})
+			objectCount++
 		}
 
 		if len(rows) == batchSize {
