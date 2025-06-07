@@ -24,7 +24,8 @@ In 3 days Brian created a backward-compatible binary cache with GC. Not somethin
 
 ## Jonas
 
-More infrastructury stuff.
+Before digging into anything, I spent some time reviewing the previous work. A
+lot of good tools have been built at https://git.snix.dev/snix/snix/src/branch/canon/contrib
 
 On the NixOS AWS account, I fixed the archivist profile. It's a IAM profile that gives read-only access so Brian and I can poke at the S3 buckets safely.
 
