@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minio/minio-go/v7"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,7 +18,7 @@ var (
 
 	// s3 client will be used when we implement deletions
 	//nolint:unused
-	s3 *minio.Client
+	s3 *awssdk.BucketClient
 	pg *pgxpool.Pool
 
 	storePathPattern = regexp.MustCompile(`^([a-z0-9]{32})|/nix/store/([a-z0-9]{32})-.*$`)
@@ -69,7 +69,7 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// connect to s3
-	if s3, err = cfg.S3.Connect(); err != nil {
+	if s3, err = cfg.S3.Connect(cmd.Context()); err != nil {
 		//nolint:wrapcheck
 		return err
 	}

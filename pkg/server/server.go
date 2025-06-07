@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minio/minio-go/v7"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/charmbracelet/log"
@@ -25,7 +25,7 @@ type Server struct {
 	config *config.Server
 
 	pgPool   *pgxpool.Pool
-	s3Client *minio.Client
+	s3Client *awssdk.BucketClient
 
 	http  *http.Server
 	store *store.Store
@@ -57,13 +57,13 @@ func NewServer(cfg *config.Server) (*Server, error) {
 	}
 
 	// connect to s3
-	if srv.s3Client, err = cfg.S3.Connect(); err != nil {
+	if srv.s3Client, err = cfg.S3.Connect(ctx); err != nil {
 		//nolint:wrapcheck
 		return nil, err
 	}
 
-	// create a store
-	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client, srv.eg); err != nil {
+	// create a store (pass underlying minio client for now)
+	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client.UnderlyingClient(), srv.eg); err != nil {
 		return nil, fmt.Errorf("failed to create store: %w", err)
 	}
 

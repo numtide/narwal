@@ -38,7 +38,7 @@ func New(
 		s3:         s3,
 		eg:         eg,
 		log:        log.WithPrefix("store"),
-		bucketName: cfg.S3.BucketName,
+		bucketName: cfg.S3.Bucket,
 	}
 
 	return result, nil

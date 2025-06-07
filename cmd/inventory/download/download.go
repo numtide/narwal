@@ -11,16 +11,16 @@ import (
 	"sync"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/numtide/narwal/pkg/awssdk"
 	appconfig "github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
+	"github.com/numtide/narwal/pkg/workarea"
 )
 
 func NewCmd() *cobra.Command {
@@ -84,12 +84,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 		viper.Set("parallel", parallelFlag.Value.String())
 	}
 
-	// Load default AWS configuration
-	awscfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("error loading AWS config: %w", err)
-	}
-
 	// parse viper into our config object
 	var cfg *appconfig.Inventory
 
@@ -97,7 +91,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create config from viper: %w", err)
 	}
 
-	if err := cfg.Validate(ctx, awscfg); err != nil {
+	if err := cfg.Validate(ctx, nil); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
@@ -110,25 +104,31 @@ func runE(cmd *cobra.Command, _ []string) error {
 		parallelism = 8
 	}
 
-	// Create a new S3 client with the correct region
-	regionCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(cfg.BucketRegion),
-		awsconfig.WithRetryMaxAttempts(5),
-	)
+	// Create AWS credentials
+	creds, err := awssdk.NewCredentials(ctx, cfg.Credentials)
 	if err != nil {
-		return fmt.Errorf("error loading AWS config with region: %w", err)
+		return fmt.Errorf("failed to create AWS credentials: %w", err)
 	}
 
-	s3Client := s3.NewFromConfig(regionCfg)
+	// Create bucket client using awssdk
+	bucketClient, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
+		Bucket:   cfg.Bucket,
+		Region:   cfg.BucketRegion,
+		Endpoint: cfg.Endpoint,
+		UseSSL:   cfg.UseSSL,
+	}, creds)
+	if err != nil {
+		return fmt.Errorf("failed to create bucket client: %w", err)
+	}
 
 	// Load or download manifest
-	manifest, err := loadOrDownloadManifest(ctx, s3Client, cfg)
+	manifest, err := loadOrDownloadManifest(ctx, bucketClient, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to get manifest: %w", err)
 	}
 
 	// Create the UI model
-	model := newModel(cfg, s3Client, manifest, parallelism)
+	model := newModel(cfg, bucketClient, manifest, parallelism)
 
 	// Run the Bubble Tea program
 	program := tea.NewProgram(model, tea.WithAltScreen())
@@ -142,7 +142,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 // loadOrDownloadManifest loads manifest from cache or downloads it if not present.
 func loadOrDownloadManifest(
-	ctx context.Context, s3Client *s3.Client, cfg *appconfig.Inventory,
+	ctx context.Context, bucketClient *awssdk.BucketClient, cfg *appconfig.Inventory,
 ) (*inventory.InventoryManifest, error) {
 	// Check if manifest exists in workarea
 	manifestPath := filepath.Join(cfg.Workarea.GetBasePath(), "manifests", cfg.Bucket, cfg.ReportID, "manifest.json")
@@ -166,7 +166,7 @@ func loadOrDownloadManifest(
 	// Download manifest
 	log.Info("Downloading manifest", "bucket", cfg.Bucket, "reportID", cfg.ReportID)
 
-	inventoryClient := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix)
+	inventoryClient := inventory.NewClient(bucketClient, cfg.Prefix)
 
 	manifest, err := inventoryClient.GetManifest(ctx, cfg.ReportID)
 	if err != nil {
@@ -200,10 +200,10 @@ func loadOrDownloadManifest(
 
 // Bubble Tea Model.
 type model struct {
-	cfg         *appconfig.Inventory
-	s3Client    *s3.Client
-	manifest    *inventory.InventoryManifest
-	parallelism int
+	cfg          *appconfig.Inventory
+	bucketClient *awssdk.BucketClient
+	manifest     *inventory.InventoryManifest
+	parallelism  int
 
 	// Download state
 	downloads      []downloadState
@@ -243,7 +243,7 @@ type progressUpdate struct {
 }
 
 func newModel(
-	cfg *appconfig.Inventory, s3Client *s3.Client, manifest *inventory.InventoryManifest, parallelism int,
+	cfg *appconfig.Inventory, bucketClient *awssdk.BucketClient, manifest *inventory.InventoryManifest, parallelism int,
 ) *model {
 	downloads := make([]downloadState, len(manifest.Files))
 	for i, file := range manifest.Files {
@@ -255,7 +255,7 @@ func newModel(
 
 	return &model{
 		cfg:          cfg,
-		s3Client:     s3Client,
+		bucketClient: bucketClient,
 		manifest:     manifest,
 		parallelism:  parallelism,
 		downloads:    downloads,
@@ -460,7 +460,9 @@ func (m *model) startDownloads() tea.Cmd {
 
 					download := m.downloads[fileIndex]
 
-					err := bucket.Download(ctx, m.s3Client, download.key, func(bucket, key string, written, total int64) {
+					// Create adapter for workarea compatibility
+					s3Client := workarea.NewBucketClientAdapter(m.bucketClient)
+					err := bucket.Download(ctx, s3Client, download.key, func(bucket, key string, written, total int64) {
 						select {
 						case m.progressChan <- progressUpdate{
 							index:    fileIndex,

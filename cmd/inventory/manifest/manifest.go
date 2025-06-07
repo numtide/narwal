@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
-	appconfig "github.com/numtide/narwal/pkg/config"
-	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/numtide/narwal/pkg/awssdk"
+	appconfig "github.com/numtide/narwal/pkg/config"
+	"github.com/numtide/narwal/pkg/inventory"
 )
 
 var (
@@ -59,10 +59,33 @@ file paths, sizes, and checksums.`,
 func runE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	// Load default AWS configuration
-	awscfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("error loading AWS config: %w", err)
+	// Explicitly set flag values in viper since flag binding might not work properly
+	if reportFlag := cmd.Flag("report"); reportFlag != nil && reportFlag.Changed {
+		viper.Set("report", reportFlag.Value.String())
+	}
+
+	if bucketFlag := cmd.Flag("bucket"); bucketFlag != nil && bucketFlag.Changed {
+		viper.Set("bucket", bucketFlag.Value.String())
+	}
+
+	if regionFlag := cmd.Flag("region"); regionFlag != nil && regionFlag.Changed {
+		viper.Set("region", regionFlag.Value.String())
+	}
+
+	if endpointFlag := cmd.Flag("endpoint"); endpointFlag != nil && endpointFlag.Changed {
+		viper.Set("endpoint", endpointFlag.Value.String())
+	}
+
+	if useSSLFlag := cmd.Flag("use_ssl"); useSSLFlag != nil && useSSLFlag.Changed {
+		viper.Set("use_ssl", useSSLFlag.Value.String())
+	}
+
+	if prefixFlag := cmd.Flag("prefix"); prefixFlag != nil && prefixFlag.Changed {
+		viper.Set("prefix", prefixFlag.Value.String())
+	}
+
+	if workdirFlag := cmd.Flag("workdir"); workdirFlag != nil && workdirFlag.Changed {
+		viper.Set("workdir", workdirFlag.Value.String())
 	}
 
 	// parse viper into our config object
@@ -71,7 +94,7 @@ func runE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create config from viper: %w", err)
 	}
 
-	if err := cfg.Validate(ctx, awscfg); err != nil {
+	if err := cfg.Validate(ctx, nil); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
@@ -82,19 +105,25 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 	log.Info("Accessing S3 bucket", "bucket", cfg.Bucket, "prefix", cfg.Prefix, "region", cfg.BucketRegion)
 
-	// Create a new S3 client with the correct region
-	regionCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(cfg.BucketRegion),
-		awsconfig.WithRetryMaxAttempts(5),
-	)
+	// Create AWS credentials
+	creds, err := awssdk.NewCredentials(ctx, cfg.Credentials)
 	if err != nil {
-		return fmt.Errorf("error loading AWS config with region: %w", err)
+		return fmt.Errorf("failed to create AWS credentials: %w", err)
 	}
 
-	s3Client := s3.NewFromConfig(regionCfg)
+	// Create bucket client using awssdk
+	bucketClient, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
+		Bucket:   cfg.Bucket,
+		Region:   cfg.BucketRegion,
+		Endpoint: cfg.Endpoint,
+		UseSSL:   cfg.UseSSL,
+	}, creds)
+	if err != nil {
+		return fmt.Errorf("failed to create bucket client: %w", err)
+	}
 
 	// Create inventory client
-	inventoryClient := inventory.NewClient(s3Client, cfg.Bucket, cfg.Prefix)
+	inventoryClient := inventory.NewClient(bucketClient, cfg.Prefix)
 
 	// Get manifest
 	manifest, err := inventoryClient.GetManifest(ctx, cfg.ReportID)
