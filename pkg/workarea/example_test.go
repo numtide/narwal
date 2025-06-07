@@ -8,8 +8,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/workarea"
 )
 
@@ -24,27 +23,53 @@ type mockS3Object struct {
 	size    int64
 }
 
-// GetObject implements the S3Client interface.
-func (m *mockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput,
-	optFns ...func(*s3.Options),
-) (*s3.GetObjectOutput, error) {
-	objKey := *params.Bucket + "/" + *params.Key
+// mockMinioObject implements the minio.Object interface for testing.
+type mockMinioObject struct {
+	reader io.Reader
+	size   int64
+}
 
+// Read implements io.Reader.
+func (m *mockMinioObject) Read(p []byte) (int, error) {
+	return m.reader.Read(p) //nolint:wrapcheck
+}
+
+// Close implements io.Closer.
+func (m *mockMinioObject) Close() error {
+	return nil
+}
+
+// Stat returns object stats.
+func (m *mockMinioObject) Stat() (minio.ObjectInfo, error) {
+	return minio.ObjectInfo{
+		Size: m.size,
+	}, nil
+}
+
+// GetObject implements the S3Client interface.
+//
+//nolint:ireturn,nolintlint
+func (m *mockS3Client) GetObject(
+	ctx context.Context, key string, opts minio.GetObjectOptions,
+) (workarea.ObjectReader, error) {
 	// Check for configured errors first
-	if err, exists := m.errors[objKey]; exists {
+	if err, exists := m.errors[key]; exists {
 		return nil, err
 	}
 
 	// Check if object exists
-	obj, exists := m.objects[objKey]
+	obj, exists := m.objects[key]
 	if !exists {
 		return nil, errors.New("NoSuchKey: The specified key does not exist")
 	}
 
-	return &s3.GetObjectOutput{
-		Body:          io.NopCloser(strings.NewReader(obj.content)),
-		ContentLength: aws.Int64(obj.size),
-	}, nil
+	// Create a mock minio.Object
+	mockObject := &mockMinioObject{
+		reader: strings.NewReader(obj.content),
+		size:   obj.size,
+	}
+
+	return mockObject, nil
 }
 
 // newMockS3Client creates a new mock S3 client for testing.
@@ -57,8 +82,9 @@ func newMockS3Client() *mockS3Client {
 
 // addObject adds an object to the mock S3 client.
 func (m *mockS3Client) addObject(bucket, key, content string) { //nolint:unparam
-	objKey := bucket + "/" + key
-	m.objects[objKey] = &mockS3Object{
+	// Since BucketClient is bound to a bucket, we only store the key without bucket prefix
+	_ = bucket // unused parameter
+	m.objects[key] = &mockS3Object{
 		content: content,
 		size:    int64(len(content)),
 	}
@@ -75,10 +101,10 @@ func ExampleWorkArea_basic() {
 	key := "data/inventory/2025-01-01/manifest.json"
 	content := `{"version": "1.0", "files": ["file1.parquet", "file2.parquet"]}`
 
-	// Create mock S3 client (in real usage, you'd use aws-sdk-go-v2)
+	// Create mock S3 client (in real usage, you'd use awssdk.BucketClient)
 	client := &mockS3Client{
 		objects: map[string]*mockS3Object{
-			bucketName + "/" + key: {
+			key: {
 				content: content,
 				size:    int64(len(content)),
 			},
@@ -120,7 +146,7 @@ func ExampleWorkArea_withProgress() { //nolint:testableexamples
 	// Create mock S3 client
 	client := &mockS3Client{
 		objects: map[string]*mockS3Object{
-			bucketName + "/" + key: {
+			key: {
 				content: content,
 				size:    int64(len(content)),
 			},
@@ -165,7 +191,7 @@ func ExampleWorkArea_cacheManagement() { //nolint:testableexamples
 		objects: make(map[string]*mockS3Object),
 	}
 	for key, content := range files {
-		client.objects[bucketName+"/"+key] = &mockS3Object{
+		client.objects[key] = &mockS3Object{
 			content: content,
 			size:    int64(len(content)),
 		}
@@ -218,7 +244,7 @@ func ExampleWorkArea_fileInfo() { //nolint:testableexamples
 	// Create mock S3 client
 	client := &mockS3Client{
 		objects: map[string]*mockS3Object{
-			bucketName + "/" + key: {
+			key: {
 				content: content,
 				size:    int64(len(content)),
 			},

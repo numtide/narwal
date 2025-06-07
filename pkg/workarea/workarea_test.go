@@ -272,8 +272,7 @@ func TestDownloadSizeMismatch(t *testing.T) {
 
 	// Create mock S3 client with mismatched content length
 	client := newMockS3Client()
-	objKey := testBucket + "/" + key
-	client.objects[objKey] = &mockS3Object{
+	client.objects[key] = &mockS3Object{
 		content: content,
 		size:    999, // Wrong size
 	}
@@ -307,7 +306,7 @@ func TestDownloadCancellation(t *testing.T) {
 
 	// Create mock S3 client that will fail with context error
 	client := newMockS3Client()
-	client.errors[testBucket+"/"+key] = context.Canceled
+	client.errors[key] = context.Canceled
 
 	err = bucket.Download(ctx, client, key, nil)
 	if err == nil {

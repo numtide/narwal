@@ -6,45 +6,43 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
+	"github.com/minio/minio-go/v7"
 )
 
 // ListReports returns a list of available inventory reports, ordered lexicographically.
 func (c *Client) ListReports(ctx context.Context) ([]string, error) {
-	log.Debug("Listing inventory reports", "bucket", c.bucket, "prefix", c.prefix)
+	log.Debug("Listing inventory reports", "bucket", c.bucketClient.BucketName(), "prefix", c.prefix)
 
 	var reports []string
 
-	paginator := s3.NewListObjectsV2Paginator(c.s3Client, &s3.ListObjectsV2Input{
-		Bucket:    aws.String(c.bucket),
-		Prefix:    aws.String(c.prefix),
-		Delimiter: aws.String("/"),
-	})
+	// List objects with non-recursive mode to get directory-like structure
+	// This will only list objects/prefixes at the current level, simulating directory listing
+	opts := minio.ListObjectsOptions{
+		Prefix:    c.prefix,
+		Recursive: false, // This effectively acts like using a delimiter
+	}
 
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", err)
+	// Use a map to track unique directory prefixes we've seen
+	seenPrefixes := make(map[string]bool)
+
+	for object := range c.bucketClient.ListObjects(ctx, opts) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", object.Err)
 		}
 
-		// Extract report directories from common prefixes
-		for _, commonPrefix := range page.CommonPrefixes {
-			if commonPrefix.Prefix == nil {
-				continue
-			}
+		// Extract the directory part after our prefix
+		if strings.HasPrefix(object.Key, c.prefix) {
+			remainder := strings.TrimPrefix(object.Key, c.prefix)
 
-			// Extract the report ID part from the prefix
-			// Example: "nix-cache/nix-cache-inventory/2025-06-03T01-00Z/" -> "2025-06-03T01-00Z"
-			prefixStr := *commonPrefix.Prefix
-			if strings.HasPrefix(prefixStr, c.prefix) {
-				reportDir := strings.TrimPrefix(prefixStr, c.prefix)
-				reportDir = strings.TrimSuffix(reportDir, "/")
+			// Find the first slash to identify the directory
+			if slashIndex := strings.Index(remainder, "/"); slashIndex >= 0 {
+				reportDir := remainder[:slashIndex]
 
 				// Basic validation that this looks like a report directory
-				if len(reportDir) > 0 && strings.Contains(reportDir, "T") {
+				if len(reportDir) > 0 && strings.Contains(reportDir, "T") && !seenPrefixes[reportDir] {
 					reports = append(reports, reportDir)
+					seenPrefixes[reportDir] = true
 				}
 			}
 		}

@@ -6,24 +6,40 @@
 # - ~/.config/narwal/narwal.toml (XDG config directory)
 
 [s3]
-# S3 endpoint URL (required)
+# S3 bucket name (required)
+# ENV $NARWAL_S3__BUCKET
+bucket = ""
+
+# For AWS S3: specify region
+# ENV $NARWAL_S3__REGION
+region = ""
+
+# For custom S3-compatible services (like MinIO): specify endpoint
+# Note: Use either region OR endpoint, not both
 # ENV $NARWAL_S3__ENDPOINT
 endpoint = ""
 
-# S3 access credentials (required)
+# Enable SSL for S3 connections (defaults to true for AWS, configurable for custom endpoints)
+# ENV $NARWAL_S3__USE_SSL
+use_ssl = false
 
-# ENV $NARWAL_S3__ACCESS_KEY_FILE
-access_key_file = ".data/s3_access_key"
-# ENV $NARWAL_S3__SECRET_KEY_FILE
-secret_key_file = ".data/s3_secret_key"
+# S3 credentials configuration
+[s3.credentials]
+# Direct AWS credentials (highest priority)
+# ENV $NARWAL_S3__CREDENTIALS__ACCESS_KEY_ID
+access_key_id = ""
+# ENV $NARWAL_S3__CREDENTIALS__SECRET_ACCESS_KEY
+secret_access_key = ""
+# ENV $NARWAL_S3__CREDENTIALS__SESSION_TOKEN
+session_token = ""
 
-# S3 bucket name (required)
-# ENV $NARWAL_S3__BUCKET_NAME
-bucket_name = ""
+# AWS credentials file path (second priority)
+# ENV $NARWAL_S3__CREDENTIALS__FILE
+file = ""
 
-# Enable SSL for S3 connections
-# ENV $NARWAL_S3__SSL_ENABLED
-ssl_enabled = false
+# AWS CLI profile (fallback)
+# ENV $NARWAL_S3__CREDENTIALS__PROFILE
+profile = ""
 
 [postgres]
 # PostgreSQL connection URL (required)
@@ -40,7 +56,50 @@ host = "127.0.0.1"
 # ENV $NARWAL_HTTP__PORT
 port = 7777
 
-# Example inventory configuration for reference
-# [inventory]
-# bucket_name = "nix-cache-inventory"
-# prefix = "data/"
+[inventory]
+# Inventory bucket configuration
+# ENV $NARWAL_INVENTORY__BUCKET
+bucket = "nix-cache-inventory"
+
+# AWS region for inventory bucket
+# ENV $NARWAL_INVENTORY__REGION
+region = ""
+
+# For custom S3-compatible services: specify endpoint
+# Note: Use either region OR endpoint, not both
+# ENV $NARWAL_INVENTORY__ENDPOINT
+endpoint = ""
+
+# Enable SSL for inventory S3 connections
+# ENV $NARWAL_INVENTORY__USE_SSL
+use_ssl = false
+
+# Prefix path within the inventory bucket
+# ENV $NARWAL_INVENTORY__PREFIX
+prefix = "nix-cache/nix-cache-inventory"
+
+# Report ID for specific commands (get-manifest, download)
+# ENV $NARWAL_INVENTORY__REPORT
+report = ""
+
+# Local working directory for caching
+# ENV $NARWAL_INVENTORY__WORKDIR
+workdir = "./work"
+
+# Inventory S3 credentials (can be different from main S3)
+[inventory.credentials]
+# Direct AWS credentials (highest priority)
+# ENV $NARWAL_INVENTORY__CREDENTIALS__ACCESS_KEY_ID
+access_key_id = ""
+# ENV $NARWAL_INVENTORY__CREDENTIALS__SECRET_ACCESS_KEY
+secret_access_key = ""
+# ENV $NARWAL_INVENTORY__CREDENTIALS__SESSION_TOKEN
+session_token = ""
+
+# AWS credentials file path (second priority)
+# ENV $NARWAL_INVENTORY__CREDENTIALS__FILE
+file = ""
+
+# AWS CLI profile (fallback)
+# ENV $NARWAL_INVENTORY__CREDENTIALS__PROFILE
+profile = ""

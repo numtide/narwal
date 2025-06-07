@@ -12,9 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
+	"github.com/minio/minio-go/v7"
 )
 
 // WorkArea provides a local caching area for S3 content organized by bucket and key.
@@ -43,9 +42,40 @@ type FileInfo struct {
 // DownloadProgressCallback is called during download to report progress.
 type DownloadProgressCallback func(bucket, key string, written, total int64)
 
+// ObjectReader defines the interface for reading S3 objects.
+type ObjectReader interface {
+	io.Reader
+	io.Closer
+	Stat() (minio.ObjectInfo, error)
+}
+
 // S3Client defines the interface for S3 operations needed by the work area.
 type S3Client interface {
-	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	GetObject(ctx context.Context, key string, opts minio.GetObjectOptions) (ObjectReader, error)
+}
+
+// BucketClientAdapter adapts awssdk.BucketClient to the S3Client interface.
+type BucketClientAdapter struct {
+	bucketClient interface {
+		GetObject(ctx context.Context, key string, opts minio.GetObjectOptions) (*minio.Object, error)
+	}
+}
+
+// NewBucketClientAdapter creates an adapter for awssdk.BucketClient.
+func NewBucketClientAdapter(bucketClient interface {
+	GetObject(ctx context.Context, key string, opts minio.GetObjectOptions) (*minio.Object, error)
+},
+) *BucketClientAdapter {
+	return &BucketClientAdapter{
+		bucketClient: bucketClient,
+	}
+}
+
+// GetObject implements S3Client interface by wrapping awssdk.BucketClient.
+func (a *BucketClientAdapter) GetObject( //nolint:ireturn
+	ctx context.Context, key string, opts minio.GetObjectOptions,
+) (ObjectReader, error) {
+	return a.bucketClient.GetObject(ctx, key, opts) //nolint:wrapcheck
 }
 
 // New creates a new WorkArea with the specified base path.
@@ -175,25 +205,24 @@ func (b *Bucket) Download(ctx context.Context, s3Client S3Client, key string,
 	b.log.Debug("Downloading from S3", "key", key)
 
 	// Get object from S3
-	result, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(b.bucketName),
-		Key:    aws.String(key),
-	})
+	object, err := s3Client.GetObject(ctx, key, minio.GetObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get object from S3: %w", err)
 	}
 
 	defer func() {
-		if closeErr := result.Body.Close(); closeErr != nil {
+		if closeErr := object.Close(); closeErr != nil {
 			b.log.Warn("Failed to close S3 response body", "error", closeErr)
 		}
 	}()
 
 	// Get expected size from S3 response
-	expectedSize := int64(0)
-	if result.ContentLength != nil {
-		expectedSize = *result.ContentLength
+	stat, err := object.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get object stats: %w", err)
 	}
+
+	expectedSize := stat.Size
 
 	targetPath := b.workArea.getShardedPath(b.bucketName, key)
 
@@ -235,7 +264,7 @@ func (b *Bucket) Download(ctx context.Context, s3Client S3Client, key string,
 	}
 
 	// Copy content to temporary file
-	written, err := io.Copy(writer, result.Body)
+	written, err := io.Copy(writer, object)
 	if err != nil {
 		return fmt.Errorf("failed to write content: %w", err)
 	}

@@ -6,9 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
+	"github.com/minio/minio-go/v7"
 )
 
 // InventoryManifest represents the structure of an S3 inventory manifest.json file.
@@ -32,22 +31,19 @@ type InventoryManifestInfo struct {
 // GetManifest retrieves and parses the inventory manifest for a given report ID.
 func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryManifest, error) {
 	manifestKey := c.prefix + reportID + "/manifest.json"
-	log.Debug("Fetching inventory manifest", "bucket", c.bucket, "key", manifestKey)
+	log.Debug("Fetching inventory manifest", "bucket", c.bucketClient.BucketName(), "key", manifestKey)
 
 	// Get the manifest.json file from S3
-	result, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(c.bucket),
-		Key:    aws.String(manifestKey),
-	})
+	reader, err := c.bucketClient.GetObject(ctx, manifestKey, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest file: %w", err)
 	}
-	defer result.Body.Close() //nolint:errcheck
+	defer reader.Close() //nolint:errcheck
 
 	// Parse the JSON manifest directly from the stream
 	var manifest InventoryManifest
 
-	decoder := json.NewDecoder(result.Body)
+	decoder := json.NewDecoder(reader)
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse manifest JSON: %w", err)
 	}

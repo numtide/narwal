@@ -1,40 +1,32 @@
 # Narwal Configuration File for the NixOS infrastructure.
-#
-# TODO: This is not a correct configuration file.
 
-[aws]
-access_key_id = ""
-secret_access_key = ""
+[s3]
+# Primary S3 bucket for cache storage
+bucket = "nix-cache"
+region = "us-east-1"
+use_ssl = true
 
-[workarea]
-directory = "/var/lib/narwal/workarea"
-
-[bucket.cache]
-name = "nix-cache"
-endpoint = "https://s3.us-east-1.amazonaws.com"
-
-[bucket.cache-inventory]
-name = "nix-cache-inventory"
-endpoint = "https://s3.us-east-1.amazonaws.com"
-
-[bucket.releases]
-name = "nix-releases"
-endpoint = "https://s3.eu-west-1.amazonaws.com"
-
-[bucket.releases-inventory]
-name = "nix-releases-inventory220231029182031496800000001"
-endpoint = "https://s3.us-east-1.amazonaws.com"
-
-[fastly_logs_bucket]
-name = "fastly-logs-20220622145016462800000001"
-endpoint = "https://s3.eu-west-1.amazonaws.com"
+[s3.credentials]
+# AWS credentials - use profile or environment variables in production
+profile = ""
 
 [postgres]
+# PostgreSQL connection for metadata storage
 url = "postgres://narwal@localhost:5432/narwal?sslmode=disable"
 
 [http]
-# HTTP server host to bind to
+# HTTP server configuration for upload interception
 host = "127.0.0.1"
-
-# HTTP server port to listen on
 port = 7777
+
+[inventory]
+# Inventory bucket configuration for S3 bucket analysis
+bucket = "nix-cache-inventory"
+region = "us-east-1"
+prefix = "nix-cache/nix-cache-inventory/"
+workdir = "/var/lib/narwal/workarea"
+use_ssl = true
+
+[inventory.credentials]
+# Inventory-specific credentials (can differ from main S3)
+profile = ""
