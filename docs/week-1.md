@@ -14,11 +14,12 @@ Brian's focus was on building out the core while I was mostly looking at infrast
 ## Brian
 
 Brian created the following things:
-* Classified all the types of files we're getting from nix-copy-closure. There might be more types of files we discover in the current cache index later.
-* Created a Postgres schema for the metadata, and GC roots.
-* Created a nix-copy-closure compatible HTTP server. The idea is that when Hydra uploads something, it gets forwarded to S3 and we record the entry in Postgres. Narinfo files also get parsed to extract the references.
-* Implemented the bloomfilter GC we had in mind. It's pretty cool, we can hold a billion references in 4GB of RAM. Then all items not in the bloomfilter can be confidently removed. See https://hur.st/bloomfilter/?n=1000000000&p=1.0E-7&m=&k=
-* TODO: Did I miss anything else Brian?
+
+- Classified all the types of files we're getting from nix-copy-closure. There might be more types of files we discover in the current cache index later.
+- Created a Postgres schema for the metadata, and GC roots.
+- Created a nix-copy-closure compatible HTTP server. The idea is that when Hydra uploads something, it gets forwarded to S3 and we record the entry in Postgres. Narinfo files also get parsed to extract the references.
+- Implemented the bloomfilter GC we had in mind. It's pretty cool, we can hold a billion references in 4GB of RAM. Then all items not in the bloomfilter can be confidently removed. See https://hur.st/bloomfilter/?n=1000000000&p=1.0E-7&m=&k=
+- TODO: Did I miss anything else Brian?
 
 In 3 days Brian created a backward-compatible binary cache with GC. Not something that we roll out in production, but still pretty cool.
 
@@ -29,7 +30,7 @@ lot of good tools have been built at https://git.snix.dev/snix/snix/src/branch/c
 
 On the NixOS AWS account, I fixed the archivist profile. It's a IAM profile that gives read-only access so Brian and I can poke at the S3 buckets safely.
 
-Then created a small tool that downloads reports from AWS S3 Inventory.  Those contain a snapshot of all the files in the s3://nix-cache bucket for a given day, which is going to be useful to hydrate the Postgres database.
+Then created a small tool that downloads reports from AWS S3 Inventory. Those contain a snapshot of all the files in the s3://nix-cache bucket for a given day, which is going to be useful to hydrate the Postgres database.
 
 Then deployed a new SX65 box on Hetzner in Germany. Put the box in the same DC as Hydra. Because we have an index of all the files that exists, we should be able to answer HEAD requests with much better latancy than the current Germany <-> us-east-1 roundtrip. Once we're happy with the setup, we can also transfer to box ownership to the NixOS Foundation easily.
 
