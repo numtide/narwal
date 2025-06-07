@@ -111,9 +111,7 @@ func (ns NullObjectType) Value() (driver.Value, error) {
 type GcPlan struct {
 	ID          int32            `json:"id"`
 	CreatedAt   pgtype.Timestamp `json:"created_at"`
-	AppliedAt   pgtype.Timestamp `json:"applied_at"`
 	CompletedAt pgtype.Timestamp `json:"completed_at"`
-	Error       pgtype.Text      `json:"error"`
 }
 
 type GcRoot struct {

@@ -11,7 +11,7 @@ import (
 
 const deleteGCPlan = `-- name: DeleteGCPlan :one
 with deleted as (
-    delete from gc_plan where id = $1 returning id, created_at, applied_at, completed_at, error
+    delete from gc_plan where id = $1 returning id, created_at, completed_at
 ) select count(*) from deleted
 `
 
@@ -56,19 +56,13 @@ func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) erro
 }
 
 const getGCPlan = `-- name: GetGCPlan :one
-select id, created_at, applied_at, completed_at, error from gc_plan where id = $1
+select id, created_at, completed_at from gc_plan where id = $1
 `
 
 func (q *Queries) GetGCPlan(ctx context.Context, id int32) (GcPlan, error) {
 	row := q.db.QueryRow(ctx, getGCPlan, id)
 	var i GcPlan
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.AppliedAt,
-		&i.CompletedAt,
-		&i.Error,
-	)
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.CompletedAt)
 	return i, err
 }
 
@@ -140,7 +134,7 @@ type InsertNarInfoSignaturesParams struct {
 }
 
 const listGCPlans = `-- name: ListGCPlans :many
-select id, created_at, applied_at, completed_at, error from gc_plan
+select id, created_at, completed_at from gc_plan
 `
 
 func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
@@ -152,13 +146,7 @@ func (q *Queries) ListGCPlans(ctx context.Context) ([]GcPlan, error) {
 	var items []GcPlan
 	for rows.Next() {
 		var i GcPlan
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.AppliedAt,
-			&i.CompletedAt,
-			&i.Error,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.CompletedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -270,5 +258,14 @@ func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
 		arg.Path,
 		arg.Size,
 	)
+	return err
+}
+
+const setGCPlanAsCompleted = `-- name: SetGCPlanAsCompleted :exec
+update gc_plan set completed_at = timezone('UTC', now()) where id = $1 and completed_at is null
+`
+
+func (q *Queries) SetGCPlanAsCompleted(ctx context.Context, id int32) error {
+	_, err := q.db.Exec(ctx, setGCPlanAsCompleted, id)
 	return err
 }

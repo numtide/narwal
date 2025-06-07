@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
+	"github.com/numtide/narwal/pkg/db"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -54,7 +56,6 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 	cursorValues := make([]deletionEntry, 1024)
 
 	for {
-
 		n, deleteErr := tryDelete(ctx, conn, int32(planID), objects, cursorValues)
 		if deleteErr != nil {
 			return fmt.Errorf("failed to apply plan: %w", deleteErr)
@@ -69,7 +70,46 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	var (
+		failureCount  int
+		expectedCount int
+	)
+
+	table := deletionsTableName(int32(planID))
+
+	err = conn.QueryRow(ctx, fmt.Sprintf(`select count(*) from %s where applied_at is null`, table)).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to count deletions: %w", err)
+	}
+
+	completed := count == expectedCount
+
+	if count == expectedCount {
+		queries := db.New(conn)
+		if err = queries.SetGCPlanAsCompleted(ctx, int32(planID)); err != nil {
+			return fmt.Errorf("failed to set gc plan as completed: %w", err)
+		}
+	} else {
+		err = conn.QueryRow(
+			ctx,
+			fmt.Sprintf(`select count(*) from %s where error is not null`, table),
+		).Scan(&failureCount)
+		if err != nil {
+			return fmt.Errorf("failed to count failed deletions: %w", err)
+		}
+	}
+
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted %d objects\n", count)
+
+	if failureCount > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "failed to delete %d objects\n", failureCount)
+
+		os.Exit(1)
+	}
+
+	if completed {
+		println("GC plan completed successfully")
+	}
 
 	return nil
 }
@@ -147,7 +187,6 @@ func tryDelete(
 		}
 
 		// delete nar info entries
-
 		var narInfoHashes []string
 
 		for _, path := range removedPaths {
