@@ -11,23 +11,23 @@ directory = "/var/lib/narwal/workarea"
 
 [bucket.cache]
 name = "nix-cache"
-region = "us-east-1"
+endpoint = "https://s3.us-east-1.amazonaws.com"
 
 [bucket.cache-inventory]
 name = "nix-cache-inventory"
-region = "us-east-1"
+endpoint = "https://s3.us-east-1.amazonaws.com"
 
 [bucket.releases]
 name = "nix-releases"
-region = "eu-west-1"
+endpoint = "https://s3.eu-west-1.amazonaws.com"
 
 [bucket.releases-inventory]
-bucket_name = "nix-releases-inventory220231029182031496800000001"
-bucket_region = "us-east-1"
+name = "nix-releases-inventory220231029182031496800000001"
+endpoint = "https://s3.us-east-1.amazonaws.com"
 
 [fastly_logs_bucket]
-bucket_name = "fastly-logs-20220622145016462800000001"
-bucket_region = "eu-west-1"
+name = "fastly-logs-20220622145016462800000001"
+endpoint = "https://s3.eu-west-1.amazonaws.com"
 
 [postgres]
 url = "postgres://narwal@localhost:5432/narwal?sslmode=disable"
