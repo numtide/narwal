@@ -42,7 +42,8 @@ func addDeletionsTable(ctx context.Context, tx pgx.Tx, planID int32) error {
 		`
 		create table if not exists %s (		     
 			path varchar(128) primary key,		
-			applied_at timestamp
+			applied_at timestamp,
+		    error varchar(256)
 		)`,
 		name,
 	))

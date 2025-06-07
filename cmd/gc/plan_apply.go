@@ -6,8 +6,8 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
-	"golang.org/x/sync/errgroup"
 	"strconv"
+	"strings"
 	"time"
 
 	ci "github.com/Eun/go-pgx-cursor-iterator/v2"
@@ -48,16 +48,14 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 
 	defer conn.Release()
 
-	eg := errgroup.Group{}
-
 	count := 0
+
+	objects := make([]minio.ObjectInfo, 1024)
+	cursorValues := make([]deletionEntry, 1024)
 
 	for {
 
-		objects := make([]minio.ObjectInfo, 1024)
-		cursorValues := make([]deletionEntry, 1024)
-
-		n, deleteErr := tryDelete(ctx, conn, &eg, int32(planID), objects, cursorValues)
+		n, deleteErr := tryDelete(ctx, conn, int32(planID), objects, cursorValues)
 		if deleteErr != nil {
 			return fmt.Errorf("failed to apply plan: %w", deleteErr)
 		}
@@ -79,13 +77,12 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 func tryDelete(
 	ctx context.Context,
 	conn *pgxpool.Conn,
-	eg *errgroup.Group,
 	planID int32,
 	objects []minio.ObjectInfo,
 	cursorValues []deletionEntry,
 ) (n int, err error) {
 	// start a tx
-	tx, err := conn.Begin(ctx)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -97,22 +94,78 @@ func tryDelete(
 	}
 
 	if n > 0 {
-
 		timestamp := time.Now().UTC()
 
-		failures, err := removeFromS3(ctx, eg, objects[:n])
-		if err != nil {
-			return 0, fmt.Errorf("failed to remove objects: %w", err)
-		}
+		removedPaths, failedPaths := removeFromS3(ctx, objects[:n])
 
-		_, updateErr := tx.Exec(
+		// record the successes
+		deletionsTable := deletionsTableName(planID)
+
+		updateResult, updateErr := tx.Exec(
 			ctx,
-			fmt.Sprintf(`update %s set applied_at = $1 where path != all($2)`, deletionsTableName(planID)),
-			timestamp, failures,
+			fmt.Sprintf(`update %s set applied_at = $1 where path = any($2)`, deletionsTable),
+			timestamp, removedPaths,
 		)
 
 		if updateErr != nil {
-			return 0, fmt.Errorf("failed to update deletions table: %w", err)
+			return 0, fmt.Errorf("failed to update deletions table: %w", updateErr)
+		}
+
+		if updateResult.RowsAffected() != int64(len(removedPaths)) {
+			return 0, fmt.Errorf(
+				"failed to update deletions table: %d rows affected, expected %d",
+				updateResult.RowsAffected(), len(removedPaths),
+			)
+		}
+
+		// record the failures
+		batch := pgx.Batch{}
+
+		for path, removeErr := range failedPaths {
+			batch.Queue(
+				fmt.Sprintf("update %s set error = $1 where path = $2", deletionsTable),
+				removeErr.Error(), path,
+			)
+		}
+
+		results := tx.SendBatch(ctx, &batch)
+		if updateErr = results.Close(); updateErr != nil {
+			return 0, fmt.Errorf("failed to update deletions table: %w", updateErr)
+		}
+
+		// delete the associated objects from the object table
+		updateResult, updateErr = tx.Exec(ctx, `delete from object where path = any($1)`, removedPaths)
+		if updateErr != nil {
+			return 0, fmt.Errorf("failed to delete objects from object table: %w", updateErr)
+		}
+
+		if updateResult.RowsAffected() != int64(len(removedPaths)) {
+			return 0, fmt.Errorf(
+				"failed to delete objects from object table: %d rows affected, expected %d",
+				updateResult.RowsAffected(), len(removedPaths),
+			)
+		}
+
+		// delete nar info entries
+
+		var narInfoHashes []string
+
+		for _, path := range removedPaths {
+			if strings.HasSuffix(path, ".narinfo") {
+				narInfoHashes = append(narInfoHashes, path[0:32])
+			}
+		}
+
+		updateResult, updateErr = tx.Exec(ctx, `delete from nar_info where hash = any($1)`, narInfoHashes)
+		if updateErr != nil {
+			return 0, fmt.Errorf("failed to delete nar info entries: %w", updateErr)
+		}
+
+		if updateResult.RowsAffected() != int64(len(narInfoHashes)) {
+			return 0, fmt.Errorf(
+				"failed to delete nar info entries: %d rows affected, expected %d",
+				updateResult.RowsAffected(), len(narInfoHashes),
+			)
 		}
 	}
 
@@ -132,7 +185,7 @@ func readDeletions(
 	cursorValues []deletionEntry,
 ) (n int, err error) {
 	query := fmt.Sprintf(
-		`select path from %s where applied_at is null`,
+		`select path from %s where applied_at is null and error is null`,
 		deletionsTableName(planID),
 	)
 
@@ -158,34 +211,34 @@ func readDeletions(
 
 func removeFromS3(
 	ctx context.Context,
-	eg *errgroup.Group,
-	paths []minio.ObjectInfo,
-) ([]string, error) {
+	objects []minio.ObjectInfo,
+) (successes []string, failures map[string]error) {
 
-	objectsCh := make(chan minio.ObjectInfo, len(paths))
+	objectsCh := make(chan minio.ObjectInfo, len(objects))
 
-	var failures []string
-
-	eg.Go(func() error {
-		errCh := s3.RemoveObjects(ctx, cfg.S3.BucketName, objectsCh, minio.RemoveObjectsOptions{})
-
-		for err := range errCh {
-			failures = append(failures, err.ObjectName)
-			log.Errorf("failed to remove object '%s': %s", err.ObjectName, err.Err)
+	go func() {
+		for idx := range objects {
+			objectsCh <- objects[idx]
 		}
 
-		if len(failures) > 0 {
-			return fmt.Errorf("failed to remove %d objects", len(failures))
-		}
+		close(objectsCh)
+	}()
 
-		return nil
-	})
+	errCh := s3.RemoveObjects(ctx, cfg.S3.BucketName, objectsCh, minio.RemoveObjectsOptions{})
 
-	for idx := range paths {
-		objectsCh <- paths[idx]
+	failures = make(map[string]error)
+
+	for removeErr := range errCh {
+		failures[removeErr.ObjectName] = removeErr.Err
+		log.Errorf("failed to remove object '%s': %s", removeErr.ObjectName, removeErr.Err)
 	}
 
-	close(objectsCh)
+	// construct success list
+	for _, object := range objects {
+		if _, ok := failures[object.Key]; !ok {
+			successes = append(successes, object.Key)
+		}
+	}
 
-	return failures, eg.Wait()
+	return successes, failures
 }
