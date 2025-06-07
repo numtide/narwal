@@ -43,8 +43,25 @@
       "inputs": {
         "blueprint": "blueprint",
         "nixpkgs": "nixpkgs",
+        "snix": "snix",
         "systems": "systems",
         "treefmt-nix": "treefmt-nix"
+      }
+    },
+    "snix": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1749152775,
+        "narHash": "sha256-P+lBpPnvuUjxQCrYzHYehUfVOCYPcye/GCalndVei6Q=",
+        "ref": "refs/heads/canon",
+        "rev": "3c23b323d59d0387be11dd3ffda0939791ddbd39",
+        "revCount": 21851,
+        "type": "git",
+        "url": "https://git.snix.dev/snix/snix.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://git.snix.dev/snix/snix.git"
       }
     },
     "systems": {

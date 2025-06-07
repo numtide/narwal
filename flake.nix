@@ -14,6 +14,11 @@
 
     systems.url = "github:nix-systems/default";
 
+    snix = {
+      url = "git+https://git.snix.dev/snix/snix.git";
+      flake = false;
+    };
+
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
