@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"github.com/numtide/narwal/cmd/inventory/download"
+	"github.com/numtide/narwal/cmd/inventory/explore"
 	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
 	"github.com/numtide/narwal/cmd/inventory/manifest"
 	"github.com/spf13/cobra"
@@ -17,17 +18,21 @@ get the latest inventory report, or examine manifest information.`,
 		Example: `  # List all available inventory reports
   narwal inventory list-reports --bucket nix-cache-inventory --prefix data/
 
-  # Get the latest available inventory report
-  narwal inventory list-reports --bucket nix-cache-inventory --prefix data/ --latest
-
   # Get manifest information for a specific report
-  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
+  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
+  # Download parquet files for interactive analysis
+  narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
+  # Explore downloaded data interactively with ClickHouse
+  narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
 	}
 
 	// Add sub-commands
 	cmd.AddCommand(listreports.NewCmd())
 	cmd.AddCommand(manifest.NewCmd())
 	cmd.AddCommand(download.NewCmd())
+	cmd.AddCommand(explore.NewCmd())
 
 	// Note: Sub-commands handle their own flag binding
 
