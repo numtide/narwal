@@ -3,8 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/spf13/pflag"
@@ -38,10 +36,6 @@ type CredentialsConfig struct {
 
 	// AWS CLI profile (alternative to direct credentials)
 	Profile string `mapstructure:"profile"`
-
-	// Legacy support: credential files
-	AccessKeyFile string `mapstructure:"access_key_file"`
-	SecretKeyFile string `mapstructure:"secret_key_file"`
 }
 
 func (s *S3) Connect(ctx context.Context) (*awssdk.BucketClient, error) {
@@ -93,29 +87,9 @@ func (s *S3) Validate() error {
 }
 
 func (c *CredentialsConfig) Validate() error {
-	// Load credentials from files if specified (legacy support)
-	if c.AccessKeyFile != "" {
-		buf, err := os.ReadFile(c.AccessKeyFile)
-		if err != nil {
-			return fmt.Errorf("failed to read s3 access key file: %w", err)
-		}
-
-		c.AccessKeyID = strings.TrimSpace(string(buf))
-	}
-
-	if c.SecretKeyFile != "" {
-		buf, err := os.ReadFile(c.SecretKeyFile)
-		if err != nil {
-			return fmt.Errorf("failed to read s3 secret key file: %w", err)
-		}
-
-		c.SecretAccessKey = strings.TrimSpace(string(buf))
-	}
-
 	// Validate credentials: either direct keys, profile, or fallback to AWS CLI default
 	// Allow fallback to AWS CLI default credentials when no explicit credentials are provided
 	// This will be validated when NewCredentials is called
-
 	return nil
 }
 
