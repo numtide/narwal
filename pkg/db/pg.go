@@ -14,12 +14,16 @@ import (
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
-func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
+func Connect(ctx context.Context, url string, migrate bool) (*pgxpool.Pool, error) {
 	log.Debug("connecting to database", "url", url)
 
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %w", err)
+	}
+
+	if !migrate {
+		return pool, nil
 	}
 
 	// migrate the database

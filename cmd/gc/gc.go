@@ -62,7 +62,7 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
 
 	// connect to postgres
-	pg, err = cfg.Postgres.Connect(cmd.Context())
+	pg, err = cfg.Postgres.Connect(cmd.Context(), false)
 	if err != nil {
 		//nolint:wrapcheck
 		return err

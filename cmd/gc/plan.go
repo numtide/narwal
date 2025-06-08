@@ -4,9 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 )
+
+type planSummary struct {
+	completed  int32
+	incomplete int32
+	total      int32
+}
 
 func plan() *cobra.Command {
 	cmd := &cobra.Command{
@@ -17,6 +25,7 @@ func plan() *cobra.Command {
 	cmd.AddCommand(planCreate())
 	cmd.AddCommand(planList())
 	cmd.AddCommand(planRemove())
+	cmd.AddCommand(planApply())
 
 	return cmd
 }
@@ -33,6 +42,24 @@ func deletionsTableName(planID int32) string {
 	return tableName(planID, "deletions")
 }
 
+func summarizePlan(ctx context.Context, conn *pgxpool.Conn, planID int32) (*planSummary, error) {
+	result := &planSummary{}
+
+	err := conn.QueryRow(
+		ctx, `
+		select 
+		    count(applied_at) as completed, 
+		    count(error) as incomplete,
+		    count(*) as total
+		from `+deletionsTableName(planID),
+	).Scan(&result.completed, &result.incomplete, &result.total)
+	if err != nil {
+		return nil, fmt.Errorf("failed to summarize plan: %w", err)
+	}
+
+	return result, nil
+}
+
 func addDeletionsTable(ctx context.Context, tx pgx.Tx, planID int32) error {
 	name := deletionsTableName(planID)
 
@@ -41,7 +68,8 @@ func addDeletionsTable(ctx context.Context, tx pgx.Tx, planID int32) error {
 		`
 		create table if not exists %s (		     
 			path varchar(128) primary key,		
-			applied_at timestamp
+			applied_at timestamp,
+		    error varchar(256)
 		)`,
 		name,
 	))

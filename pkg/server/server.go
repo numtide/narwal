@@ -50,8 +50,8 @@ func NewServer(cfg *config.Server) (*Server, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbConnectTimeout)
 	defer cancel()
 
-	// connect to postgres
-	if srv.pgPool, err = cfg.Postgres.Connect(ctx); err != nil {
+	// connect to postgres and migrate the database
+	if srv.pgPool, err = cfg.Postgres.Connect(ctx, true); err != nil {
 		//nolint:wrapcheck
 		return nil, err
 	}

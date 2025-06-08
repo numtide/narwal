@@ -13,8 +13,8 @@ type Postgres struct {
 	URL string `mapstructure:"url"`
 }
 
-func (p *Postgres) Connect(ctx context.Context) (*pgxpool.Pool, error) {
-	pg, err := db.Connect(ctx, p.URL)
+func (p *Postgres) Connect(ctx context.Context, migrate bool) (*pgxpool.Pool, error) {
+	pg, err := db.Connect(ctx, p.URL, migrate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
 	}
