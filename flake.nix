@@ -12,7 +12,7 @@
 
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
 
-    systems.url = "github:nix-systems/default";
+    systems.url = "github:nix-systems/default-linux";
 
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
