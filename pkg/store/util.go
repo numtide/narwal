@@ -14,6 +14,7 @@ var (
 	compressionRegex = regexp.MustCompile(`(\.(br|bz2|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`)
 )
 
+// PathAnalysis contains the results of analyzing a file path.
 type PathAnalysis struct {
 	ObjectType  db.ObjectType
 	Compression db.CompressionType
@@ -75,7 +76,8 @@ func AnalyzePath(path string) (*PathAnalysis, error) {
 	return result, nil
 }
 
-func hashFromPath(path string, objectType db.ObjectType) (string, error) {
+// HashFromPath extracts the hash from a path given the object type.
+func HashFromPath(path string, objectType db.ObjectType) (string, error) {
 	// hash can be 32, 40 or 52 characters depending on the object type
 	// it can also be located in different parts of the string
 	var hash string

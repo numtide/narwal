@@ -135,7 +135,7 @@ func (s *Store) PutObject(
 
 	queries := db.New(conn)
 
-	hash, err := hashFromPath(path, analysis.ObjectType)
+	hash, err := HashFromPath(path, analysis.ObjectType)
 	if err != nil {
 		return fmt.Errorf("failed to get hash from path: %w", err)
 	}
@@ -155,10 +155,10 @@ func (s *Store) PutObject(
 		return nil
 	}
 
-	return putNarInfo(ctx, queries, hash, narinfoBuf.Bytes())
+	return PutNarInfo(ctx, queries, hash, narinfoBuf.Bytes())
 }
 
-func putNarInfo(ctx context.Context, queries *db.Queries, hash string, buf []byte) error {
+func PutNarInfo(ctx context.Context, queries *db.Queries, hash string, buf []byte) error {
 	info, err := narinfo.Parse(bytes.NewReader(buf))
 	if err != nil {
 		return fmt.Errorf("failed to parse narinfo: %w", err)
