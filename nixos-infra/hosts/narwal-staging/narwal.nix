@@ -13,6 +13,7 @@
     environment.systemPackages = [
       perSystem.narwal.default
       pkgs.awscli2
+      pkgs.clickhouse
     ];
 
     services.narwal = {
