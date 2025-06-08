@@ -3,14 +3,14 @@ package gc
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/db"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 
 	ci "github.com/Eun/go-pgx-cursor-iterator/v2"
 	"github.com/jackc/pgx/v5"
@@ -50,7 +50,31 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 
 	defer conn.Release()
 
-	count := 0
+	queries := db.New(conn)
+
+	// check the plan hasn't already been applied successfully
+	plan, err := queries.GetGCPlan(ctx, int32(planID))
+	if err != nil {
+		return fmt.Errorf("gc plan %d not found: %w", planID, err)
+	}
+
+	if plan.CompletedAt.Valid {
+		return fmt.Errorf("gc plan %d has already been applied successfully at %v", planID, plan.CompletedAt.Time)
+	}
+
+	// summarize
+	summary, err := summarizePlan(ctx, conn, int32(planID))
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"plan %d has %d objects in total, %d to delete\n",
+		planID, summary.total, summary.total-summary.completed,
+	)
+
+	deleted := 0
 
 	objects := make([]minio.ObjectInfo, 1024)
 	cursorValues := make([]deletionEntry, 1024)
@@ -63,55 +87,30 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 
 		log.Infof("deleted %d objects", n)
 
-		count += n
+		deleted += n
 
 		if n == 0 {
 			break
 		}
 	}
 
-	var (
-		failureCount  int
-		expectedCount int
-	)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted %d objects\n", deleted)
 
-	table := deletionsTableName(int32(planID))
-
-	err = conn.QueryRow(ctx, fmt.Sprintf(`select count(*) from %s where applied_at is null`, table)).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("failed to count deletions: %w", err)
+	if summary, err = summarizePlan(ctx, conn, int32(planID)); err != nil {
+		return err
 	}
 
-	completed := count == expectedCount
-
-	if count == expectedCount {
-		queries := db.New(conn)
+	if summary.total == summary.completed {
 		if err = queries.SetGCPlanAsCompleted(ctx, int32(planID)); err != nil {
 			return fmt.Errorf("failed to set gc plan as completed: %w", err)
 		}
-	} else {
-		err = conn.QueryRow(
-			ctx,
-			fmt.Sprintf(`select count(*) from %s where error is not null`, table),
-		).Scan(&failureCount)
-		if err != nil {
-			return fmt.Errorf("failed to count failed deletions: %w", err)
-		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "gc plan %d applied successfully\n", planID)
+
+		return nil
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted %d objects\n", count)
-
-	if failureCount > 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "failed to delete %d objects\n", failureCount)
-
-		os.Exit(1)
-	}
-
-	if completed {
-		println("GC plan completed successfully")
-	}
-
-	return nil
+	return fmt.Errorf("failed to apply gc plan, %d/%d objects were not deleted", summary.incomplete, summary.total)
 }
 
 func tryDelete(
@@ -120,20 +119,22 @@ func tryDelete(
 	planID int32,
 	objects []minio.ObjectInfo,
 	cursorValues []deletionEntry,
-) (n int, err error) {
+) (int, error) {
 	// start a tx
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
+	//nolint:errcheck
 	defer tx.Rollback(ctx)
 
-	if n, err = readDeletions(ctx, tx, planID, objects, cursorValues); err != nil {
+	n, err := readDeletions(ctx, tx, planID, objects, cursorValues)
+	if err != nil {
 		return 0, fmt.Errorf("failed to read deletions: %w", err)
 	}
 
-	if n > 0 {
+	if n > 0 { //nolint:nestif
 		timestamp := time.Now().UTC()
 
 		removedPaths, failedPaths := removeFromS3(ctx, objects[:n])
@@ -143,7 +144,7 @@ func tryDelete(
 
 		updateResult, updateErr := tx.Exec(
 			ctx,
-			fmt.Sprintf(`update %s set applied_at = $1 where path = any($2)`, deletionsTable),
+			fmt.Sprintf(`update %s set applied_at = $1, error = null where path = any($2)`, deletionsTable),
 			timestamp, removedPaths,
 		)
 
@@ -222,7 +223,7 @@ func readDeletions(
 	planID int32,
 	objects []minio.ObjectInfo,
 	cursorValues []deletionEntry,
-) (n int, err error) {
+) (int, error) {
 	query := fmt.Sprintf(
 		`select path from %s where applied_at is null and error is null`,
 		deletionsTableName(planID),
@@ -248,11 +249,11 @@ func readDeletions(
 	return idx, nil
 }
 
+//nolint:nonamedreturns
 func removeFromS3(
 	ctx context.Context,
 	objects []minio.ObjectInfo,
 ) (successes []string, failures map[string]error) {
-
 	objectsCh := make(chan minio.ObjectInfo, len(objects))
 
 	go func() {
@@ -263,7 +264,7 @@ func removeFromS3(
 		close(objectsCh)
 	}()
 
-	errCh := s3.RemoveObjects(ctx, cfg.S3.BucketName, objectsCh, minio.RemoveObjectsOptions{})
+	errCh := s3.UnderlyingClient().RemoveObjects(ctx, cfg.S3.Bucket, objectsCh, minio.RemoveObjectsOptions{})
 
 	failures = make(map[string]error)
 

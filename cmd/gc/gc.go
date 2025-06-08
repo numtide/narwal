@@ -16,8 +16,8 @@ import (
 var (
 	cfg *config.GC
 
-	// s3 client will be used when we implement deletions
-	//nolint:unused
+	// s3 client will be used when we implement deletions.
+
 	s3 *awssdk.BucketClient
 	pg *pgxpool.Pool
 
@@ -62,7 +62,7 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
 
 	// connect to postgres
-	pg, err = cfg.Postgres.Connect(cmd.Context())
+	pg, err = cfg.Postgres.Connect(cmd.Context(), false)
 	if err != nil {
 		//nolint:wrapcheck
 		return err
