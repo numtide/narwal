@@ -2,7 +2,7 @@
 
 [workarea]
 # Local working directory for caching files and temporary data
-path = "/var/lib/narwal/workarea"
+path = "./work"
 
 [s3]
 # Primary S3 bucket for cache storage
@@ -12,7 +12,7 @@ use_ssl = true
 
 [s3.credentials]
 # AWS credentials - use profile or environment variables in production
-profile = ""
+profile = "nixos-archeologist"
 
 [postgres]
 # PostgreSQL connection for metadata storage
@@ -29,7 +29,8 @@ bucket = "nix-cache-inventory"
 region = "us-east-1"
 prefix = "nix-cache/nix-cache-inventory/"
 use_ssl = true
+report = "2025-06-07T01-00Z"
 
 [inventory.credentials]
 # Inventory-specific credentials (can differ from main S3)
-profile = ""
+profile = "nixos-archeologist"
