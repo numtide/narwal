@@ -610,6 +610,16 @@ func TestCreateSymlink(t *testing.T) {
 	if string(symlinkContent) != content {
 		t.Errorf("Expected symlink content %q, got %q", content, string(symlinkContent))
 	}
+
+	// Verify symlink is relative
+	linkTarget, err := os.Readlink(symlinkPath)
+	if err != nil {
+		t.Fatalf("Failed to read symlink target: %v", err)
+	}
+
+	if filepath.IsAbs(linkTarget) {
+		t.Errorf("Expected relative symlink, got absolute path: %s", linkTarget)
+	}
 }
 
 func TestCreateSymlinkNonExistentFile(t *testing.T) {

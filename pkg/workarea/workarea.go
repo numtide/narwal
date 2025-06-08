@@ -341,12 +341,18 @@ func (b *Bucket) CreateSymlink(key, linkPath string) error {
 		}
 	}
 
-	// Create the symlink
-	if err := os.Symlink(sourcePath, linkPath); err != nil {
-		return fmt.Errorf("failed to create symlink from %s to %s: %w", sourcePath, linkPath, err)
+	// Calculate relative path from symlink to source
+	relPath, err := filepath.Rel(filepath.Dir(linkPath), sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to calculate relative path: %w", err)
 	}
 
-	b.log.Debug("Symlink created", "key", key, "source", sourcePath, "link", linkPath)
+	// Create the symlink with relative path
+	if err := os.Symlink(relPath, linkPath); err != nil {
+		return fmt.Errorf("failed to create symlink from %s to %s: %w", relPath, linkPath, err)
+	}
+
+	b.log.Debug("Symlink created", "key", key, "source", sourcePath, "link", linkPath, "relative_path", relPath)
 
 	return nil
 }
