@@ -129,15 +129,15 @@ in
       };
 
       environment = {
-        NARWAL_HTTP__HOST = cfg.listenAddress;
-        NARWAL_HTTP__PORT = toString cfg.port;
-        NARWAL_POSTGRES__URL = "postgresql://${cfg.database.user}@${cfg.database.host}:${toString cfg.database.port}/${cfg.database.name}?sslmode=disable";
+        NARWAL_HTTP_HOST = cfg.listenAddress;
+        NARWAL_HTTP_PORT = toString cfg.port;
+        NARWAL_POSTGRES_URL = "postgresql://${cfg.database.user}@${cfg.database.host}:${toString cfg.database.port}/${cfg.database.name}?sslmode=disable";
 
-        # NARWAL_S3__BUCKET_NAME = cfg.s3.bucketName;
-        # NARWAL_S3__BUCKET_ENDPOINT = cfg.s3.endpoint;
-        # NARWAL_S3__ACCESS_KEY_ID = cfg.s3.accessKeyId;
+        # NARWAL_S3_BUCKET_NAME = cfg.s3.bucketName;
+        # NARWAL_S3_BUCKET_ENDPOINT = cfg.s3.endpoint;
+        # NARWAL_S3_ACCESS_KEY_ID = cfg.s3.accessKeyId;
         # # FIXME: make this secret
-        # NARWAL_S3__SECRET_ACCESS_KEY = cfg.s3.secretAccessKey;
+        # NARWAL_S3_SECRET_ACCESS_KEY = cfg.s3.secretAccessKey;
         # TODO: NARWAL_STATE_DIR = cfg.stateDir;
       };
 
