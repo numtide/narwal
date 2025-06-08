@@ -18,12 +18,11 @@ type Inventory struct {
 	BucketRegion string                   `mapstructure:"region"`
 	Endpoint     string                   `mapstructure:"endpoint"`
 	UseSSL       bool                     `mapstructure:"use_ssl"`
-	Workdir      string                   `mapstructure:"workdir"`
 	Credentials  awssdk.CredentialsConfig `mapstructure:"credentials"`
 	Workarea     *workarea.WorkArea       `mapstructure:"-"`
 }
 
-func (i *Inventory) Validate(ctx context.Context, creds *awssdk.CredentialsConfig) error {
+func (i *Inventory) Validate(ctx context.Context, creds *awssdk.CredentialsConfig, workareaPath string) error {
 	var err error
 
 	if i.Bucket == "" {
@@ -57,9 +56,9 @@ func (i *Inventory) Validate(ctx context.Context, creds *awssdk.CredentialsConfi
 		i.Prefix += "/"
 	}
 
-	// Create workarea if workdir is specified
-	if i.Workdir != "" {
-		if i.Workarea, err = workarea.New(i.Workdir); err != nil {
+	// Create workarea if workareaPath is specified
+	if workareaPath != "" {
+		if i.Workarea, err = workarea.New(workareaPath); err != nil {
 			return fmt.Errorf("failed to create workarea: %w", err)
 		}
 	}
@@ -77,5 +76,4 @@ func SetInventoryFlags(fs *pflag.FlagSet) {
 		"Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
 	fs.String("report", "",
 		"Specific inventory report ID (e.g. '2025-06-03T01-00Z'). Required for get-manifest and download commands")
-	fs.String("workdir", "./work", "Local directory to cache files and manifests (reused across runs for efficiency)")
 }

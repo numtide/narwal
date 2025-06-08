@@ -84,17 +84,14 @@ func runE(cmd *cobra.Command, _ []string) error {
 		viper.Set("prefix", prefixFlag.Value.String())
 	}
 
-	if workdirFlag := cmd.Flag("workdir"); workdirFlag != nil && workdirFlag.Changed {
-		viper.Set("workdir", workdirFlag.Value.String())
-	}
-
 	// parse viper into our config object
-	var cfg *appconfig.Inventory
-	if err := appconfig.FromViper(viper.GetViper(), &cfg); err != nil {
+	var fullCfg appconfig.Config
+	if err := appconfig.FromViper(viper.GetViper(), &fullCfg); err != nil {
 		return fmt.Errorf("failed to create config from viper: %w", err)
 	}
 
-	if err := cfg.Validate(ctx, nil); err != nil {
+	cfg := &fullCfg.Inventory
+	if err := cfg.Validate(ctx, nil, fullCfg.Workarea.Path); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 

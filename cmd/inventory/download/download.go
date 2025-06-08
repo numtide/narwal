@@ -34,7 +34,8 @@ Files are downloaded in parallel and cached in the workarea.`,
   narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
   # Use custom workarea directory
-  narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z --workdir /tmp/cache
+  narwal inventory download --bucket nix-cache-inventory --prefix data/ \
+    --report 2025-06-03T01-00Z --workarea.path /tmp/cache
 
   # Download with custom parallelism
   narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z --parallel 16`,
@@ -76,22 +77,19 @@ func runE(cmd *cobra.Command, _ []string) error {
 		viper.Set("prefix", prefixFlag.Value.String())
 	}
 
-	if workdirFlag := cmd.Flag("workdir"); workdirFlag != nil && workdirFlag.Changed {
-		viper.Set("workdir", workdirFlag.Value.String())
-	}
-
 	if parallelFlag := cmd.Flag("parallel"); parallelFlag != nil && parallelFlag.Changed {
 		viper.Set("parallel", parallelFlag.Value.String())
 	}
 
 	// parse viper into our config object
-	var cfg *appconfig.Inventory
+	var fullCfg appconfig.Config
 
-	if err := appconfig.FromViper(viper.GetViper(), &cfg); err != nil {
+	if err := appconfig.FromViper(viper.GetViper(), &fullCfg); err != nil {
 		return fmt.Errorf("failed to create config from viper: %w", err)
 	}
 
-	if err := cfg.Validate(ctx, nil); err != nil {
+	cfg := &fullCfg.Inventory
+	if err := cfg.Validate(ctx, nil, fullCfg.Workarea.Path); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 

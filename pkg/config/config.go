@@ -63,7 +63,37 @@ func FromViper(v *viper.Viper, cfg any) error {
 	return nil
 }
 
+// Config represents the top-level application configuration.
+type Config struct {
+	S3        S3        `mapstructure:"s3"`
+	HTTP      HTTP      `mapstructure:"http"`
+	Postgres  Postgres  `mapstructure:"postgres"`
+	Inventory Inventory `mapstructure:"inventory"`
+	Workarea  Workarea  `mapstructure:"workarea"`
+}
+
+func (c *Config) Validate() error {
+	if err := c.S3.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.HTTP.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.Postgres.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.Workarea.Validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func SetSharedFlags(fs *pflag.FlagSet) {
 	setS3Flags(fs)
 	setPostgresFlags(fs)
+	setWorkareaFlags(fs)
 }
