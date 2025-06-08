@@ -142,8 +142,10 @@ func runE(cmd *cobra.Command, _ []string) error {
 func loadOrDownloadManifest(
 	ctx context.Context, bucketClient *awssdk.BucketClient, cfg *appconfig.Inventory,
 ) (*inventory.InventoryManifest, error) {
-	// Check if manifest exists in workarea
-	manifestPath := filepath.Join(cfg.Workarea.GetBasePath(), "manifests", cfg.Bucket, cfg.ReportID, "manifest.json")
+	// Check if manifest exists in workarea - store it in the same bucket directory as parquet files
+	bucket := cfg.Workarea.Bucket(cfg.Bucket, inventory.BucketConfig())
+	manifestKey := fmt.Sprintf("%s%s/manifest.json", cfg.Prefix, cfg.ReportID)
+	manifestPath := bucket.GetPath(manifestKey)
 
 	//nolint:gosec
 	if manifestFile, err := os.Open(manifestPath); err == nil {
@@ -553,17 +555,13 @@ type (
 
 func (m *model) createSymlinks() tea.Cmd {
 	return func() tea.Msg {
-		// Get the manifest directory path
-		manifestDir := filepath.Join(m.cfg.Workarea.GetBasePath(), "manifests", m.cfg.Bucket, m.cfg.ReportID)
-
-		// Create symlinks directory within the manifest directory
-		symlinkDir := filepath.Join(manifestDir, "parquet")
-		if err := os.MkdirAll(symlinkDir, 0o750); err != nil {
-			return errMsg{fmt.Errorf("failed to create symlink directory: %w", err)}
-		}
-
 		// Get bucket for creating symlinks
 		bucket := m.cfg.Workarea.Bucket(m.cfg.Bucket, inventory.BucketConfig())
+
+		// Create symlinks in the same directory as the manifest
+		manifestKey := fmt.Sprintf("%s%s/manifest.json", m.cfg.Prefix, m.cfg.ReportID)
+		manifestPath := bucket.GetPath(manifestKey)
+		symlinkDir := filepath.Dir(manifestPath)
 
 		// Create symlinks for all downloaded files
 		for _, file := range m.manifest.Files {
