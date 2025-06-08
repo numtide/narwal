@@ -315,6 +315,42 @@ func (b *Bucket) Download(ctx context.Context, s3Client S3Client, key string,
 	return nil
 }
 
+// CreateSymlink creates a symlink from linkPath to the cached file for the given key.
+// The cached file must exist, and the directory containing linkPath will be created if needed.
+func (b *Bucket) CreateSymlink(key, linkPath string) error {
+	sourcePath := b.getConfiguredPath(key)
+
+	// Check if source file exists
+	if _, err := os.Stat(sourcePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("cached file does not exist for key %s: %s", key, sourcePath)
+		}
+
+		return fmt.Errorf("failed to check cached file: %w", err)
+	}
+
+	// Create directory for symlink if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o750); err != nil {
+		return fmt.Errorf("failed to create symlink directory: %w", err)
+	}
+
+	// Remove existing symlink if it exists
+	if _, err := os.Lstat(linkPath); err == nil {
+		if err := os.Remove(linkPath); err != nil {
+			return fmt.Errorf("failed to remove existing symlink: %w", err)
+		}
+	}
+
+	// Create the symlink
+	if err := os.Symlink(sourcePath, linkPath); err != nil {
+		return fmt.Errorf("failed to create symlink from %s to %s: %w", sourcePath, linkPath, err)
+	}
+
+	b.log.Debug("Symlink created", "key", key, "source", sourcePath, "link", linkPath)
+
+	return nil
+}
+
 // Remove deletes a cached file.
 func (b *Bucket) Remove(key string) error {
 	path := b.getConfiguredPath(key)

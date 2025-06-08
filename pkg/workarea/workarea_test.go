@@ -561,6 +561,84 @@ func TestSharding(t *testing.T) {
 
 // Helper functions for tests
 
+func TestCreateSymlink(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	wa, err := workarea.New(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create work area: %v", err)
+	}
+
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
+	key := "test-file.txt"
+	content := "test content for symlink"
+
+	// Create file first using mock S3 client
+	client := newMockS3Client()
+	client.addObject(testBucket, key, content)
+
+	err = bucket.Download(t.Context(), client, key, nil)
+	if err != nil {
+		t.Fatalf("Failed to download content: %v", err)
+	}
+
+	// Create symlink
+	symlinkPath := filepath.Join(tempDir, "symlinks", "linked-file.txt")
+
+	err = bucket.CreateSymlink(key, symlinkPath)
+	if err != nil {
+		t.Fatalf("Failed to create symlink: %v", err)
+	}
+
+	// Verify symlink exists and points to correct file
+	linkInfo, err := os.Lstat(symlinkPath)
+	if err != nil {
+		t.Fatalf("Failed to stat symlink: %v", err)
+	}
+
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Error("Expected file to be a symlink")
+	}
+
+	// Verify symlink content
+	symlinkContent, err := os.ReadFile(symlinkPath) //nolint:gosec
+	if err != nil {
+		t.Fatalf("Failed to read symlink content: %v", err)
+	}
+
+	if string(symlinkContent) != content {
+		t.Errorf("Expected symlink content %q, got %q", content, string(symlinkContent))
+	}
+}
+
+func TestCreateSymlinkNonExistentFile(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	wa, err := workarea.New(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create work area: %v", err)
+	}
+
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
+	key := "non-existent-file.txt"
+
+	// Try to create symlink to non-existent file
+	symlinkPath := filepath.Join(tempDir, "symlinks", "linked-file.txt")
+	err = bucket.CreateSymlink(key, symlinkPath)
+
+	if err == nil {
+		t.Error("Expected error when creating symlink to non-existent file")
+	}
+
+	if !strings.Contains(err.Error(), "cached file does not exist") {
+		t.Errorf("Expected 'cached file does not exist' error, got: %v", err)
+	}
+}
+
+// Helper functions for tests
+
 func isHex(s string) bool {
 	for _, c := range s {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {

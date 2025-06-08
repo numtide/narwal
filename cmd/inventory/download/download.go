@@ -204,14 +204,15 @@ type model struct {
 	parallelism  int
 
 	// Download state
-	downloads      []downloadState
-	completed      int
-	totalFiles     int
-	totalSize      int64
-	downloadedSize int64
-	startTime      time.Time
-	err            error
-	done           bool
+	downloads       []downloadState
+	completed       int
+	totalFiles      int
+	totalSize       int64
+	downloadedSize  int64
+	startTime       time.Time
+	err             error
+	done            bool
+	symlinksCreated bool
 
 	// UI state
 	width  int
@@ -288,7 +289,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		case "enter":
-			if m.done {
+			if m.done && m.symlinksCreated {
 				return m, tea.Quit
 			}
 		}
@@ -321,6 +322,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case doneMsg:
 		m.done = true
+		return m, m.createSymlinks()
+
+	case symlinkDoneMsg:
+		m.symlinksCreated = true
 		return m, nil
 	}
 
@@ -416,12 +421,16 @@ func (m *model) View() string {
 	b.WriteString("\n")
 
 	if m.done {
-		if m.err != nil {
+		switch {
+		case m.err != nil:
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Render(
 				fmt.Sprintf("Error: %v", m.err)))
-		} else {
+		case m.symlinksCreated:
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Render(
-				fmt.Sprintf("✓ Download completed in %v", elapsed.Round(time.Second))))
+				fmt.Sprintf("✓ Download and symlinks completed in %v", elapsed.Round(time.Second))))
+		default:
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")).Render(
+				"✓ Download completed, creating symlinks..."))
 		}
 
 		b.WriteString("\nPress Enter to exit or Ctrl+C to quit")
@@ -537,9 +546,40 @@ func (m *model) listenForProgress() tea.Cmd {
 
 // Custom message types.
 type (
-	errMsg  struct{ err error }
-	doneMsg struct{}
+	errMsg         struct{ err error }
+	doneMsg        struct{}
+	symlinkDoneMsg struct{}
 )
+
+func (m *model) createSymlinks() tea.Cmd {
+	return func() tea.Msg {
+		// Get the manifest directory path
+		manifestDir := filepath.Join(m.cfg.Workarea.GetBasePath(), "manifests", m.cfg.Bucket, m.cfg.ReportID)
+
+		// Create symlinks directory within the manifest directory
+		symlinkDir := filepath.Join(manifestDir, "parquet")
+		if err := os.MkdirAll(symlinkDir, 0o750); err != nil {
+			return errMsg{fmt.Errorf("failed to create symlink directory: %w", err)}
+		}
+
+		// Get bucket for creating symlinks
+		bucket := m.cfg.Workarea.Bucket(m.cfg.Bucket, inventory.BucketConfig())
+
+		// Create symlinks for all downloaded files
+		for _, file := range m.manifest.Files {
+			// Extract the filename from the key
+			filename := filepath.Base(file.Key)
+			symlinkPath := filepath.Join(symlinkDir, filename)
+
+			// Create symlink
+			if err := bucket.CreateSymlink(file.Key, symlinkPath); err != nil {
+				return errMsg{fmt.Errorf("failed to create symlink for %s: %w", file.Key, err)}
+			}
+		}
+
+		return symlinkDoneMsg{}
+	}
+}
 
 // Helper functions.
 func createProgressBar(percent float64, width int) string {
