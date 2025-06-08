@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"github.com/numtide/narwal/cmd/inventory/download"
+	downloadnarinfo "github.com/numtide/narwal/cmd/inventory/download-narinfo"
 	"github.com/numtide/narwal/cmd/inventory/explore"
 	import_ "github.com/numtide/narwal/cmd/inventory/import"
 	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
@@ -25,14 +26,21 @@ get the latest inventory report, or examine manifest information.`,
   # Download parquet files for interactive analysis
   narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
+  # Download all narinfo files from cache based on inventory data
+  narwal inventory download-narinfo --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
   # Explore downloaded data interactively with ClickHouse
-  narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
+  narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
+  # Import inventory data into PostgreSQL database
+  narwal inventory import --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
 	}
 
 	// Add sub-commands
 	cmd.AddCommand(listreports.NewCmd())
 	cmd.AddCommand(manifest.NewCmd())
 	cmd.AddCommand(download.NewCmd())
+	cmd.AddCommand(downloadnarinfo.NewCmd())
 	cmd.AddCommand(explore.NewCmd())
 	cmd.AddCommand(import_.NewCmd())
 
