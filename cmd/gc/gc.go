@@ -16,8 +16,8 @@ import (
 var (
 	cfg *config.GC
 
-	// s3 client will be used when we implement deletions.
-
+	// s3 client will be used when we implement deletions
+	//nolint:unused
 	s3 *awssdk.BucketClient
 	pg *pgxpool.Pool
 
