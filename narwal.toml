@@ -5,6 +5,11 @@
 # - /etc/narwal/narwal.toml
 # - ~/.config/narwal/narwal.toml (XDG config directory)
 
+[workarea]
+# Local working directory for caching files and temporary data
+# ENV $NARWAL_WORKAREA__PATH
+path = "./work"
+
 [s3]
 # S3 bucket name (required)
 # ENV $NARWAL_S3__BUCKET
@@ -82,9 +87,6 @@ prefix = "nix-cache/nix-cache-inventory"
 # ENV $NARWAL_INVENTORY__REPORT
 report = ""
 
-# Local working directory for caching
-# ENV $NARWAL_INVENTORY__WORKDIR
-workdir = "./work"
 
 # Inventory S3 credentials (can be different from main S3)
 [inventory.credentials]

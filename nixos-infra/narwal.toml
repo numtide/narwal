@@ -1,5 +1,9 @@
 # Narwal Configuration File for the NixOS infrastructure.
 
+[workarea]
+# Local working directory for caching files and temporary data
+path = "/var/lib/narwal/workarea"
+
 [s3]
 # Primary S3 bucket for cache storage
 bucket = "nix-cache"
@@ -24,7 +28,6 @@ port = 7777
 bucket = "nix-cache-inventory"
 region = "us-east-1"
 prefix = "nix-cache/nix-cache-inventory/"
-workdir = "/var/lib/narwal/workarea"
 use_ssl = true
 
 [inventory.credentials]
