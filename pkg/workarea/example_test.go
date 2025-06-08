@@ -112,7 +112,7 @@ func ExampleWorkArea_basic() {
 	}
 
 	// Get bucket interface
-	bucket := wa.Bucket(bucketName)
+	bucket := wa.Bucket(bucketName, workarea.DefaultBucketConfig())
 
 	// Download content to cache
 	err = bucket.Download(context.Background(), client, key, nil)
@@ -154,7 +154,7 @@ func ExampleWorkArea_withProgress() { //nolint:testableexamples
 	}
 
 	// Get bucket interface
-	bucket := wa.Bucket(bucketName)
+	bucket := wa.Bucket(bucketName, workarea.DefaultBucketConfig())
 
 	// Progress tracking
 	progressCallback := func(bucket, key string, written, total int64) {
@@ -177,7 +177,7 @@ func ExampleWorkArea_cacheManagement() { //nolint:testableexamples
 	}
 
 	bucketName := "temp-data"
-	bucket := wa.Bucket(bucketName)
+	bucket := wa.Bucket(bucketName, workarea.DefaultBucketConfig())
 
 	// Cache multiple files
 	files := map[string]string{
@@ -252,7 +252,7 @@ func ExampleWorkArea_fileInfo() { //nolint:testableexamples
 	}
 
 	// Get bucket interface
-	bucket := wa.Bucket(bucketName)
+	bucket := wa.Bucket(bucketName, workarea.DefaultBucketConfig())
 
 	// Cache the file
 	if err := bucket.Download(context.Background(), client, key, nil); err != nil {

@@ -436,7 +436,7 @@ func (m *model) View() string {
 func (m *model) startDownloads() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		bucket := m.cfg.Workarea.Bucket(m.cfg.Bucket)
+		bucket := m.cfg.Workarea.Bucket(m.cfg.Bucket, inventory.BucketConfig())
 
 		// Create worker pool
 		fileChan := make(chan int, len(m.downloads))

@@ -55,7 +55,7 @@ func TestGetPath(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := "path/to/file.txt"
 
 	path := bucket.GetPath(key)
@@ -86,7 +86,7 @@ func TestGetFileInfo(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 
 	// Test non-existing file
@@ -131,7 +131,7 @@ func TestExists(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 
 	// Test non-existing file
@@ -164,7 +164,7 @@ func TestDownload(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 	content := "This is test content for downloading"
 
@@ -204,7 +204,7 @@ func TestDownloadWithProgress(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 	content := "This is test content for downloading with progress tracking"
 
@@ -266,7 +266,7 @@ func TestDownloadSizeMismatch(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 	content := testContent
 
@@ -297,7 +297,7 @@ func TestDownloadCancellation(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := testFile
 
 	// Create a context that's already cancelled
@@ -329,7 +329,7 @@ func TestRemove(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	key := "test-file.txt"
 	content := "test content"
 
@@ -368,7 +368,7 @@ func TestRemoveNonExistent(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 
 	// Should not error when removing non-existent file
 	err = bucket.Remove("non-existent-file.txt")
@@ -386,7 +386,7 @@ func TestRemoveAll(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket(testBucket)
+	bucket := wa.Bucket(testBucket, workarea.DefaultBucketConfig())
 	client := newMockS3Client()
 
 	// Create multiple files in the bucket
@@ -514,7 +514,7 @@ func TestSharding(t *testing.T) {
 		t.Fatalf("Failed to create work area: %v", err)
 	}
 
-	bucket := wa.Bucket("test-bucket")
+	bucket := wa.Bucket("test-bucket", workarea.DefaultBucketConfig())
 	client := newMockS3Client()
 
 	// Create files with different keys to test sharding

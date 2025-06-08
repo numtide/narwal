@@ -16,6 +16,26 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+// BucketConfig configures how keys are handled and stored for a specific bucket.
+type BucketConfig struct {
+	// UsePartitioning enables sharding files into subdirectories based on key hash.
+	// When false, files are stored directly under the bucket directory.
+	UsePartitioning bool
+
+	// PreserveKeyStructure when true keeps the original key structure (slashes become directories).
+	// When false, sanitizes keys for filesystem use (slashes become underscores).
+	PreserveKeyStructure bool
+}
+
+// DefaultBucketConfig returns the default configuration with partitioning enabled
+// and key structure sanitized for filesystem compatibility.
+func DefaultBucketConfig() BucketConfig {
+	return BucketConfig{
+		UsePartitioning:      true,
+		PreserveKeyStructure: false,
+	}
+}
+
 // WorkArea provides a local caching area for S3 content organized by bucket and key.
 // Files are sharded by prefix to avoid hitting filesystem inode limits.
 type WorkArea struct {
@@ -26,9 +46,10 @@ type WorkArea struct {
 
 // Bucket provides bucket-specific operations within a WorkArea.
 type Bucket struct {
-	workArea   *WorkArea
-	bucketName string
-	log        *log.Logger
+	workArea     *WorkArea
+	bucketName   string
+	bucketConfig BucketConfig
+	log          *log.Logger
 }
 
 // FileInfo contains metadata about a cached file.
@@ -102,12 +123,13 @@ func New(basePath string) (*WorkArea, error) {
 	}, nil
 }
 
-// Bucket returns a Bucket instance for the specified bucket name.
-func (wa *WorkArea) Bucket(bucketName string) *Bucket {
+// Bucket returns a Bucket instance for the specified bucket name with the given configuration.
+func (wa *WorkArea) Bucket(bucketName string, config BucketConfig) *Bucket {
 	return &Bucket{
-		workArea:   wa,
-		bucketName: bucketName,
-		log:        wa.log.WithPrefix("bucket:" + bucketName),
+		workArea:     wa,
+		bucketName:   bucketName,
+		bucketConfig: config,
+		log:          wa.log.WithPrefix("bucket:" + bucketName),
 	}
 }
 
@@ -158,12 +180,12 @@ func (wa *WorkArea) GetBasePath() string {
 
 // GetPath returns the local path where a file would be stored for the given key.
 func (b *Bucket) GetPath(key string) string {
-	return b.workArea.getShardedPath(b.bucketName, key)
+	return b.getConfiguredPath(key)
 }
 
 // GetFileInfo returns information about a cached file.
 func (b *Bucket) GetFileInfo(key string) *FileInfo {
-	path := b.workArea.getShardedPath(b.bucketName, key)
+	path := b.getConfiguredPath(key)
 
 	info := &FileInfo{
 		Path:   path,
@@ -224,7 +246,7 @@ func (b *Bucket) Download(ctx context.Context, s3Client S3Client, key string,
 
 	expectedSize := stat.Size
 
-	targetPath := b.workArea.getShardedPath(b.bucketName, key)
+	targetPath := b.getConfiguredPath(key)
 
 	// Create directory structure
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
@@ -295,7 +317,7 @@ func (b *Bucket) Download(ctx context.Context, s3Client S3Client, key string,
 
 // Remove deletes a cached file.
 func (b *Bucket) Remove(key string) error {
-	path := b.workArea.getShardedPath(b.bucketName, key)
+	path := b.getConfiguredPath(key)
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove cached file: %w", err)
@@ -320,19 +342,32 @@ func (b *Bucket) RemoveAll() error {
 	return nil
 }
 
-// getShardedPath returns the full local path for a bucket/key combination.
-// Uses the first 5 characters of the key's SHA256 hash for sharding.
-func (wa *WorkArea) getShardedPath(bucket, key string) string {
-	// Create a deterministic shard based on the key
-	hash := sha256.Sum256([]byte(key))
-	shard := hex.EncodeToString(hash[:3])[:5]
+// getConfiguredPath returns the full local path for a bucket/key combination
+// using the bucket's configuration for partitioning and key handling.
+func (b *Bucket) getConfiguredPath(key string) string {
+	// Sanitize bucket name for filesystem use
+	safeBucket := SanitizeForFilesystem(b.bucketName)
 
-	// Sanitize bucket name and key for filesystem use
-	safeBucket := SanitizeForFilesystem(bucket)
-	safeKey := SanitizeForFilesystem(key)
+	var keyPath string
+	if b.bucketConfig.PreserveKeyStructure {
+		// Keep original key structure, creating directories as needed
+		keyPath = key
+	} else {
+		// Sanitize key for filesystem use
+		keyPath = SanitizeForFilesystem(key)
+	}
 
-	// Build the path: basePath/bucket/shard/key
-	return filepath.Join(wa.BasePath, safeBucket, shard, safeKey)
+	if b.bucketConfig.UsePartitioning {
+		// Create a deterministic shard based on the key
+		hash := sha256.Sum256([]byte(key))
+		shard := hex.EncodeToString(hash[:3])[:5]
+
+		// Build the path: basePath/bucket/shard/key
+		return filepath.Join(b.workArea.BasePath, safeBucket, shard, keyPath)
+	}
+
+	// Build the path without partitioning: basePath/bucket/key
+	return filepath.Join(b.workArea.BasePath, safeBucket, keyPath)
 }
 
 // progressWriter wraps an io.Writer to provide progress tracking.
