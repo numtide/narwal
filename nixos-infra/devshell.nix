@@ -1,7 +1,6 @@
 { pkgs, perSystem }:
 pkgs.mkShell {
   packages = [
-    perSystem.narwal.default
     pkgs.awscli2
     pkgs.nixos-anywhere
     pkgs.nixos-rebuild
