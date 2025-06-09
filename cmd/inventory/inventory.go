@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	analyzepaths "github.com/numtide/narwal/cmd/inventory/analyze-paths"
 	"github.com/numtide/narwal/cmd/inventory/download"
 	downloadnarinfo "github.com/numtide/narwal/cmd/inventory/download-narinfo"
 	"github.com/numtide/narwal/cmd/inventory/explore"
@@ -29,6 +30,9 @@ get the latest inventory report, or examine manifest information.`,
   # Download all narinfo files from cache based on inventory data
   narwal inventory download-narinfo --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
+  # Analyze all paths for compatibility issues before import
+  narwal inventory analyze-paths --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
   # Explore downloaded data interactively with ClickHouse
   narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
@@ -41,6 +45,7 @@ get the latest inventory report, or examine manifest information.`,
 	cmd.AddCommand(manifest.NewCmd())
 	cmd.AddCommand(download.NewCmd())
 	cmd.AddCommand(downloadnarinfo.NewCmd())
+	cmd.AddCommand(analyzepaths.NewCmd())
 	cmd.AddCommand(explore.NewCmd())
 	cmd.AddCommand(import_.NewCmd())
 
