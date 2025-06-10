@@ -15,6 +15,7 @@ type CompressionType string
 
 const (
 	CompressionTypeBr       CompressionType = "br"
+	CompressionTypeBz2      CompressionType = "bz2"
 	CompressionTypeCompress CompressionType = "compress"
 	CompressionTypeGrzip    CompressionType = "grzip"
 	CompressionTypeGzip     CompressionType = "gzip"

@@ -117,6 +117,13 @@ func TestAnalyzePath(t *testing.T) {
 			expectedComp: db.CompressionTypeZstd,
 			expectError:  false,
 		},
+		{
+			name:         "Nar with bz2 compression",
+			path:         "nar/0sgrcbypviy83aswidi86vprqm6rq5rikld4pbd9ripsk88n2xzf.nar.bz2",
+			expectedType: db.ObjectTypeNar,
+			expectedComp: db.CompressionTypeBz2,
+			expectError:  false,
+		},
 	}
 
 	for _, tt := range tests {
