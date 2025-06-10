@@ -103,6 +103,20 @@ func TestAnalyzePath(t *testing.T) {
 			path:        "",
 			expectError: true,
 		},
+		{
+			name:         "Debug without .debug suffix",
+			path:         "debuginfo/e8926a7b0c39a8e846ae02d54fbc596369c2bce1",
+			expectedType: db.ObjectTypeDebug,
+			expectedComp: db.CompressionTypeNone,
+			expectError:  false,
+		},
+		{
+			name:         "Debug without .debug suffix and compressed", // not sure if this occurs but checking anyway
+			path:         "debuginfo/e8926a7b0c39a8e846ae02d54fbc596369c2bce1.zstd",
+			expectedType: db.ObjectTypeDebug,
+			expectedComp: db.CompressionTypeZstd,
+			expectError:  false,
+		},
 	}
 
 	for _, tt := range tests {

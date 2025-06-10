@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,37 +9,67 @@ import (
 	"github.com/numtide/narwal/pkg/db"
 )
 
-var suffixRegex = regexp.MustCompile(
-	`\.(nar|narinfo|debug|ls|drv)(\.(br|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`,
+var (
+	extensionRegex   = regexp.MustCompile(`\.(narinfo|nar|debug|ls|drv)`)
+	compressionRegex = regexp.MustCompile(`(\.(br|bz2|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`)
 )
 
-type pathAnalysis struct {
+type PathAnalysis struct {
 	ObjectType  db.ObjectType
 	Compression db.CompressionType
 }
 
-func AnalyzePath(path string) (*pathAnalysis, error) {
-	matches := suffixRegex.FindStringSubmatch(path)
-
-	if len(matches) <= 1 {
-		return nil, fmt.Errorf("invalid path: %s", path)
+func typeExtension(path string) string {
+	matches := extensionRegex.FindStringSubmatch(path)
+	if len(matches) == 2 {
+		return matches[1]
 	}
 
-	result := &pathAnalysis{
+	return ""
+}
+
+func compressionExtension(path string) string {
+	matches := compressionRegex.FindStringSubmatch(path)
+	if len(matches) == 3 && matches[2] != "" {
+		return matches[2]
+	}
+
+	return ""
+}
+
+func AnalyzePath(path string) (*PathAnalysis, error) {
+	if path == "" {
+		return nil, errors.New("path is empty")
+	}
+
+	typeExt := typeExtension(path)
+	compressionExt := compressionExtension(path)
+
+	result := &PathAnalysis{
 		Compression: db.CompressionTypeNone,
 	}
 
-	// logs are written with the .drv suffix and under the `log/` prefix
-	if path[:4] == "log/" && strings.Contains(path, ".drv") {
+	switch {
+	case path[:4] == "log/" && strings.Contains(path, ".drv"):
+		// logs are written with the .drv suffix and under the `log/` prefix
 		result.ObjectType = db.ObjectTypeLog
-	} else {
-		// otherwise we rely on the suffix to determine the object type
-		result.ObjectType = db.ObjectType(matches[1])
+
+	case path[:10] == "debuginfo/":
+		// historical debug files did not have the .debug suffix, so we use the prefix to ensure we catch them all
+		result.ObjectType = db.ObjectTypeDebug
+
+	default:
+		// otherwise we rely on the type extension to determine the object type
+		if typeExt == "" {
+			return nil, fmt.Errorf("could not determine object type for path: %s", path)
+		}
+
+		result.ObjectType = db.ObjectType(typeExt)
 	}
 
 	// determine compression
-	if len(matches) == 4 && matches[3] != "" {
-		result.Compression = db.CompressionType(matches[3])
+	if compressionExt != "" {
+		result.Compression = db.CompressionType(compressionExt)
 	}
 
 	return result, nil
