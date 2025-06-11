@@ -16,6 +16,7 @@ func TestAnalyzePath(t *testing.T) {
 		path         string
 		expectedType db.ObjectType
 		expectedComp db.CompressionType
+		expectedHash string
 		expectError  bool
 	}{
 		{
@@ -23,6 +24,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "nar/1234567890123456789012345678901234567890123456789012.nar",
 			expectedType: db.ObjectTypeNar,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "1234567890123456789012345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -30,6 +32,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "nar/1234567890123456789012345678901234567890123456789012.nar.gzip",
 			expectedType: db.ObjectTypeNar,
 			expectedComp: db.CompressionType("gzip"),
+			expectedHash: "1234567890123456789012345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -37,6 +40,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "12345678901234567890123456789012.narinfo",
 			expectedType: db.ObjectTypeNarinfo,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -44,6 +48,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "12345678901234567890123456789012.narinfo.xz",
 			expectedType: db.ObjectTypeNarinfo,
 			expectedComp: db.CompressionType("xz"),
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -51,6 +56,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "debuginfo/1234567890123456789012345678901234567890.debug",
 			expectedType: db.ObjectTypeDebug,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "1234567890123456789012345678901234567890",
 			expectError:  false,
 		},
 		{
@@ -58,6 +64,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "debuginfo/1234567890123456789012345678901234567890.debug.br",
 			expectedType: db.ObjectTypeDebug,
 			expectedComp: db.CompressionType("br"),
+			expectedHash: "1234567890123456789012345678901234567890",
 			expectError:  false,
 		},
 		{
@@ -65,6 +72,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "12345678901234567890123456789012.ls",
 			expectedType: db.ObjectTypeLs,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -72,6 +80,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "12345678901234567890123456789012.ls.lz4",
 			expectedType: db.ObjectTypeLs,
 			expectedComp: db.CompressionType("lz4"),
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -79,6 +88,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/12345678901234567890123456789012.drv",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "12345678901234567890123456789012.drv",
 			expectError:  false,
 		},
 		{
@@ -86,6 +96,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/12345678901234567890123456789012.drv.zstd",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionType("zstd"),
+			expectedHash: "12345678901234567890123456789012.drv.zstd",
 			expectError:  false,
 		},
 		{
@@ -108,6 +119,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "debuginfo/e8926a7b0c39a8e846ae02d54fbc596369c2bce1",
 			expectedType: db.ObjectTypeDebug,
 			expectedComp: db.CompressionTypeNone,
+			expectedHash: "e8926a7b0c39a8e846ae02d54fbc596369c2bce1",
 			expectError:  false,
 		},
 		{
@@ -115,6 +127,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "debuginfo/e8926a7b0c39a8e846ae02d54fbc596369c2bce1.zstd",
 			expectedType: db.ObjectTypeDebug,
 			expectedComp: db.CompressionTypeZstd,
+			expectedHash: "e8926a7b0c39a8e846ae02d54fbc596369c2bce1",
 			expectError:  false,
 		},
 		{
@@ -122,6 +135,31 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "nar/0sgrcbypviy83aswidi86vprqm6rq5rikld4pbd9ripsk88n2xzf.nar.bz2",
 			expectedType: db.ObjectTypeNar,
 			expectedComp: db.CompressionTypeBz2,
+			expectedHash: "0sgrcbypviy83aswidi86vprqm6rq5rikld4pbd9ripsk88n2xzf",
+			expectError:  false,
+		},
+		{
+			name:         "Logs with .patch extension",
+			path:         "log/qhg4r459wvvhbljfh1c4r72q0sqlcrjn-polkit-0.113-itstool.patch",
+			expectedType: db.ObjectTypeLog,
+			expectedComp: db.CompressionTypeNone,
+			expectedHash: "qhg4r459wvvhbljfh1c4r72q0sqlcrjn-polkit-0.113-itstool.patch",
+			expectError:  false,
+		},
+		{
+			name:         "Logs with tar.gz extension",
+			path:         "log/l68bhyychrnfjj8w6xfc8mq81hh2ky4k-spin646.tar.gz",
+			expectedType: db.ObjectTypeLog,
+			expectedComp: db.CompressionTypeNone,
+			expectedHash: "l68bhyychrnfjj8w6xfc8mq81hh2ky4k-spin646.tar.gz",
+			expectError:  false,
+		},
+		{
+			name:         "Logs with no pname",
+			path:         "log/60kyz51167cx976v96vnn1igavhpghlc-",
+			expectedType: db.ObjectTypeLog,
+			expectedComp: db.CompressionTypeNone,
+			expectedHash: "60kyz51167cx976v96vnn1igavhpghlc-",
 			expectError:  false,
 		},
 	}
@@ -156,6 +194,16 @@ func TestAnalyzePath(t *testing.T) {
 
 			if result.Compression != tt.expectedComp {
 				t.Errorf("Expected compression %s for path %s, but got %s", tt.expectedComp, tt.path, result.Compression)
+			}
+
+			// Extract hash from path and verify it matches the expected hash
+			if !tt.expectError && tt.expectedHash != "" {
+				hash, err := store.HashFromPath(tt.path, result.ObjectType)
+				if err != nil {
+					t.Errorf("Failed to extract hash from path %s: %v", tt.path, err)
+				} else if hash != tt.expectedHash {
+					t.Errorf("Expected hash %s for path %s, but got %s", tt.expectedHash, tt.path, hash)
+				}
 			}
 		})
 	}

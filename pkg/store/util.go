@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/numtide/narwal/pkg/db"
 )
@@ -51,8 +50,7 @@ func AnalyzePath(path string) (*PathAnalysis, error) {
 	}
 
 	switch {
-	case path[:4] == "log/" && strings.Contains(path, ".drv"):
-		// logs are written with the .drv suffix and under the `log/` prefix
+	case path[:4] == "log/":
 		result.ObjectType = db.ObjectTypeLog
 
 	case path[:10] == "debuginfo/":
