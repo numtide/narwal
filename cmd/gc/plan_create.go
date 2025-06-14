@@ -12,10 +12,10 @@ import (
 )
 
 type closureEntry struct {
-	Hash       string `db:"hash"`
-	ObjectType string `db:"object_type"`
-	Path       string `db:"path"`
-	NarUrl     string `db:"nar_url"`
+	Hash       string  `db:"hash"`
+	ObjectType string  `db:"object_type"`
+	Path       string  `db:"path"`
+	NarUrl     *string `db:"nar_url"`
 }
 
 func planCreate() *cobra.Command {
@@ -151,7 +151,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		rows = append(rows, []any{entry.Path})
 
 		// we get the nar url from the nar_info table if it exists
-		if entry.ObjectType == "narinfo" && entry.NarUrl != "" {
+		if entry.ObjectType == "narinfo" && entry.NarUrl != nil {
 			rows = append(rows, []any{entry.NarUrl})
 			objectCount++
 		}
