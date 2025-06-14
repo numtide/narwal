@@ -75,8 +75,10 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 	// current value is based on cache.nixos.org total nars
 	filter := bloom.NewWithEstimates(275000000, 0.01)
 
+	batchSize := 12 // todo make configurable
+
 	// stream each entry in the closure table and add it to the filter
-	cursorValues := make([]closureEntry, 1024)
+	cursorValues := make([]closureEntry, batchSize)
 	closureQuery := fmt.Sprintf(`select distinct(hash) as hash from gc_plan_%d_closure`, planID)
 
 	closureIter, err := ci.NewCursorIterator(tx, cursorValues, closureQuery)
@@ -112,7 +114,6 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create object iterator: %w", err)
 	}
 
-	batchSize := 1024 // todo make configurable
 	rows := make([][]any, 0, batchSize)
 
 	objectCount := 0

@@ -2,6 +2,9 @@ package store
 
 import (
 	"errors"
+	"fmt"
+
+	"github.com/eko/gocache/lib/v4/cache"
 
 	"golang.org/x/sync/errgroup"
 
@@ -21,6 +24,8 @@ type Store struct {
 	eg *errgroup.Group
 
 	bucketName string
+
+	cache *cache.LoadableCache[[]byte]
 }
 
 func (s *Store) Close() error {
@@ -39,6 +44,10 @@ func New(
 		eg:         eg,
 		log:        log.WithPrefix("store"),
 		bucketName: cfg.S3.Bucket,
+	}
+
+	if err := result.initObjectCache(); err != nil {
+		return nil, fmt.Errorf("failed to initialize object cache: %w", err)
 	}
 
 	return result, nil

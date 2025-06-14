@@ -33,7 +33,7 @@ func setObjectResponseHeaders(w http.ResponseWriter, obj *store.Object) {
 
 func (s *Server) hasObject(w http.ResponseWriter, r *http.Request) {
 	path := r.RequestURI[1:] // strip leading '/'
-	obj, err := s.store.HasObject(r.Context(), path)
+	obj, err := s.store.HasObjectWithCache(r.Context(), path)
 
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -50,7 +50,7 @@ func (s *Server) hasObject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	path := r.RequestURI[1:] // strip leading '/'
-	obj, err := s.store.GetObject(r.Context(), path)
+	obj, err := s.store.GetObjectWithCache(r.Context(), path)
 
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)

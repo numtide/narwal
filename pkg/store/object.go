@@ -74,7 +74,8 @@ func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
 	return &Object{
 		Type:        entry.ObjectType,
 		Compression: entry.CompressionType,
-		Size:        uint64(entry.Size), Body: body,
+		Size:        uint64(entry.Size),
+		Body:        body,
 	}, nil
 }
 
@@ -151,11 +152,24 @@ func (s *Store) PutObject(
 		return fmt.Errorf("failed to put object in db: %w", err)
 	}
 
+	// return unless we are processing a narinfo
 	if narinfoBuf == nil {
 		return nil
 	}
 
-	return PutNarInfo(ctx, queries, hash, narinfoBuf.Bytes())
+	narinfoBytes := narinfoBuf.Bytes()
+
+	// parse the narinfo and store it in the db
+	if err = PutNarInfo(ctx, queries, hash, narinfoBytes); err != nil {
+		return fmt.Errorf("failed to put narinfo in db: %w", err)
+	}
+
+	// update the cache
+	if err = s.cache.Set(ctx, path, narinfoBytes); err != nil {
+		return fmt.Errorf("failed to set object in cache: %w", err)
+	}
+
+	return nil
 }
 
 func PutNarInfo(ctx context.Context, queries *db.Queries, hash string, buf []byte) error {
