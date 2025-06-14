@@ -50,6 +50,15 @@ func (s *Server) Listen() error {
 
 	r.Use(middleware.Timeout(60 * time.Second))
 
+	// Add Basic Auth middleware if enabled
+	basicAuth := s.cfg.HTTP.BasicAuth
+	if basicAuth.Enabled {
+		credentials := make(map[string]string, 1)
+		credentials[basicAuth.Username] = basicAuth.Password
+
+		r.Use(middleware.BasicAuth("narwal", credentials))
+	}
+
 	s.addInfoRoutes(r)
 	s.addObjectRoutes(r)
 
