@@ -31,6 +31,7 @@ func planCreate() *cobra.Command {
 	return cmd
 }
 
+//nolint:gocognit
 func createPlan(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
@@ -75,7 +76,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 	// current value is based on cache.nixos.org total nars
 	filter := bloom.NewWithEstimates(275000000, 0.01)
 
-	batchSize := 12 // todo make configurable
+	batchSize := 1024 // todo make configurable
 
 	// stream each entry in the closure table and add it to the filter
 	cursorValues := make([]closureEntry, batchSize)
@@ -115,23 +116,50 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 	}
 
 	rows := make([][]any, 0, batchSize)
+	narPaths := make([]string, 0, batchSize)
 
 	objectCount := 0
 	deletionCount := 0
 
 	deletionsTable := deletionsTableName(planID)
 
+	columnNames := []string{"path"}
+	tableIdentifier := pgx.Identifier{deletionsTable}
+
 	// copy paths into the deletion table in batches
-	flush := func() error {
-		_, copyErr := tx.CopyFrom(ctx, pgx.Identifier{deletionsTable}, []string{"path"}, pgx.CopyFromRows(rows))
+	flushRows := func() error {
+		_, copyErr := tx.CopyFrom(ctx, tableIdentifier, columnNames, pgx.CopyFromRows(rows))
 		if copyErr != nil {
 			return fmt.Errorf("failed to copy rows: %w", copyErr)
 		}
 
 		deletionCount += len(rows)
 
-		// reset the batch
+		// reset
 		rows = rows[:0]
+
+		return nil
+	}
+
+	flushNarPaths := func() error {
+		// I've observed multiple narinfo's pointing to the same nar, so we insert them differently
+		batch := pgx.Batch{}
+		for _, path := range narPaths {
+			batch.Queue(
+				fmt.Sprintf(`insert into %s (path) values ($1) on conflict (path) do nothing`, deletionsTable),
+				path,
+			)
+		}
+
+		results := tx.SendBatch(ctx, &batch)
+		if batchErr := results.Close(); batchErr != nil {
+			return fmt.Errorf("failed to send batch: %w", batchErr)
+		}
+
+		deletionCount += len(narPaths)
+
+		// reset
+		narPaths = narPaths[:0]
 
 		return nil
 	}
@@ -153,20 +181,30 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 
 		// we get the nar url from the nar_info table if it exists
 		if entry.ObjectType == "narinfo" && entry.NarUrl != nil {
-			rows = append(rows, []any{entry.NarUrl})
+			narPaths = append(narPaths, *entry.NarUrl)
 			objectCount++
 		}
 
 		if len(rows) == batchSize {
-			if err = flush(); err != nil {
+			if err = flushRows(); err != nil {
 				return fmt.Errorf("failed to flush rows: %w", err)
+			}
+		}
+
+		if len(narPaths) == batchSize {
+			if err = flushNarPaths(); err != nil {
+				return fmt.Errorf("failed to flush nar paths: %w", err)
 			}
 		}
 	}
 
 	// flush any remaining paths
-	if err = flush(); err != nil {
+	if err = flushRows(); err != nil {
 		return fmt.Errorf("failed to flush rows: %w", err)
+	}
+
+	if err = flushNarPaths(); err != nil {
+		return fmt.Errorf("failed to flush nar paths: %w", err)
 	}
 
 	if objectIter.Error() != nil {
