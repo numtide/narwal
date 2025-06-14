@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/charmbracelet/log"
 	"github.com/minio/minio-go/v7"
@@ -41,21 +42,11 @@ func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryMa
 	defer reader.Close() //nolint:errcheck
 
 	// Parse the JSON manifest directly from the stream
-	var manifest InventoryManifest
+	var manifest *InventoryManifest
 
-	decoder := json.NewDecoder(reader)
-	if err := decoder.Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("failed to parse manifest JSON: %w", err)
-	}
+	manifest, err = ReadManifest(reader)
 
-	err = manifest.Validate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate manifest: %w", err)
-	}
-
-	log.Debug("Parsed inventory manifest", "files", len(manifest.Files))
-
-	return &manifest, nil
+	return manifest, nil
 }
 
 // ValidateManifest performs basic validation on a manifest.
@@ -89,4 +80,20 @@ func (m *InventoryManifest) TotalSize() int64 {
 	}
 
 	return total
+}
+
+// ReadManifest reads and parses an inventory manifest from a reader.
+func ReadManifest(reader io.Reader) (*InventoryManifest, error) {
+	var manifest InventoryManifest
+
+	decoder := json.NewDecoder(reader)
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("failed to parse manifest JSON: %w", err)
+	}
+
+	if err := manifest.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid manifest: %w", err)
+	}
+
+	return &manifest, nil
 }
