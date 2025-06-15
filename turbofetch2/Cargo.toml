@@ -1,0 +1,31 @@
+[package]
+name = "turbofetch2"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["."]
+
+[dependencies]
+bytes = "1.5.0"
+httparse = "1.8.0"
+magic-buffer = "0.1.1"
+tokio = { version = "1.33.0", features = ["full"] }
+tracing-subscriber = { version = "0.3.17", features = ["json"] }
+tracing = "0.1.40"
+aws-config = "1.2.0"
+aws-credential-types = "1.2.0"
+sha2 = "0.10.0"
+hex = "0.4.0"
+hmac = "0.12.0"
+chrono = { version = "0.4.0", features = ["serde"] }
+tempfile = "3.0"
+tokio-rustls = "0.26.0"
+rustls = "0.23.0"
+rustls-pki-types = "1.0.0"
+webpki-roots = "0.26.0"
+async-trait = "0.1.74"
+indicatif = "0.17.7"
+
+[dev-dependencies]
+tempfile = "3.0"

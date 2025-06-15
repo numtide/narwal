@@ -1,4 +1,8 @@
-{ pkgs, perSystem, ... }:
+{
+  pkgs,
+  perSystem,
+  ...
+}:
 let
 
   inherit (pkgs) lib;
@@ -70,10 +74,17 @@ perSystem.self.narwal.overrideAttrs (old: {
 
       # tooling
       awscli2
+      curl
       goose # db migrations
+      graphviz
       pqrs # parquet inspection
       sqlc # type-safe queries
-      graphviz
+      openssl
+
+      # rust tooling
+      cargo
+      clippy
+      rustfmt
     ]);
 
   shellHook = ''
