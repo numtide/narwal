@@ -5,6 +5,7 @@ import (
 	"github.com/numtide/narwal/cmd/inventory/download"
 	downloadnarinfo "github.com/numtide/narwal/cmd/inventory/download-narinfo"
 	"github.com/numtide/narwal/cmd/inventory/explore"
+	extractnarinfokeys "github.com/numtide/narwal/cmd/inventory/extract-narinfo-keys"
 	import_ "github.com/numtide/narwal/cmd/inventory/import"
 	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
 	"github.com/numtide/narwal/cmd/inventory/manifest"
@@ -37,7 +38,10 @@ get the latest inventory report, or examine manifest information.`,
   narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
 
   # Import inventory data into PostgreSQL database
-  narwal inventory import --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
+  narwal inventory import --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
+  # Extract narinfo keys to a binary file
+  narwal inventory extract-narinfo-keys --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
 	}
 
 	// Add sub-commands
@@ -48,6 +52,7 @@ get the latest inventory report, or examine manifest information.`,
 	cmd.AddCommand(analyzepaths.NewCmd())
 	cmd.AddCommand(explore.NewCmd())
 	cmd.AddCommand(import_.NewCmd())
+	cmd.AddCommand(extractnarinfokeys.NewCmd())
 
 	// Note: Sub-commands handle their own flag binding
 
