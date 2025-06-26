@@ -255,15 +255,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// S3InventoryRecord represents a record in the S3 inventory parquet file.
-type S3InventoryRecord struct {
-	Bucket           string `parquet:"bucket"`
-	Key              string `parquet:"key"`
-	Size             *int64 `parquet:"size"`
-	LastModifiedDate *int64 `parquet:"last_modified_date"`
-	ETag             string `parquet:"e_tag"`
-	StorageClass     string `parquet:"storage_class"`
-}
 
 func extractKeysParallelWithProgress(ctx context.Context, parquetFiles []string, parallelism int) ([]string, error) {
 	// Initialize progress bar
@@ -433,11 +424,11 @@ func extractKeysFromFile(parquetFile string) ([]string, error) {
 	}
 	defer file.Close() //nolint:errcheck
 
-	reader := parquet.NewGenericReader[S3InventoryRecord](file)
+	reader := parquet.NewGenericReader[inventory.S3InventoryRecord](file)
 	defer reader.Close() //nolint:errcheck
 
 	const batchSize = 1000
-	records := make([]S3InventoryRecord, batchSize)
+	records := make([]inventory.S3InventoryRecord, batchSize)
 
 	var keys []string
 

@@ -63,32 +63,11 @@ garbage collection and cache management.`,
 func runE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	// Explicitly set flag values in viper since flag binding might not work properly
-	if reportFlag := cmd.Flag("report"); reportFlag != nil && reportFlag.Changed {
-		viper.Set("report", reportFlag.Value.String())
-	}
-
-	if bucketFlag := cmd.Flag("bucket"); bucketFlag != nil && bucketFlag.Changed {
-		viper.Set("bucket", bucketFlag.Value.String())
-	}
-
-	if regionFlag := cmd.Flag("region"); regionFlag != nil && regionFlag.Changed {
-		viper.Set("region", regionFlag.Value.String())
-	}
-
-	if prefixFlag := cmd.Flag("prefix"); prefixFlag != nil && prefixFlag.Changed {
-		viper.Set("prefix", prefixFlag.Value.String())
-	}
-
-	// parse viper into our config object
-	var fullCfg appconfig.Config
-	if err := appconfig.FromViper(viper.GetViper(), &fullCfg); err != nil {
-		return fmt.Errorf("failed to create config from viper: %w", err)
-	}
-
-	cfg := &fullCfg.Inventory
-	if err := cfg.Validate(ctx, nil, fullCfg.Workarea.Path); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	// Bind flags to viper and parse config
+	appconfig.BindInventoryFlagsToViper(cmd)
+	fullCfg, cfg, err := appconfig.ParseAndValidateInventoryConfig(ctx)
+	if err != nil {
+		return err
 	}
 
 	// Require report ID for import command
@@ -260,16 +239,6 @@ func importParquetFiles(ctx context.Context, pgPool *pgxpool.Pool, cacheBucketCl
 	return nil
 }
 
-// S3InventoryRecord represents a record in the S3 inventory parquet file.
-// Based on the schema from the manifest: bucket, key, size, last_modified_date, e_tag, storage_class.
-type S3InventoryRecord struct {
-	Bucket           string `parquet:"bucket"`
-	Key              string `parquet:"key"`
-	Size             *int64 `parquet:"size"`               // Optional field
-	LastModifiedDate *int64 `parquet:"last_modified_date"` // Optional timestamp in millis
-	ETag             string `parquet:"e_tag"`              // Optional field
-	StorageClass     string `parquet:"storage_class"`      // Optional field
-}
 
 func importSingleParquetFile(ctx context.Context, pgPool *pgxpool.Pool, cacheBucketClient *awssdk.BucketClient, narinfoWorkareaBucket *workarea.Bucket, parquetFile string) (int64, error) {
 	fileName := filepath.Base(parquetFile)
@@ -289,7 +258,7 @@ func importSingleParquetFile(ctx context.Context, pgPool *pgxpool.Pool, cacheBuc
 	// Create a parquet reader from the file
 	log.Info("Creating parquet reader", "file", fileName)
 
-	reader := parquet.NewGenericReader[S3InventoryRecord](file)
+	reader := parquet.NewGenericReader[inventory.S3InventoryRecord](file)
 	defer reader.Close() //nolint:errcheck
 
 	// Get a database connection
@@ -307,7 +276,7 @@ func importSingleParquetFile(ctx context.Context, pgPool *pgxpool.Pool, cacheBuc
 
 	// Read records in batches
 	const batchSize = 1000
-	records := make([]S3InventoryRecord, batchSize)
+	records := make([]inventory.S3InventoryRecord, batchSize)
 
 	var (
 		totalRecords     int64

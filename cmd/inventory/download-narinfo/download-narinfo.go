@@ -190,16 +190,6 @@ func writeMemoryProfile(memProfile string) {
 	}
 }
 
-// S3InventoryRecord represents a record in the S3 inventory parquet file.
-// Based on the schema from the manifest: bucket, key, size, last_modified_date, e_tag, storage_class.
-type S3InventoryRecord struct {
-	Bucket           string `parquet:"bucket"`
-	Key              string `parquet:"key"`
-	Size             *int64 `parquet:"size"`               // Optional field
-	LastModifiedDate *int64 `parquet:"last_modified_date"` // Optional timestamp in millis
-	ETag             string `parquet:"e_tag"`              // Optional field
-	StorageClass     string `parquet:"storage_class"`      // Optional field
-}
 
 func processAndDownloadNarinfos(
 	ctx context.Context,
@@ -405,11 +395,11 @@ func processParquetFile(ctx context.Context, parquetFile string, narinfoChan cha
 	}
 	defer file.Close() //nolint:errcheck
 
-	reader := parquet.NewGenericReader[S3InventoryRecord](file)
+	reader := parquet.NewGenericReader[inventory.S3InventoryRecord](file)
 	defer reader.Close() //nolint:errcheck
 
 	const batchSize = 1000
-	records := make([]S3InventoryRecord, batchSize)
+	records := make([]inventory.S3InventoryRecord, batchSize)
 
 	for {
 		n, err := reader.Read(records)

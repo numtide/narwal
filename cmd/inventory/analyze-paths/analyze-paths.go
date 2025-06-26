@@ -73,30 +73,8 @@ This is useful for:
 func runE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	// Explicitly set flag values in viper since flag binding might not work properly
-	if reportFlag := cmd.Flag("report"); reportFlag != nil && reportFlag.Changed {
-		viper.Set("report", reportFlag.Value.String())
-	}
-
-	if bucketFlag := cmd.Flag("bucket"); bucketFlag != nil && bucketFlag.Changed {
-		viper.Set("bucket", bucketFlag.Value.String())
-	}
-
-	if regionFlag := cmd.Flag("region"); regionFlag != nil && regionFlag.Changed {
-		viper.Set("region", regionFlag.Value.String())
-	}
-
-	if prefixFlag := cmd.Flag("prefix"); prefixFlag != nil && prefixFlag.Changed {
-		viper.Set("prefix", prefixFlag.Value.String())
-	}
-
-	if parallelFlag := cmd.Flag("parallel"); parallelFlag != nil && parallelFlag.Changed {
-		viper.Set("parallel", parallelFlag.Value.String())
-	}
-
-	if errorFileFlag := cmd.Flag("error-file"); errorFileFlag != nil && errorFileFlag.Changed {
-		viper.Set("error-file", errorFileFlag.Value.String())
-	}
+	// Bind flags to viper using shared utility
+	appconfig.BindInventoryFlagsToViper(cmd)
 
 	// parse viper into our config object
 	var fullCfg appconfig.Config
@@ -224,16 +202,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 	return analyzePathsInParquetFiles(ctx, parquetFiles, parallelism, errorFilePath)
 }
 
-// S3InventoryRecord represents a record in the S3 inventory parquet file.
-// Based on the schema from the manifest: bucket, key, size, last_modified_date, e_tag, storage_class.
-type S3InventoryRecord struct {
-	Bucket           string `parquet:"bucket"`
-	Key              string `parquet:"key"`
-	Size             *int64 `parquet:"size"`               // Optional field
-	LastModifiedDate *int64 `parquet:"last_modified_date"` // Optional timestamp in millis
-	ETag             string `parquet:"e_tag"`              // Optional field
-	StorageClass     string `parquet:"storage_class"`      // Optional field
-}
 
 // PathAnalysisError contains information about a failed path analysis.
 type PathAnalysisError struct {
@@ -407,13 +375,13 @@ func analyzePathsInSingleParquet(parquetFile string) ParquetAnalysisResult {
 	defer file.Close() //nolint:errcheck
 
 	// Create a parquet reader from the file
-	reader := parquet.NewGenericReader[S3InventoryRecord](file)
+	reader := parquet.NewGenericReader[inventory.S3InventoryRecord](file)
 	defer reader.Close() //nolint:errcheck
 
 	// Read records in batches
 	const batchSize = 1000
 
-	records := make([]S3InventoryRecord, batchSize)
+	records := make([]inventory.S3InventoryRecord, batchSize)
 
 	var (
 		processedCount int64

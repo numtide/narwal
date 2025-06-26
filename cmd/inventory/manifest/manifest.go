@@ -13,6 +13,7 @@ import (
 	"github.com/numtide/narwal/pkg/awssdk"
 	appconfig "github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
+	"github.com/numtide/narwal/pkg/util"
 )
 
 var (
@@ -151,7 +152,7 @@ func displayStats(manifest *inventory.InventoryManifest) error {
 	fmt.Printf("  File Schema: %s\n", manifest.FileSchema)
 	fmt.Printf("  Version: %s\n", manifest.Version)
 	fmt.Printf("  Total Files: %d\n", len(manifest.Files))
-	fmt.Printf("  Total Size: %s\n", formatBytes(totalSize))
+	fmt.Printf("  Total Size: %s\n", util.FormatBytes(totalSize))
 
 	return nil
 }
@@ -178,12 +179,12 @@ func displayTable(manifest *inventory.InventoryManifest) error {
 	fmt.Printf("  File Schema: %s\n", manifest.FileSchema)
 	fmt.Printf("  Version: %s\n", manifest.Version)
 	fmt.Printf("  Total Files: %d\n", len(manifest.Files))
-	fmt.Printf("  Total Size: %s\n", formatBytes(totalSize))
+	fmt.Printf("  Total Size: %s\n", util.FormatBytes(totalSize))
 	fmt.Printf("\nFiles:\n")
 
 	for i, file := range manifest.Files {
 		fmt.Printf("  %d. %s\n", i+1, file.Key)
-		fmt.Printf("     Size: %s\n", formatBytes(file.Size))
+		fmt.Printf("     Size: %s\n", util.FormatBytes(file.Size))
 		fmt.Printf("     MD5: %s\n", file.MD5Checksum)
 
 		if i < len(manifest.Files)-1 {
@@ -194,18 +195,3 @@ func displayTable(manifest *inventory.InventoryManifest) error {
 	return nil
 }
 
-// formatBytes formats byte count in human readable format.
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}

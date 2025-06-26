@@ -20,6 +20,7 @@ import (
 	"github.com/numtide/narwal/pkg/awssdk"
 	appconfig "github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
+	"github.com/numtide/narwal/pkg/util"
 	"github.com/numtide/narwal/pkg/workarea"
 )
 
@@ -60,26 +61,8 @@ Files are downloaded in parallel and cached in the workarea.`,
 func runE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	// Explicitly set flag values in viper since flag binding might not work properly
-	if reportFlag := cmd.Flag("report"); reportFlag != nil && reportFlag.Changed {
-		viper.Set("report", reportFlag.Value.String())
-	}
-
-	if bucketFlag := cmd.Flag("bucket"); bucketFlag != nil && bucketFlag.Changed {
-		viper.Set("bucket", bucketFlag.Value.String())
-	}
-
-	if regionFlag := cmd.Flag("region"); regionFlag != nil && regionFlag.Changed {
-		viper.Set("region", regionFlag.Value.String())
-	}
-
-	if prefixFlag := cmd.Flag("prefix"); prefixFlag != nil && prefixFlag.Changed {
-		viper.Set("prefix", prefixFlag.Value.String())
-	}
-
-	if parallelFlag := cmd.Flag("parallel"); parallelFlag != nil && parallelFlag.Changed {
-		viper.Set("parallel", parallelFlag.Value.String())
-	}
+	// Bind flags to viper using shared utility
+	appconfig.BindInventoryFlagsToViper(cmd)
 
 	// parse viper into our config object
 	var fullCfg appconfig.Config
@@ -360,12 +343,12 @@ func (m *model) View() string {
 
 	if elapsed.Seconds() > 0 && m.downloadedSize > 0 {
 		bytesPerSecond := float64(m.downloadedSize) / elapsed.Seconds()
-		speed = fmt.Sprintf(" (%s/s)", formatBytes(int64(bytesPerSecond)))
+		speed = fmt.Sprintf(" (%s/s)", util.FormatBytes(int64(bytesPerSecond)))
 	}
 
 	b.WriteString(fmt.Sprintf("Overall Progress: %d/%d files (%.1f%%) | %s/%s (%.1f%%)%s\n",
 		m.completed, m.totalFiles, overallPercent,
-		formatBytes(m.downloadedSize), formatBytes(m.totalSize), bytesPercent,
+		util.FormatBytes(m.downloadedSize), util.FormatBytes(m.totalSize), bytesPercent,
 		speed))
 
 	overallBar := createProgressBar(overallPercent, m.width-20)
@@ -609,17 +592,3 @@ func createProgressBar(percent float64, width int) string {
 	return bar
 }
 
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
