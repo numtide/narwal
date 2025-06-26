@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # shellcheck source=env.sh disable=SC1091
-source "$(dirname "$0")"/env.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"/env.sh
 
 if [[ $# = 0 ]]; then
   set -- switch
