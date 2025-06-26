@@ -6,6 +6,7 @@
     ./narwal.nix
     inputs.srvos.nixosModules.hardware-hetzner-online-amd
     inputs.srvos.nixosModules.mixins-nginx
+    inputs.srvos.nixosModules.mixins-terminfo
     inputs.srvos.nixosModules.server
   ];
 
