@@ -16,5 +16,8 @@ pub const BATCH_CHANNEL_SIZE: usize = 100;
 /// Channel buffer size for results
 pub const RESULT_CHANNEL_SIZE: usize = 50;
 
-/// Hash prefix length for directory organization
-pub const HASH_PREFIX_LENGTH: usize = 5;
+/// First layer prefix length for 2-layer directory organization
+pub const FIRST_LAYER_PREFIX_LENGTH: usize = 2;
+
+/// Second layer prefix length for 2-layer directory organization
+pub const SECOND_LAYER_PREFIX_LENGTH: usize = 2;

@@ -1,5 +1,5 @@
 use crate::{
-    constants::HASH_PREFIX_LENGTH,
+    constants::{FIRST_LAYER_PREFIX_LENGTH, SECOND_LAYER_PREFIX_LENGTH},
     error::{Result, TurbofetchError},
 };
 use bytes::Bytes;
@@ -32,16 +32,23 @@ impl DiskNarinfoStore {
         }
     }
 
-    /// Get the directory path for a given hash
+    /// Get the directory path for a given hash using 2-layer structure
     fn get_dir_path(&self, hash: &str) -> PathBuf {
-        let prefix = &hash[..HASH_PREFIX_LENGTH.min(hash.len())];
-        self.base_dir.join(prefix)
+        let first_layer = &hash[..FIRST_LAYER_PREFIX_LENGTH.min(hash.len())];
+        
+        if hash.len() <= FIRST_LAYER_PREFIX_LENGTH {
+            // For very short hashes, just use first layer
+            self.base_dir.join(first_layer)
+        } else {
+            let second_layer_end = (FIRST_LAYER_PREFIX_LENGTH + SECOND_LAYER_PREFIX_LENGTH).min(hash.len());
+            let second_layer = &hash[FIRST_LAYER_PREFIX_LENGTH..second_layer_end];
+            self.base_dir.join(first_layer).join(second_layer)
+        }
     }
 
     /// Get the full file path for a narinfo
     fn get_file_path(&self, hash: &str) -> PathBuf {
-        let prefix = &hash[..HASH_PREFIX_LENGTH.min(hash.len())];
-        self.base_dir.join(prefix).join(format!("{}.narinfo", hash))
+        self.get_dir_path(hash).join(format!("{}.narinfo", hash))
     }
 
     /// Write data to a file atomically by using a temporary file and renaming it.
@@ -185,14 +192,15 @@ mod tests {
         // Check that file now exists
         assert!(store.exists(hash).await.unwrap());
 
-        // Verify path structure
+        // Verify path structure (2-layer: ab/cd/)
         let path = store.get_path(hash);
         assert!(path.exists());
         assert_eq!(
             path.to_str().unwrap(),
             temp_dir
                 .path()
-                .join("abcde")
+                .join("ab")
+                .join("cd")
                 .join("abcdefghijklmnop.narinfo")
                 .to_str()
                 .unwrap()
@@ -210,9 +218,12 @@ mod tests {
         // Write narinfo (should create directory)
         store.write(hash, &content).await.unwrap();
 
-        // Check that directory was created
-        let dir_path = temp_dir.path().join("xyzab");
-        assert!(dir_path.exists());
-        assert!(dir_path.is_dir());
+        // Check that directory structure was created (2-layer: xy/za/)
+        let first_layer = temp_dir.path().join("xy");
+        let second_layer = first_layer.join("za");
+        assert!(first_layer.exists());
+        assert!(first_layer.is_dir());
+        assert!(second_layer.exists());
+        assert!(second_layer.is_dir());
     }
 }

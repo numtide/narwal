@@ -5,8 +5,9 @@
 //! S3 bucket (nix-cache).
 //!
 //! Each run of turbofetch processes the entire job file and writes each
-//! narinfo file to the local filesystem, organized by 5-character hash
-//! prefixes into subdirectories for efficient storage and lookup.
+//! narinfo file to the local filesystem, organized in a 2-layer directory
+//! structure using the first 4 characters of the hash (2+2) for efficient
+//! storage and lookup.
 //!
 //! Files are written atomically using temporary files to ensure readers
 //! never see partial writes. The application fails fast on any error,
