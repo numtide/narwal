@@ -68,10 +68,10 @@ async fn test_narinfo_store_multiple_prefixes() {
 
     // Test files with different prefixes (2-layer structure)
     let test_cases = vec![
-        ("aaaa1234567890", "content1"),      // aa/aa/
-        ("abcd1234567890", "content2"),      // ab/cd/
-        ("aaaa9876543210", "content3"),      // aa/aa/ (same dir as first)
-        ("abxy1234567890", "content4"),      // ab/xy/
+        ("aaaa1234567890", "content1"), // aa/aa/
+        ("abcd1234567890", "content2"), // ab/cd/
+        ("aaaa9876543210", "content3"), // aa/aa/ (same dir as first)
+        ("abxy1234567890", "content4"), // ab/xy/
     ];
 
     // Write all files
@@ -105,7 +105,7 @@ async fn test_narinfo_store_multiple_prefixes() {
         .unwrap()
         .collect();
     assert_eq!(ab_cd_files.len(), 1);
-    
+
     let ab_xy_files: Vec<_> = std::fs::read_dir(temp_dir.path().join("ab").join("xy"))
         .unwrap()
         .collect();
@@ -141,14 +141,14 @@ async fn test_narinfo_store_short_hash() {
     // Verify it's in the right place (ab/c/ for 3-char hash)
     let expected_path = temp_dir.path().join("ab").join("c").join("abc.narinfo");
     assert!(expected_path.exists());
-    
+
     // Test with even shorter hash
     let very_short_hash = "a";
     let content2 = Bytes::from("very short hash content");
-    
+
     store.write(very_short_hash, &content2).await.unwrap();
     assert!(store.exists(very_short_hash).await.unwrap());
-    
+
     // Verify it's in the right place (a/ for 1-char hash)
     let expected_path2 = temp_dir.path().join("a").join("a.narinfo");
     assert!(expected_path2.exists());

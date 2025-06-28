@@ -26,6 +26,12 @@ rustls-pki-types = "1.0.0"
 webpki-roots = "0.26.0"
 async-trait = "0.1.74"
 indicatif = "0.17.7"
+parquet = { version = "53.0.0", features = ["async"] }
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[[bin]]
+name = "create_parquet_fixtures"
+path = "src/bin/create_parquet_fixtures.rs"
+required-features = []

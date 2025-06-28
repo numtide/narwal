@@ -1,10 +1,5 @@
 use bytes::Bytes;
-use std::path::Path;
-use tokio::{
-    fs as tokio_fs,
-    io::{self, AsyncBufReadExt, BufReader},
-    sync::mpsc,
-};
+use tokio::{io, sync::mpsc};
 
 pub use buffer::Buffer;
 mod buffer;
@@ -16,6 +11,7 @@ pub mod error;
 pub mod http_client;
 pub mod narinfo_store;
 pub mod object_store;
+pub mod parquet_reader;
 pub mod pipeline;
 pub mod progress;
 pub mod signature;
@@ -23,6 +19,7 @@ pub mod signature;
 // Re-export for testing and main binary
 pub use config::Config;
 pub use error::{Result, TurbofetchError};
+pub use parquet_reader::{count_parquet_records, ParquetCountResult};
 pub use pipeline::Pipeline;
 pub use progress::ProgressTracker;
 pub use signature::AwsCredentials;
@@ -180,90 +177,3 @@ pub async fn disk_writer(
 }
 
 // These functions have been replaced by the S3Client in http_client.rs
-
-/// Job reader: reads the job file and sends batches to the HTTP processors
-pub async fn job_reader(
-    job_file: &Path,
-    batch_sender: mpsc::Sender<NarinfoBatch>,
-    batch_size: usize,
-    store: std::sync::Arc<dyn crate::narinfo_store::NarinfoStore>,
-    progress: std::sync::Arc<ProgressTracker>,
-) -> io::Result<()> {
-    let metadata = tokio_fs::metadata(job_file).await?;
-    let total_size = metadata.len();
-    tracing::info!(
-        "Reading job file of {} bytes ({:.2} GB)",
-        total_size,
-        total_size as f64 / 1_000_000_000.0
-    );
-
-    let file = tokio_fs::File::open(job_file).await?;
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
-
-    let mut batch = Vec::with_capacity(batch_size);
-    let mut batch_id = 0;
-    let mut skipped_count = 0usize;
-    let mut total_lines = 0usize;
-
-    while let Some(line) = lines.next_line().await? {
-        let key = line.trim().to_string();
-        if !key.is_empty() {
-            total_lines += 1;
-
-            // Check if narinfo already exists
-            match store.exists(&key).await {
-                Ok(true) => {
-                    skipped_count += 1;
-                    progress.increment_skipped(1);
-                    continue;
-                }
-                Ok(false) => {
-                    batch.push(key);
-                }
-                Err(e) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Failed to check if narinfo exists: {}", e),
-                    ));
-                }
-            }
-        }
-
-        if batch.len() == batch_size {
-            let narinfo_batch = NarinfoBatch::new(batch.clone(), batch_id);
-
-            if batch_sender.send(narinfo_batch).await.is_err() {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "HTTP processor channel closed",
-                ));
-            }
-
-            batch.clear();
-            batch_id += 1;
-        }
-    }
-
-    // Process remaining keys
-    if !batch.is_empty() {
-        let narinfo_batch = NarinfoBatch::new(batch, batch_id);
-
-        if batch_sender.send(narinfo_batch).await.is_err() {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "HTTP processor channel closed",
-            ));
-        }
-    }
-
-    // Update total items with actual count
-    progress.update_total_items(total_lines);
-
-    tracing::info!(
-        "Job reader completed - read {} batches, skipped {} already downloaded files",
-        batch_id + 1,
-        skipped_count
-    );
-    Ok(())
-}

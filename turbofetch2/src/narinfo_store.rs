@@ -35,12 +35,13 @@ impl DiskNarinfoStore {
     /// Get the directory path for a given hash using 2-layer structure
     fn get_dir_path(&self, hash: &str) -> PathBuf {
         let first_layer = &hash[..FIRST_LAYER_PREFIX_LENGTH.min(hash.len())];
-        
+
         if hash.len() <= FIRST_LAYER_PREFIX_LENGTH {
             // For very short hashes, just use first layer
             self.base_dir.join(first_layer)
         } else {
-            let second_layer_end = (FIRST_LAYER_PREFIX_LENGTH + SECOND_LAYER_PREFIX_LENGTH).min(hash.len());
+            let second_layer_end =
+                (FIRST_LAYER_PREFIX_LENGTH + SECOND_LAYER_PREFIX_LENGTH).min(hash.len());
             let second_layer = &hash[FIRST_LAYER_PREFIX_LENGTH..second_layer_end];
             self.base_dir.join(first_layer).join(second_layer)
         }

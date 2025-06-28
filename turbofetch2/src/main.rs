@@ -1,13 +1,13 @@
 //! turbofetch is a high-performance bulk S3 object fetcher.
 //!
-//! It operates on a local job file consisting of nixbase32-encoded narinfo
-//! hashes, one per line. Each hash represents a narinfo file in the source
-//! S3 bucket (nix-cache).
+//! It operates on S3 inventory parquet files downloaded by the narwal tool.
+//! The parquet files contain metadata about all objects in the S3 bucket,
+//! from which turbofetch extracts narinfo file paths and fetches them.
 //!
-//! Each run of turbofetch processes the entire job file and writes each
-//! narinfo file to the local filesystem, organized in a 2-layer directory
-//! structure using the first 4 characters of the hash (2+2) for efficient
-//! storage and lookup.
+//! Each run of turbofetch processes all parquet files in the specified
+//! directory and writes each narinfo file to the local filesystem,
+//! organized in a 2-layer directory structure using the first 4 characters
+//! of the hash (2+2) for efficient storage and lookup.
 //!
 //! Files are written atomically using temporary files to ensure readers
 //! never see partial writes. The application fails fast on any error,
@@ -40,10 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let credentials = AwsCredentials::load_with_region(&config.region).await?;
 
     // Create and run pipeline
-    let pipeline = Pipeline::new(config.clone(), credentials);
+    let pipeline = Pipeline::new(config, credentials);
 
-    // Process the job file
-    pipeline.process_job_file(&config.job_file).await?;
+    // Process the parquet files
+    pipeline.process_parquet_files().await?;
 
     Ok(())
 }

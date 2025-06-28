@@ -4,11 +4,11 @@ use crate::{
     constants::{BATCH_CHANNEL_SIZE, DEFAULT_BUFFER_SIZE, RESULT_CHANNEL_SIZE},
     error::Result,
     narinfo_store::{DiskNarinfoStore, NarinfoStore},
+    parquet_reader::{count_parquet_records, parquet_reader, ParquetReaderConfig},
     progress::ProgressTracker,
     signature::AwsCredentials,
-    {disk_writer, http_processor_pooled, job_reader, FetchedBatch, NarinfoBatch},
+    {disk_writer, http_processor_pooled, FetchedBatch, NarinfoBatch},
 };
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -25,13 +25,12 @@ impl Pipeline {
         }
     }
 
-    pub async fn process_job_file(&self, job_file: &Path) -> Result<usize> {
-        // Get file size for progress estimation
-        let file_metadata = tokio::fs::metadata(job_file).await?;
-        let file_size = file_metadata.len();
-
-        // Create progress tracker
-        let progress = Arc::new(ProgressTracker::new(file_size));
+    pub async fn process_parquet_files(&self) -> Result<usize> {
+        // First, count the records in all parquet files
+        let count_result = count_parquet_records(&self.config.parquet_dir).await?;
+        
+        // Create progress tracker with accurate total count
+        let progress = Arc::new(ProgressTracker::new(count_result.narinfo_count as u64));
 
         // Create narinfo store
         let store =
@@ -51,15 +50,22 @@ impl Pipeline {
 
         // Spawn reader task
         let reader_handle = {
-            let job_file = job_file.to_path_buf();
+            let parquet_dir = self.config.parquet_dir.clone();
             let batch_size = self.config.batch_size;
             let store_clone = Arc::clone(&store);
             let progress_clone = Arc::clone(&progress);
+            let parallel_readers = self.config.max_parallel_files.max(1); // Ensure at least 1 reader
+
             tokio::spawn(async move {
-                job_reader(
-                    &job_file,
-                    batch_sender,
+                let reader_config = ParquetReaderConfig {
                     batch_size,
+                    max_parallel_files: parallel_readers,
+                };
+
+                parquet_reader(
+                    &parquet_dir,
+                    batch_sender,
+                    reader_config,
                     store_clone,
                     progress_clone,
                 )

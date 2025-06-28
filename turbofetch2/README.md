@@ -5,12 +5,12 @@ A high-performance bulk S3 object fetcher for downloading narinfo files from the
 ## Usage
 
 ```bash
-turbofetch2 --job-file <FILE> [options]
+turbofetch2 --parquet-dir <DIR> [options]
 ```
 
 ### Required Arguments
 
-- `--job-file <FILE>` - File containing nixbase32-encoded narinfo hashes to fetch (one per line)
+- `--parquet-dir <DIR>` - Directory containing S3 inventory parquet files (downloaded by narwal)
 
 ### Options
 
@@ -25,14 +25,26 @@ turbofetch2 --job-file <FILE> [options]
 ## Example
 
 ```bash
-# Download narinfo files with default settings
-turbofetch2 --job-file narinfo-hashes.txt
+# Process parquet files from narwal download
+turbofetch2 --parquet-dir /path/to/parquet/files
 
 # Use more workers and debug logging
-turbofetch2 --job-file narinfo-hashes.txt --workers 16 --log-level debug
+turbofetch2 --parquet-dir /path/to/parquet/files --workers 16 --log-level debug
 
 # Save to a different directory
-turbofetch2 --job-file narinfo-hashes.txt --output-dir /path/to/output
+turbofetch2 --parquet-dir /path/to/parquet/files --output-dir /path/to/output
+```
+
+## Integration with Narwal
+
+This tool is designed to work with parquet files downloaded by the narwal inventory tool:
+
+```bash
+# First, download S3 inventory data with narwal
+narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
+
+# Then process the downloaded parquet files with turbofetch2
+turbofetch2 --parquet-dir /path/to/workarea/bucket/data/2025-06-03T01-00Z/
 ```
 
 ## Features

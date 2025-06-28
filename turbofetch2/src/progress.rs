@@ -4,10 +4,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-// Constants for nixbase32 hash format
-const HASH_LENGTH: usize = 32;
-const AVERAGE_LINE_LENGTH: usize = HASH_LENGTH + 1; // hash + newline
-
 #[derive(Clone)]
 pub struct ProgressTracker {
     overall_bar: ProgressBar,
@@ -42,12 +38,9 @@ impl Default for ProgressStats {
 }
 
 impl ProgressTracker {
-    pub fn new(file_size: u64) -> Self {
-        // Estimate total items based on file size
-        let estimated_total = (file_size as usize / AVERAGE_LINE_LENGTH).max(1);
-
+    pub fn new(total_items: u64) -> Self {
         // Create overall progress bar
-        let overall_bar = ProgressBar::new(estimated_total as u64);
+        let overall_bar = ProgressBar::new(total_items);
         // Use stderr and update at 10Hz, with proper terminal handling
         overall_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
         overall_bar.set_style(
@@ -60,7 +53,7 @@ impl ProgressTracker {
         overall_bar.enable_steady_tick(std::time::Duration::from_millis(100));
 
         let stats = Arc::new(ProgressStats {
-            total_items: AtomicUsize::new(estimated_total),
+            total_items: AtomicUsize::new(total_items as usize),
             last_update_time: RwLock::new(Instant::now()),
             ..Default::default()
         });
