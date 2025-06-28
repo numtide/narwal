@@ -114,6 +114,16 @@ in
             type = "zfs_fs";
             mountpoint = "/var/cache/files";
           };
+          narinfo = {
+            type = "zfs_fs";
+            mountpoint = "/var/cache/narinfo";
+            options = {
+              recordsize = "4K"; # Match small file size
+              xattr = "sa"; # Faster extended attributes
+              dnodesize = "auto"; # Optimize inode structure
+              primarycache = "metadata"; # Prioritize metadata caching
+            };
+          };
         };
       };
     };
