@@ -239,7 +239,6 @@ func importParquetFiles(ctx context.Context, pgPool *pgxpool.Pool, cacheBucketCl
 	return nil
 }
 
-
 func importSingleParquetFile(ctx context.Context, pgPool *pgxpool.Pool, cacheBucketClient *awssdk.BucketClient, narinfoWorkareaBucket *workarea.Bucket, parquetFile string) (int64, error) {
 	fileName := filepath.Base(parquetFile)
 	log.Info("Starting parquet file processing", "file", fileName)

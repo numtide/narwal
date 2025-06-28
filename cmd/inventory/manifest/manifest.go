@@ -194,4 +194,3 @@ func displayTable(manifest *inventory.InventoryManifest) error {
 
 	return nil
 }
-

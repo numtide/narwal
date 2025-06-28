@@ -190,7 +190,6 @@ func writeMemoryProfile(memProfile string) {
 	}
 }
 
-
 func processAndDownloadNarinfos(
 	ctx context.Context,
 	s3Config *appconfig.S3,

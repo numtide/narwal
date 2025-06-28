@@ -255,7 +255,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-
 func extractKeysParallelWithProgress(ctx context.Context, parquetFiles []string, parallelism int) ([]string, error) {
 	// Initialize progress bar
 	prog := progress.New(progress.WithDefaultGradient())

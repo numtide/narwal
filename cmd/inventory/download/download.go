@@ -591,4 +591,3 @@ func createProgressBar(percent float64, width int) string {
 
 	return bar
 }
-

@@ -202,7 +202,6 @@ func runE(cmd *cobra.Command, _ []string) error {
 	return analyzePathsInParquetFiles(ctx, parquetFiles, parallelism, errorFilePath)
 }
 
-
 // PathAnalysisError contains information about a failed path analysis.
 type PathAnalysisError struct {
 	Path  string
