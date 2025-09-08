@@ -5,6 +5,7 @@ import (
 	"github.com/numtide/narwal/cmd/inventory/explore"
 	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
 	"github.com/numtide/narwal/cmd/inventory/manifest"
+	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +28,9 @@ get the latest inventory report, or examine manifest information.`,
   # Explore downloaded data interactively with ClickHouse
   narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
 	}
+
+	// set flags
+	config.SetS3Flags(cmd.PersistentFlags())
 
 	// Add sub-commands
 	cmd.AddCommand(listreports.NewCmd())

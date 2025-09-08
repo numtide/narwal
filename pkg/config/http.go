@@ -67,7 +67,7 @@ func (h *HTTP) Validate() error {
 	return nil
 }
 
-func setHttpFlags(fs *pflag.FlagSet) {
+func SetHttpFlags(fs *pflag.FlagSet) {
 	fs.Int16("http.port", 7777, "HTTP port to listen on")
 	fs.String("http.host", "127.0.0.1", "HTTP host to listen on")
 

@@ -43,9 +43,6 @@ func New() *cobra.Command {
 	// add a log level flag
 	fs.StringVar(&logLevelStr, "log_level", "warn", "Log level (warn, info, debug)")
 
-	// add flags shared by all sub commands
-	config.SetSharedFlags(fs)
-
 	// configure viper
 	if err := config.ConfigureViper(viper.GetViper()); err != nil {
 		cobra.CheckErr(fmt.Errorf("failed to create viper instance: %w", err))

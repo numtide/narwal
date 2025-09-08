@@ -30,6 +30,6 @@ func (p *Postgres) Validate() error {
 	return nil
 }
 
-func setPostgresFlags(fs *pflag.FlagSet) {
+func SetPostgresFlags(fs *pflag.FlagSet) {
 	fs.String("postgres.url", "", "Postgres URL")
 }

@@ -1,9 +1,5 @@
 package config
 
-import (
-	"github.com/spf13/pflag"
-)
-
 type Server struct {
 	S3       S3       `mapstructure:"s3"`
 	HTTP     HTTP     `mapstructure:"http"`
@@ -24,9 +20,4 @@ func (c *Server) Validate() error {
 	}
 
 	return nil
-}
-
-// SetServerFlags configures the provided FlagSet with predefined flags. It modifies the passed FlagSet directly.
-func SetServerFlags(fs *pflag.FlagSet) {
-	setHttpFlags(fs)
 }

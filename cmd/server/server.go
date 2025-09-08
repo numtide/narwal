@@ -22,7 +22,10 @@ func NewCmd() *cobra.Command {
 	}
 
 	// add our config flags to the command's flag set
-	config.SetServerFlags(cmd.Flags())
+	fs := cmd.Flags()
+	config.SetS3Flags(fs)
+	config.SetPostgresFlags(fs)
+	config.SetHttpFlags(fs)
 
 	// bind our command's flags to viper
 	if err := viper.BindPFlags(cmd.Flags()); err != nil {
