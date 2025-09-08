@@ -93,7 +93,7 @@ func (c *CredentialsConfig) Validate() error {
 	return nil
 }
 
-func setS3Flags(fs *pflag.FlagSet) {
+func SetS3Flags(fs *pflag.FlagSet) {
 	fs.String("s3.bucket", "", "S3 Bucket Name")
 	fs.String("s3.region", "", "AWS region (for AWS S3)")
 	fs.String("s3.endpoint", "", "S3 Endpoint URL (for custom S3-compatible services)")
