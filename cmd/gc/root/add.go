@@ -1,23 +1,24 @@
-package gc
+package root
 
 import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/numtide/narwal/pkg/db"
 	"github.com/spf13/cobra"
 )
 
-func rootRemove() *cobra.Command {
+func rootAdd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "rm",
-		Short: "Remove a GC root",
+		Use:   "add",
+		Short: "Add a GC root",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			defer pg.Close()
 
 			ctx := cmd.Context()
-
 			path := args[0]
 
 			narHash, err := extractNarHash(path)
@@ -34,17 +35,17 @@ func rootRemove() *cobra.Command {
 
 			queries := db.New(conn)
 
-			count, err := queries.DeleteGCRoot(ctx, narHash)
-			if err != nil {
-				return fmt.Errorf("failed to delete gc root: %w", err)
+			// check if the object exists
+			_, err = queries.GetObjectByHash(ctx, narHash)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("object not found: %s", path)
+			} else if err != nil {
+				return fmt.Errorf("failed to get object: %w", err)
 			}
 
-			if count == 0 {
-				return fmt.Errorf("gc root not found: %s", path)
-			}
-
-			if count > 1 {
-				return errors.New("multiple gc roots deleted, this should not happen")
+			// add the gc root
+			if err = queries.PutGCRoot(ctx, narHash); err != nil {
+				return fmt.Errorf("failed to add gc root: %w", err)
 			}
 
 			return nil

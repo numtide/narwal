@@ -1,4 +1,4 @@
-package gc
+package root
 
 import (
 	"fmt"
@@ -6,9 +6,6 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/numtide/narwal/cmd/gc/plan"
-	"github.com/numtide/narwal/cmd/gc/root"
-	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,32 +15,24 @@ import (
 var (
 	cfg *config.GC
 
-	// s3 client will be used when we implement deletions.
-	s3 *awssdk.BucketClient
 	pg *pgxpool.Pool
 
 	storePathPattern = regexp.MustCompile(`^([a-z0-9]{32})|/nix/store/([a-z0-9]{32})-.*$`)
 )
 
-func NewCmd() *cobra.Command {
-	// create the command
+func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:                "gc",
-		Short:              "Set GC roots and run garbage collection",
+		Use:                "root",
+		Short:              "GC root related commands",
 		PersistentPreRunE:  preRunE,
 		PersistentPostRunE: postRunE,
 	}
 
-	// bind our command's flags to viper
-	if err := viper.BindPFlags(cmd.Flags()); err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
-	}
+	config.SetPostgresFlags(cmd.PersistentFlags())
 
-	cmd.AddCommand(root.Cmd())
-	cmd.AddCommand(plan.Cmd())
-
-	// silence usage on error from this point forward
-	cmd.SilenceUsage = true
+	cmd.AddCommand(rootAdd())
+	cmd.AddCommand(rootRemove())
+	cmd.AddCommand(rootList())
 
 	return cmd
 }
@@ -65,12 +54,6 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	// connect to postgres
 	pg, err = cfg.Postgres.Connect(cmd.Context(), false)
 	if err != nil {
-		//nolint:wrapcheck
-		return err
-	}
-
-	// connect to s3
-	if s3, err = cfg.S3.Connect(cmd.Context()); err != nil {
 		//nolint:wrapcheck
 		return err
 	}

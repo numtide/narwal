@@ -1,13 +1,26 @@
-package gc
+package plan
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
+	"github.com/spf13/viper"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
+)
+
+//nolint:gochecknoglobals
+var (
+	cfg *config.GC
+
+	// s3 client will be used when we implement deletions.
+	s3 *awssdk.BucketClient
+	pg *pgxpool.Pool
 )
 
 type planSummary struct {
@@ -16,10 +29,12 @@ type planSummary struct {
 	total      int32
 }
 
-func plan() *cobra.Command {
+func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "plan",
-		Short: "Plan and execute GC plans",
+		Use:                "plan",
+		Short:              "Plan and execute GC plans",
+		PersistentPreRunE:  preRunE,
+		PersistentPostRunE: postRunE,
 	}
 
 	cmd.AddCommand(planCreate())
@@ -28,6 +43,41 @@ func plan() *cobra.Command {
 	cmd.AddCommand(planApply())
 
 	return cmd
+}
+
+func preRunE(cmd *cobra.Command, _ []string) error {
+	var err error
+
+	// parse viper into our config object
+	if err = config.FromViper(viper.GetViper(), &cfg); err != nil {
+		return fmt.Errorf("failed to create config from viper: %w", err)
+	}
+
+	if err = cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
+
+	// connect to postgres
+	pg, err = cfg.Postgres.Connect(cmd.Context(), false)
+	if err != nil {
+		//nolint:wrapcheck
+		return err
+	}
+
+	// connect to s3
+	if s3, err = cfg.S3.Connect(cmd.Context()); err != nil {
+		//nolint:wrapcheck
+		return err
+	}
+
+	return nil
+}
+
+func postRunE(cmd *cobra.Command, _ []string) error {
+	pg.Close()
+	return nil
 }
 
 func tableName(planID int32, name string) string {
