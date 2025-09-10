@@ -67,7 +67,6 @@ type Config struct {
 	HTTP      HTTP      `mapstructure:"http"`
 	Postgres  Postgres  `mapstructure:"postgres"`
 	Inventory Inventory `mapstructure:"inventory"`
-	Workarea  Workarea  `mapstructure:"workarea"`
 }
 
 func (c *Config) Validate() error {
@@ -80,10 +79,6 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Postgres.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.Workarea.Validate(); err != nil {
 		return err
 	}
 

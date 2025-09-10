@@ -12,7 +12,6 @@
   config = {
     environment.systemPackages = [
       perSystem.narwal.default
-      perSystem.narwal.turbofetch2
       pkgs.awscli2
       pkgs.clickhouse
     ];
