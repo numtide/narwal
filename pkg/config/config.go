@@ -10,8 +10,64 @@ import (
 	"github.com/spf13/viper"
 )
 
-// ErrInvalidConfig represents an error indicating that the provided configuration is invalid.
-var ErrInvalidConfig = errors.New("invalid config")
+var (
+	// ErrInvalidConfig represents an error indicating that the provided configuration is invalid.
+	ErrInvalidConfig = errors.New("invalid config")
+
+	//nolint:gochecknoglobals
+	validators = []validator{
+		func(c *Config) error {
+			if c.GC == nil {
+				return nil
+			}
+			return c.GC.Validate()
+		},
+		func(c *Config) error {
+			if c.HTTP == nil {
+				return nil
+			}
+			return c.HTTP.Validate()
+		},
+		func(c *Config) error {
+			if c.Postgres == nil {
+				return nil
+			}
+			return c.Postgres.Validate()
+		},
+		func(c *Config) error {
+			if c.S3 == nil {
+				return nil
+			}
+			return c.S3.Validate()
+		},
+		func(c *Config) error {
+			if c.Inventory == nil {
+				return nil
+			}
+			return c.Inventory.Validate()
+		},
+	}
+)
+
+type Config struct {
+	GC        *GC        `mapstructure:"gc"`
+	HTTP      *HTTP      `mapstructure:"http"`
+	Postgres  *Postgres  `mapstructure:"postgres"`
+	S3        *S3        `mapstructure:"s3"`
+	Inventory *Inventory `mapstructure:"inventory"`
+}
+
+type validator = func(*Config) error
+
+func (c *Config) Validate() error {
+	for _, v := range validators {
+		if err := v(c); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 func ConfigureViper(v *viper.Viper) error {
 	// set config type to TOML
@@ -56,30 +112,6 @@ func FromViper(v *viper.Viper, cfg any) error {
 	// unmarshal into config instance
 	if err := v.Unmarshal(cfg, decoderOpts); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	return nil
-}
-
-// Config represents the top-level application configuration.
-type Config struct {
-	S3        S3        `mapstructure:"s3"`
-	HTTP      HTTP      `mapstructure:"http"`
-	Postgres  Postgres  `mapstructure:"postgres"`
-	Inventory Inventory `mapstructure:"inventory"`
-}
-
-func (c *Config) Validate() error {
-	if err := c.S3.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.HTTP.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.Postgres.Validate(); err != nil {
-		return err
 	}
 
 	return nil

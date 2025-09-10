@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/numtide/narwal/cmd/gc"
+	"github.com/numtide/narwal/cmd/inventory"
 
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/cmd/server"
@@ -31,6 +32,7 @@ func New() *cobra.Command {
 	// add subcommands
 	cmd.AddCommand(gc.NewCmd())
 	cmd.AddCommand(server.NewCmd())
+	cmd.AddCommand(inventory.NewCmd())
 
 	// add some flags common to all subcommands
 	fs := cmd.PersistentFlags()
