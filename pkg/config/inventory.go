@@ -7,19 +7,19 @@ import (
 )
 
 type Inventory struct {
-	Prefix string `mapstructure:"prefix"`
+	BucketPrefix string `mapstructure:"bucket-prefix"`
 }
 
 func (i *Inventory) Validate() error {
 	// Ensure prefix ends with a slash
-	if i.Prefix != "" && !strings.HasSuffix(i.Prefix, "/") {
-		i.Prefix += "/"
+	if i.BucketPrefix != "" && !strings.HasSuffix(i.BucketPrefix, "/") {
+		i.BucketPrefix += "/"
 	}
 
 	return nil
 }
 
 func SetInventoryFlags(fs *pflag.FlagSet) {
-	fs.String("inventory.prefix", "nix-cache/nix-cache-inventory",
+	fs.String("inventory.bucket-prefix", "nix-cache/nix-cache-inventory",
 		"Prefix path within the S3 bucket (e.g. 'data/' or 'nix-cache/inventory/')")
 }

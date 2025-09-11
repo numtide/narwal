@@ -22,7 +22,7 @@ func manifestCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
 
-			client := inventory.NewClient(s3, cfg.Inventory.Prefix)
+			client := inventory.NewClient(s3, cfg.Inventory.BucketPrefix)
 
 			manifest, err := client.GetManifest(cmd.Context(), report)
 			if err != nil {
@@ -52,7 +52,7 @@ func manifestCmd() *cobra.Command {
 	return cmd
 }
 
-func displayStats(manifest *inventory.InventoryManifest) error {
+func displayStats(manifest *inventory.Manifest) error {
 	totalSize := manifest.TotalSize()
 
 	fmt.Printf("Manifest Statistics for %s:\n", manifest.CreationTime)
@@ -67,7 +67,7 @@ func displayStats(manifest *inventory.InventoryManifest) error {
 	return nil
 }
 
-func displayJSON(manifest *inventory.InventoryManifest) error {
+func displayJSON(manifest *inventory.Manifest) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 
@@ -78,7 +78,7 @@ func displayJSON(manifest *inventory.InventoryManifest) error {
 	return nil
 }
 
-func displayTable(manifest *inventory.InventoryManifest) error {
+func displayTable(manifest *inventory.Manifest) error {
 	totalSize := manifest.TotalSize()
 
 	fmt.Printf("Manifest Information:\n")

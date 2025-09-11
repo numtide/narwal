@@ -17,6 +17,12 @@ var (
 	//nolint:gochecknoglobals
 	validators = []validator{
 		func(c *Config) error {
+			if c.Bolt == nil {
+				return nil
+			}
+			return c.Bolt.Validate()
+		},
+		func(c *Config) error {
 			if c.GC == nil {
 				return nil
 			}
@@ -50,11 +56,12 @@ var (
 )
 
 type Config struct {
+	Bolt      *Bolt      `mapstructure:"bolt"`
+	Inventory *Inventory `mapstructure:"inventory"`
 	GC        *GC        `mapstructure:"gc"`
 	HTTP      *HTTP      `mapstructure:"http"`
 	Postgres  *Postgres  `mapstructure:"postgres"`
 	S3        *S3        `mapstructure:"s3"`
-	Inventory *Inventory `mapstructure:"inventory"`
 }
 
 type validator = func(*Config) error

@@ -8,8 +8,8 @@ import (
 
 // Client provides functionality to interact with S3 inventory data.
 type Client struct {
-	bucketClient *awssdk.BucketClient
 	prefix       string
+	bucketClient *awssdk.BucketClient
 }
 
 // NewClient creates a new inventory client.
