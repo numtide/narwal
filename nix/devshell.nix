@@ -80,6 +80,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       pqrs # parquet inspection
       sqlc # type-safe queries
       openssl
+      badger
 
       # rust tooling
       cargo

@@ -21,7 +21,7 @@ func statsCmd() *cobra.Command {
 		},
 	}
 
-	config.SetBoltFlags(cmd.Flags())
+	config.SetBadgerFlags(cmd.Flags())
 
 	// bind our command's flags to viper
 	if err := viper.BindPFlags(cmd.Flags()); err != nil {

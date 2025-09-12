@@ -11,20 +11,20 @@ import (
 	"io"
 
 	"github.com/charmbracelet/log"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/numtide/narwal/pkg/config"
-	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sync/errgroup"
 )
 
 type Downloader struct {
-	db     *bolt.DB
+	db     *badger.DB
 	client *Client
 }
 
 func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error) {
-	// check we have bolt config
-	if cfg.Bolt == nil {
-		return nil, errors.New("bolt config is required")
+	// check we have badger config
+	if cfg.Badger == nil {
+		return nil, errors.New("badger config is required")
 	}
 
 	// check we have s3 config
@@ -38,9 +38,8 @@ func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error)
 	}
 
 	// open the db
-	db, err := OpenDB(cfg.Bolt)
+	db, err := OpenDB(cfg.Badger)
 	if err != nil {
-
 		return nil, err
 	}
 
@@ -88,19 +87,9 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 		for file := range fetchedCh {
 			log.Infof("writing file %s to local db", file.Key)
 
-			err = d.db.Update(func(tx *bolt.Tx) error {
-				bucket, err := GetFileBucket(tx)
-				if err != nil {
-					return fmt.Errorf("failed to get file bucket: %w", err)
-				}
-
-				if err = bucket.Put(file.Key, file.Data); err != nil {
-					return fmt.Errorf("failed to put file %s: %w", file.Key, err)
-				}
-
-				return nil
-			})
-			if err != nil {
+			if err = d.db.Update(func(tx *badger.Txn) error {
+				return PutFile(tx, file.Key, file.Data)
+			}); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", file.Key, err)
 			}
 
@@ -110,13 +99,14 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 		return nil
 	})
 
+LOOP:
 	// iterate the list of missing files and start downloading them concurrently
 	for _, file := range missingFiles {
 		select {
 		// check if the context has been cancelled
 		case <-ctx.Done():
 			// stop processing files
-			break
+			break LOOP
 
 		default:
 			// otherwise, start a new download
@@ -180,58 +170,41 @@ func (d *Downloader) Close() error {
 
 func (d *Downloader) missingFiles(files []ManifestFile) ([]ManifestFile, error) {
 	// start a read transaction
-	tx, err := d.db.Begin(false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin read transaction: %w", err)
-	}
+	tx := d.db.NewTransaction(false)
 
-	// ensure a rollback is called if a commit is never made
-	//nolint:errcheck
-	defer tx.Rollback()
+	// ensure a discard is called if a commit is never made
 
-	// get the file bucket
-	bucket, err := GetFileBucket(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file bucket: %w", err)
-	}
+	defer tx.Discard()
 
-	filtered := make([]ManifestFile, 0, len(files))
+	missing := make([]ManifestFile, 0, len(files))
 
 	// iterate the list of files and check if they are already in the db
 	for _, file := range files {
-		_, err := bucket.Get(file.Key)
-		if errors.Is(err, ErrKeyNotFound) {
-			// file is not in the db, add it to the list
-			filtered = append(filtered, file)
-			continue
-		} else if err != nil {
-			return nil, fmt.Errorf("failed to get file %s from local db: %w", file.Key, err)
+		exists, err := HasFile(tx, file.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if file %s is in local db: %w", file.Key, err)
+		}
+
+		if !exists {
+			missing = append(missing, file)
 		}
 	}
 
-	return filtered, nil
+	return missing, nil
 }
 
 func (d *Downloader) ensureManifest(ctx context.Context, report string) (*Manifest, error) {
-	tx, err := d.db.Begin(true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := d.db.NewTransaction(true)
 
-	// ensure a rollback is called if a commit is never made
-	//nolint:errcheck
-	defer tx.Rollback()
+	// ensure discard is called if a commit is never made
+
+	defer tx.Discard()
 
 	// try to get the manifest from local db
 	log.Debugf("looking for manifest %s in local db", report)
 
-	manifests, err := GetManifestBucket(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get manifest bucket: %w", err)
-	}
-
-	manifest, err := manifests.Get(report)
-	if !errors.Is(err, ErrKeyNotFound) && err != nil {
+	manifest, err := GetManifest(tx, report)
+	if !errors.Is(err, badger.ErrKeyNotFound) && err != nil {
 		return nil, fmt.Errorf("failed to get manifest %s from local db: %w", report, err)
 	}
 
@@ -252,7 +225,7 @@ func (d *Downloader) ensureManifest(ctx context.Context, report string) (*Manife
 	// put the manifest in the local db
 	log.Debugf("putting manifest %s in local db", report)
 
-	if err = manifests.Put(report, manifest); err != nil {
+	if err = PutManifest(tx, report, manifest); err != nil {
 		return nil, fmt.Errorf("failed to put manifest %s in local db: %w", report, err)
 	}
 

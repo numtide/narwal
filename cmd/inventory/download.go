@@ -22,11 +22,15 @@ func downloadCmd() *cobra.Command {
 				return fmt.Errorf("failed to create downloader: %w", err)
 			}
 
-			return dl.Download(cmd.Context(), report)
+			if err = dl.Download(cmd.Context(), report); err != nil {
+				return fmt.Errorf("failed to download: %w", err)
+			}
+
+			return dl.Close()
 		},
 	}
 
-	config.SetBoltFlags(cmd.Flags())
+	config.SetBadgerFlags(cmd.Flags())
 
 	// bind our command's flags to viper
 	if err := viper.BindPFlags(cmd.Flags()); err != nil {

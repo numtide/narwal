@@ -8,24 +8,23 @@ import (
 	"sync/atomic"
 
 	"github.com/charmbracelet/log"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/xitongsys/parquet-go-source/buffer"
 	"github.com/xitongsys/parquet-go/reader"
-	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sync/errgroup"
 )
 
 //nolint:gocognit
 func OutputStats(ctx context.Context, cfg *config.Config, report string) error {
 	// check we have bolt config
-	if cfg.Bolt == nil {
-		return errors.New("bolt config is required")
+	if cfg.Badger == nil {
+		return errors.New("badger config is required")
 	}
 
 	// open the db
-	db, err := OpenDB(cfg.Bolt)
+	db, err := OpenDB(cfg.Badger)
 	if err != nil {
-
 		return err
 	}
 
@@ -36,30 +35,20 @@ func OutputStats(ctx context.Context, cfg *config.Config, report string) error {
 
 	var manifest *Manifest
 
-	if err = db.View(func(tx *bolt.Tx) error {
-		bucket, err := GetManifestBucket(tx)
-		if err != nil {
-			return fmt.Errorf("failed to get manifest bucket: %w", err)
-		}
-
-		manifest, err = bucket.Get(report)
+	if err = db.Update(func(tx *badger.Txn) error {
+		manifest, err = GetManifest(tx, report)
 		if err != nil {
 			return fmt.Errorf("failed to get manifest: %w", err)
 		}
 
 		return nil
 	}); err != nil {
-		//nolint:wrapcheck
 		return err
 	}
 
-	tx, err := db.Begin(false)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	tx := db.NewTransaction(false)
 
-	//nolint:errcheck
-	defer tx.Rollback()
+	defer tx.Discard()
 
 	narinfoCount := atomic.Int64{}
 
@@ -70,13 +59,8 @@ func OutputStats(ctx context.Context, cfg *config.Config, report string) error {
 				return nil
 
 			default:
-				fileBucket, err := GetFileBucket(tx)
-				if err != nil {
-					return fmt.Errorf("failed to get file bucket: %w", err)
-				}
-
-				buf, err := fileBucket.Get(file.Key)
-				if errors.Is(err, ErrKeyNotFound) {
+				buf, err := GetFile(tx, file.Key)
+				if errors.Is(err, badger.ErrKeyNotFound) {
 					return fmt.Errorf("file %s not found in db", file.Key)
 				} else if err != nil {
 					return fmt.Errorf("failed to get file %s from local db: %w", file.Key, err)
