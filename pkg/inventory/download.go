@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"runtime"
 
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/pkg/config"
@@ -39,26 +38,10 @@ func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error)
 	}
 
 	// open the db
-	db, err := cfg.Bolt.Open()
+	db, err := OpenDB(cfg.Bolt)
 	if err != nil {
-		//nolint:wrapcheck
+
 		return nil, err
-	}
-
-	// ensure all the buckets are created
-	err = db.Update(func(tx *bolt.Tx) error {
-		if _, err := GetManifestBucket(tx); err != nil {
-			return fmt.Errorf("failed to create manifest bucket: %w", err)
-		}
-
-		if _, err := GetFileBucket(tx); err != nil {
-			return fmt.Errorf("failed to create file bucket: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialise local db: %w", err)
 	}
 
 	// create an s3 client
@@ -80,16 +63,12 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 		return err
 	}
 
-	downloadThreads := runtime.NumCPU() / 2
-	if downloadThreads > 16 {
-		// this is the default number of max idle connections per host in minio client transport
-		downloadThreads = 16
-	}
-
 	downloadGroup, ctx := errgroup.WithContext(ctx)
-	downloadGroup.SetLimit(downloadThreads) // this is the max connections per host in minio client transport
 
-	filesToFetch, err := d.filterFiles(manifest.Files)
+	// we limit the pool to 16 threads, which is the max connections per host that minio client is configured to use
+	downloadGroup.SetLimit(16)
+
+	filesToFetch, err := d.missingFiles(manifest.Files)
 	if err != nil {
 		return fmt.Errorf("failed to filter files: %w", err)
 	}
@@ -176,4 +155,86 @@ func (d *Downloader) Close() error {
 	}
 
 	return nil
+}
+
+func (d *Downloader) missingFiles(files []ManifestFile) ([]ManifestFile, error) {
+	tx, err := d.db.Begin(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin read transaction: %w", err)
+	}
+
+	// ensure a rollback is called if a commit is never made
+	//nolint:errcheck
+	defer tx.Rollback()
+
+	bucket, err := GetFileBucket(tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file bucket: %w", err)
+	}
+
+	filtered := make([]ManifestFile, 0, len(files))
+
+	for _, file := range files {
+		_, err := bucket.Get(file.Key)
+		if errors.Is(err, ErrKeyNotFound) {
+			filtered = append(filtered, file)
+			continue
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get file %s from local db: %w", file.Key, err)
+		}
+	}
+
+	return filtered, nil
+}
+
+func (d *Downloader) ensureManifest(ctx context.Context, report string) (*Manifest, error) {
+	tx, err := d.db.Begin(true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	// ensure a rollback is called if a commit is never made
+	//nolint:errcheck
+	defer tx.Rollback()
+
+	// try to get the manifest from local db
+	log.Debugf("looking for manifest %s in local db", report)
+
+	manifests, err := GetManifestBucket(tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get manifest bucket: %w", err)
+	}
+
+	manifest, err := manifests.Get(report)
+	if !errors.Is(err, ErrKeyNotFound) && err != nil {
+		return nil, fmt.Errorf("failed to get manifest %s from local db: %w", report, err)
+	}
+
+	// if we have a manifest, return it
+	if manifest != nil {
+		log.Debugf("found manifest %s in local db", report)
+		return manifest, nil
+	}
+
+	// otherwise, download the manifest from s3
+	log.Debugf("manifest %s not found in local db, downloading from s3", report)
+
+	manifest, err = d.client.GetManifest(ctx, report)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get manifest %s from s3: %w", report, err)
+	}
+
+	// put the manifest in the local db
+	log.Debugf("putting manifest %s in local db", report)
+
+	if err = manifests.Put(report, manifest); err != nil {
+		return nil, fmt.Errorf("failed to put manifest %s in local db: %w", report, err)
+	}
+
+	// commit the transaction and return the manifest
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return manifest, nil
 }

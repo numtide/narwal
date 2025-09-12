@@ -5,16 +5,42 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/numtide/narwal/pkg/config"
 	bolt "go.etcd.io/bbolt"
 )
 
 //nolint:gochecknoglobals
 var (
-	BucketNameManifest = []byte("manifest")
 	BucketNameFile     = []byte("file")
+	BucketNameManifest = []byte("manifest")
 
 	ErrKeyNotFound = errors.New("key not found")
 )
+
+func OpenDB(cfg *config.Bolt) (*bolt.DB, error) {
+	db, err := bolt.Open(cfg.Path, 0o600, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open bolt db: %w", err)
+	}
+
+	// ensure buckets are created
+	err = db.Update(func(tx *bolt.Tx) error {
+		if _, err = tx.CreateBucketIfNotExists(BucketNameFile); err != nil {
+			return fmt.Errorf("failed to create file bucket: %w", err)
+		}
+
+		if _, err = tx.CreateBucketIfNotExists(BucketNameManifest); err != nil {
+			return fmt.Errorf("failed to create manifest bucket: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialise boltdb: %w", err)
+	}
+
+	return db, nil
+}
 
 type ManifestBucket struct {
 	bucket *bolt.Bucket
@@ -48,18 +74,9 @@ func (b *ManifestBucket) Put(report string, manifest *Manifest) error {
 }
 
 func GetManifestBucket(tx *bolt.Tx) (*ManifestBucket, error) {
-	var (
-		err    error
-		bucket *bolt.Bucket
-	)
-
-	if tx.Writable() {
-		bucket, err = tx.CreateBucketIfNotExists(BucketNameManifest)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create manifest bucket: %w", err)
-		}
-	} else {
-		bucket = tx.Bucket(BucketNameManifest)
+	bucket := tx.Bucket(BucketNameManifest)
+	if bucket == nil {
+		return nil, errors.New("failed to get manifest bucket")
 	}
 
 	return &ManifestBucket{
@@ -89,19 +106,12 @@ func (b *FileBucket) Put(file string, buf []byte) error {
 }
 
 func GetFileBucket(tx *bolt.Tx) (*FileBucket, error) {
-	var (
-		err    error
-		bucket *bolt.Bucket
-	)
-
-	if tx.Writable() {
-		bucket, err = tx.CreateBucketIfNotExists(BucketNameFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create file bucket: %w", err)
-		}
-	} else {
-		bucket = tx.Bucket(BucketNameFile)
+	bucket := tx.Bucket(BucketNameFile)
+	if bucket == nil {
+		return nil, errors.New("failed to get manifest bucket")
 	}
 
-	return &FileBucket{bucket: bucket}, nil
+	return &FileBucket{
+		bucket: bucket,
+	}, nil
 }

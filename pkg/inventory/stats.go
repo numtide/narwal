@@ -23,9 +23,9 @@ func OutputStats(ctx context.Context, cfg *config.Config, report string) error {
 	}
 
 	// open the db
-	db, err := cfg.Bolt.Open()
+	db, err := OpenDB(cfg.Bolt)
 	if err != nil {
-		//nolint:wrapcheck
+
 		return err
 	}
 

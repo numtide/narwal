@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/pflag"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Bolt struct {
@@ -17,15 +16,6 @@ func (b *Bolt) Validate() error {
 	}
 
 	return nil
-}
-
-func (b *Bolt) Open() (*bolt.DB, error) {
-	db, err := bolt.Open(b.Path, 0o600, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open bolt db: %w", err)
-	}
-
-	return db, nil
 }
 
 func SetBoltFlags(fs *pflag.FlagSet) {
