@@ -3,6 +3,10 @@ package inventory
 import (
 	"context"
 	"errors"
+	"path"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	//nolint:gosec
 	"crypto/md5"
@@ -12,13 +16,19 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/config"
+	"github.com/xitongsys/parquet-go-source/buffer"
+	"github.com/xitongsys/parquet-go/reader"
 	"golang.org/x/sync/errgroup"
 )
 
 type Downloader struct {
 	db     *badger.DB
 	client *Client
+
+	fetchCount     atomic.Uint64
+	fetchSizeBytes atomic.Uint64
 }
 
 func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error) {
@@ -51,18 +61,286 @@ func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error)
 	}
 
 	return &Downloader{
-		db:     db,
-		client: NewClient(s3, cfg.Inventory.BucketPrefix),
+		db:             db,
+		client:         NewClient(s3, cfg.Inventory.BucketPrefix),
+		fetchCount:     atomic.Uint64{},
+		fetchSizeBytes: atomic.Uint64{},
 	}, nil
 }
 
 func (d *Downloader) Download(ctx context.Context, report string) error {
+	log.Infof("downloading inventory report %s", report)
+
 	// fetch the manifest, either from local db or remotely from s3
 	manifest, err := d.ensureManifest(ctx, report)
 	if err != nil {
 		return err
 	}
 
+	log.Info("downloading inventory files")
+
+	// download all inventory files from s3
+	if err = d.downloadFiles(ctx, manifest); err != nil {
+		return err
+	}
+
+	log.Info("downloading nar infos")
+
+	// download nar infos based on the information in the inventory files
+	if err = d.downloadNarInfos(ctx, *manifest); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Downloader) Close() error {
+	if err := d.db.Close(); err != nil {
+		return fmt.Errorf("failed to close db: %w", err)
+	}
+
+	return nil
+}
+
+func (d *Downloader) downloadNarInfos(ctx context.Context, manifest Manifest) error {
+	var err error
+
+LOOP:
+	for idx, file := range manifest.Files {
+		select {
+		case <-ctx.Done():
+			break LOOP
+
+		default:
+			// check if it has already been downloaded
+			var downloaded bool
+
+			if err = d.db.View(func(tx *badger.Txn) error {
+				downloaded, err = HasFileBeenDownloaded(tx, file.Key)
+				if err != nil {
+					return fmt.Errorf("failed to check if file %s has been downloaded: %w", file.Key, err)
+				}
+
+				return nil
+			}); err != nil {
+				return err
+			}
+
+			if downloaded {
+				log.Infof("[%d / %d] file %s has already been downloaded", idx+1, len(manifest.Files), file.Key)
+				continue
+			}
+
+			log.Infof("[%d / %d] downloading nar infos for file %s", idx+1, len(manifest.Files), file.Key)
+
+			if err := d.downloadNarInfosForFile(ctx, file); err != nil {
+				return fmt.Errorf("failed to download nar infos for file %s: %w", file.Key, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file ManifestFile) error {
+	writeGroup := errgroup.Group{}
+
+	batchSize := 1024
+	entriesCh := make(chan *badger.Entry, batchSize*10)
+
+	writeGroup.Go(func() error {
+		batch := make([]*badger.Entry, 0, batchSize)
+
+		flush := func() error {
+			tx := d.db.NewTransaction(true)
+			defer tx.Discard()
+
+			for _, entry := range batch {
+				if err := tx.SetEntry(entry); err != nil {
+					return fmt.Errorf("failed to set entry: %w", err)
+				}
+
+				d.fetchSizeBytes.Add(uint64(len(entry.Value)))
+			}
+
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("failed to commit transaction: %w", err)
+			}
+
+			d.fetchCount.Add(uint64(len(batch)))
+
+			//nolint:gosec
+			log.Infof(
+				"wrote %d nar infos to local db, total fetched = %s, total size = %s",
+				len(batch), humanize.Comma(int64(d.fetchCount.Load())), humanize.Bytes(d.fetchSizeBytes.Load()),
+			)
+
+			// reset the batch
+			batch = batch[:0]
+
+			return nil
+		}
+
+		for entry := range entriesCh {
+			batch = append(batch, entry)
+			if len(batch) == batchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+
+		// flush any remaining entries
+		return flush()
+	})
+
+	downloadGroup, downloadCtx := errgroup.WithContext(ctx)
+
+	// we limit the pool to 16 threads, which is the max connections per host that minio client is configured to use
+	downloadGroup.SetLimit(2048)
+
+	rows := make([]Object, batchSize)
+
+	var (
+		buf []byte
+		err error
+	)
+
+	if err = d.db.View(func(tx *badger.Txn) error {
+		buf, err = GetFile(tx, file.Key)
+		if err != nil {
+			return fmt.Errorf("failed to get file %s from local db: %w", file.Key, err)
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	pr, err := reader.NewParquetReader(buffer.NewBufferFileFromBytes(buf), new(Object), 4)
+	if err != nil {
+		return fmt.Errorf("failed to create parquet reader: %w", err)
+	}
+
+	defer pr.ReadStop()
+
+	numRows := int(pr.GetNumRows())
+	maxAttempts := 2
+
+LOOP:
+	for i := 0; i < numRows; i += batchSize {
+		select {
+		case <-downloadCtx.Done():
+			break LOOP
+
+		default:
+
+			err := pr.Read(&rows)
+			if err != nil {
+				return fmt.Errorf("failed to read row: %w", err)
+			}
+
+			err = d.db.View(func(tx *badger.Txn) error {
+				for _, obj := range rows {
+					// we're only interested in narinfos
+					if path.Ext(obj.Key) != ".narinfo" {
+						continue
+					}
+
+					exists, err := HasNarInfo(tx, obj.Key)
+					if err != nil {
+						return fmt.Errorf("failed to check if narinfo %s is in local db: %w", obj.Key, err)
+					}
+
+					if exists {
+						// verify the contents
+						log.Debugf("narinfo %s already exists in local db", obj.Key)
+
+						d.fetchCount.Add(1)
+						//nolint:gosec
+						d.fetchSizeBytes.Add(uint64(obj.Size))
+
+						continue
+					}
+
+					downloadGroup.Go(func() error {
+						success := false
+
+						for range maxAttempts {
+							log.Debugf("downloading narinfo %s from s3", obj.Key)
+
+							r, err := d.client.GetObject(ctx, obj.Bucket, obj.Key)
+
+							if err != nil && strings.Contains(err.Error(), "connection reset by peer") {
+								time.Sleep(1 * time.Second)
+								continue
+							} else if err != nil {
+								return fmt.Errorf("failed to get object %s from s3: %w", obj.Key, err)
+							}
+
+							//nolint:errcheck
+							defer r.Close()
+
+							value, err := io.ReadAll(r)
+							if err != nil {
+
+								if strings.Contains(err.Error(), "connection reset by peer") {
+									log.Warnf("connection reset by peer when reading object %s from s3, retrying in 1 second...", obj.Key)
+									time.Sleep(1 * time.Second)
+									continue
+								}
+
+								return fmt.Errorf("failed to read object %s bytes from s3: %w", obj.Key, err)
+							}
+
+							entriesCh <- &badger.Entry{
+								Key:   []byte(BadgerPrefixNarInfo + obj.Key),
+								Value: value,
+							}
+
+							success = true
+
+							break
+						}
+
+						if !success {
+							return fmt.Errorf("failed to download narinfo %s from s3, max retries exceeded", obj.Key)
+						}
+
+						return nil
+					})
+				}
+
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("failed to download nar infos: %w", err)
+			}
+		}
+	}
+
+	if err = downloadGroup.Wait(); err != nil {
+		return fmt.Errorf("failed to download nar infos: %w", err)
+	}
+
+	// no more entries to write
+	close(entriesCh)
+
+	if err = writeGroup.Wait(); err != nil {
+		return fmt.Errorf("failed to finish writing nar infos to local db: %w", err)
+	}
+
+	// mark this file has downloaded
+	if err = d.db.Update(func(tx *badger.Txn) error {
+		return MarkFileAsDownloaded(tx, file.Key)
+	}); err != nil {
+		return fmt.Errorf("failed to mark file %s as downloaded: %w", file.Key, err)
+	}
+
+	return nil
+}
+
+func (d *Downloader) downloadFiles(ctx context.Context, manifest *Manifest) error {
 	// create a group to download files concurrently
 	downloadGroup, ctx := errgroup.WithContext(ctx)
 
@@ -75,7 +353,7 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 		return fmt.Errorf("failed to determine missing files: %w", err)
 	}
 
-	log.Infof("manifest %s has %d files, we need to fetch %d", report, len(manifest.Files), len(missingFiles))
+	log.Infof("manifest has %d files, we need to fetch %d", len(manifest.Files), len(missingFiles))
 
 	// create a channel for files we have fetched
 	fetchedCh := make(chan *ManifestFile, 16)
@@ -119,6 +397,9 @@ LOOP:
 					return fmt.Errorf("failed to download file %s from s3: %w", file.Key, err)
 				}
 
+				//nolint:errcheck
+				defer r.Close()
+
 				// read all of it in memory
 				file.Data, err = io.ReadAll(r)
 				if err != nil {
@@ -157,13 +438,7 @@ LOOP:
 		return fmt.Errorf("failed to write files: %w", err)
 	}
 
-	return nil
-}
-
-func (d *Downloader) Close() error {
-	if err := d.db.Close(); err != nil {
-		return fmt.Errorf("failed to close db: %w", err)
-	}
+	log.Info("finished downloading files")
 
 	return nil
 }

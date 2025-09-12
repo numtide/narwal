@@ -1,6 +1,9 @@
 package inventory
 
 import (
+	//nolint:gosec
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +17,10 @@ import (
 //nolint:gochecknoglobals
 var (
 	BadgerPrefixFiles     = "files:"
+	BadgerPrefixNarInfo   = "narinfo:"
 	BadgerPrefixManifests = "manifests:"
+
+	ErrKeyNotFound = errors.New("key not found")
 )
 
 // badgerLogger adapts charmbracelet/log to badger's Logger interface.
@@ -44,7 +50,9 @@ func OpenDB(cfg *config.Badger) (*badger.DB, error) {
 	}
 	opts := badger.DefaultOptions(cfg.Path).
 		WithLogger(logger).
-		WithCompression(options.ZSTD)
+		WithCompression(options.ZSTD).
+		WithBlockCacheSize(256 << 20). // 256 MB block cache (increase from default 0)
+		WithIndexCacheSize(256 << 20)  // 256 MB index cache
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -134,6 +142,84 @@ func GetFile(tx *badger.Txn, key string) ([]byte, error) {
 func PutFile(tx *badger.Txn, key string, buf []byte) error {
 	if err := tx.Set([]byte(BadgerPrefixFiles+key), buf); err != nil {
 		return fmt.Errorf("failed to put file in db: %w", err)
+	}
+
+	return nil
+}
+
+func MarkFileAsDownloaded(tx *badger.Txn, key string) error {
+	item, err := tx.Get([]byte(BadgerPrefixFiles + key))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		//nolint:wrapcheck
+		return err
+	} else if err != nil {
+		return fmt.Errorf("failed to get file item from db: %w", err)
+	}
+
+	// annoyingly, we need to retrieve the value to update the user meta
+	val, err := item.ValueCopy(nil)
+	if err != nil {
+		return fmt.Errorf("failed to copy file value from db: %w", err)
+	}
+
+	entry := badger.NewEntry(item.Key(), val).WithMeta(byte(1))
+	if err = tx.SetEntry(entry); err != nil {
+		return fmt.Errorf("failed to mark file as downloaded in db: %w", err)
+	}
+
+	return nil
+}
+
+func HasFileBeenDownloaded(tx *badger.Txn, key string) (bool, error) {
+	item, err := tx.Get([]byte(BadgerPrefixFiles + key))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		//nolint:wrapcheck
+		return false, err
+	} else if err != nil {
+		return false, fmt.Errorf("failed to get file item from db: %w", err)
+	}
+
+	return item.UserMeta() == 1, nil
+}
+
+func HasNarInfo(tx *badger.Txn, key string) (bool, error) {
+	_, err := tx.Get([]byte(BadgerPrefixNarInfo + key))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("failed to get file item from db: %w", err)
+	}
+
+	return true, nil
+}
+
+func VerifyNarInfo(tx *badger.Txn, key string, size int, etag string) error {
+	item, err := tx.Get([]byte(BadgerPrefixNarInfo + key))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		return ErrKeyNotFound
+	} else if err != nil {
+		return fmt.Errorf("failed to get narinfo item from db: %w", err)
+	}
+
+	err = item.Value(func(val []byte) error {
+		if len(val) != size {
+			return fmt.Errorf("narinfo size mismatch: %d != %d", len(val), size)
+		}
+
+		//nolint:gosec
+		checksum := md5.Sum(val)
+		checksumHex := hex.EncodeToString(checksum[:])
+
+		if checksumHex != etag {
+			return fmt.Errorf("narinfo checksum mismatch: %s != %s", checksumHex, etag)
+		}
+
+		log.Debugf("narinfo %s is valid: size = %d, checksum = %s", key, size, etag)
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to verify narinfo: %w", err)
 	}
 
 	return nil

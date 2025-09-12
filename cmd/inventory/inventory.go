@@ -36,7 +36,7 @@ func NewCmd() *cobra.Command {
 
 	cmd.AddCommand(manifestCmd())
 	cmd.AddCommand(downloadCmd())
-	cmd.AddCommand(statsCmd())
+	cmd.AddCommand(verifyCmd())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

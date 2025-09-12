@@ -31,10 +31,19 @@ func NewClient(bucketClient *awssdk.BucketClient, prefix string) *Client {
 	}
 }
 
+func (c *Client) GetObject(ctx context.Context, bucket string, key string) (io.ReadCloser, error) {
+	obj, err := c.bucketClient.UnderlyingClient().GetObject(ctx, bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object %s: %w", key, err)
+	}
+
+	return obj, nil
+}
+
 func (c *Client) GetFile(ctx context.Context, file ManifestFile) (io.ReadCloser, error) {
 	obj, err := c.bucketClient.GetObject(ctx, file.Key, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file %s: %w", file.Key, err)
+		return nil, fmt.Errorf("failed to get object %s: %w", file.Key, err)
 	}
 
 	return obj, nil

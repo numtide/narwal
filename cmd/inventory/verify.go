@@ -9,15 +9,20 @@ import (
 	"github.com/spf13/viper"
 )
 
-func statsCmd() *cobra.Command {
+func verifyCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stats",
-		Short: "Output stats about a manifest report",
+		Use:   "verify",
+		Short: "Verify what we have downloaded",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
 
-			return inventory.OutputStats(cmd.Context(), cfg, report)
+			verifier, err := inventory.NewVerifier(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create verifier: %w", err)
+			}
+
+			return verifier.Verify(cmd.Context(), report)
 		},
 	}
 

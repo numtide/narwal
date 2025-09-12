@@ -62,6 +62,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       pprof
       gotools
       golangci-lint
+      enumer
 
       # LSPs
       nil
