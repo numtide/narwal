@@ -139,7 +139,32 @@ func (d *narinfosDir) Lookup(ctx context.Context, name string, out *fuse.EntryOu
 func newNarinfosDir(db *badger.DB) *narinfosDir {
 	prefixes := make([]fuse.DirEntry, 0, 512)
 
+	tx := db.NewTransaction(false)
+	defer tx.Discard()
+
 	for i := range 512 {
+		name := fmt.Sprintf("%03x", i)
+		prefix := []byte(inventory.BadgerPrefixNarInfo + name)
+
+		iter := tx.NewIterator(badger.IteratorOptions{
+			Prefix:         prefix,
+			Reverse:        false,
+			AllVersions:    false,
+			PrefetchSize:   128,
+			PrefetchValues: false,
+		})
+
+		iter.Seek(prefix)
+
+		exists := iter.ValidForPrefix(prefix)
+
+		iter.Close()
+
+		if !exists {
+			// no nar infos with this prefix
+			continue
+		}
+
 		prefixes = append(prefixes, fuse.DirEntry{
 			Name: fmt.Sprintf("%03x", i),
 			Mode: syscall.S_IFDIR,
