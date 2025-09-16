@@ -22,8 +22,8 @@ type fuseFile struct {
 
 // Open opens the file for reading.
 //
-
-func (f *fuseFile) Open(ctx context.Context, flags uint32) (*fuseFileHandle, uint32, syscall.Errno) {
+//nolint:ireturn
+func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	// enforce a read-only file system
 	if flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0 {
 		return nil, 0, syscall.EROFS
