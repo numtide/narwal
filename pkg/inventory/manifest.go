@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 
 	"github.com/charmbracelet/log"
 	"github.com/minio/minio-go/v7"
@@ -24,10 +25,14 @@ type Manifest struct {
 // ManifestFile represents information about a single inventory file in the manifest.
 type ManifestFile struct {
 	Key         string `json:"key"`
-	Size        int64  `json:"size"`
+	Size        uint64 `json:"size"`
 	MD5Checksum string `json:"MD5checksum"`
 
 	Data []byte `json:"-"`
+}
+
+func (m *ManifestFile) Basename() string {
+	return path.Base(m.Key)
 }
 
 // GetManifest retrieves and parses the inventory manifest for a given report ID.
@@ -84,8 +89,8 @@ func (m *Manifest) Validate() error {
 }
 
 // TotalSize returns the total size of all files in the manifest.
-func (m *Manifest) TotalSize() int64 {
-	var total int64
+func (m *Manifest) TotalSize() uint64 {
+	var total uint64
 	for _, file := range m.Files {
 		total += file.Size
 	}

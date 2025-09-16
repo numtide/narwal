@@ -82,6 +82,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       sqlc # type-safe queries
       openssl
       badger
+      clickhouse
 
       # rust tooling
       cargo

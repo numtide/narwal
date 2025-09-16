@@ -22,14 +22,16 @@ require (
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/andybalholm/brotli v1.1.1
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
+	github.com/dgraph-io/badger/v4 v4.8.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/bigcache/v4 v4.2.2
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-ini/ini v1.67.0
+	github.com/hanwen/go-fuse/v2 v2.8.0
 	github.com/nix-community/go-nix v0.0.0-20250101154619-4bdde671e0a1
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
-	go.etcd.io/bbolt v1.4.3
 )
 
 require (
@@ -44,9 +46,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
-	github.com/dgraph-io/badger/v4 v4.8.0 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/georgysavva/scany/v2 v2.1.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
@@ -87,8 +87,6 @@ require (
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
-	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.37.0 // indirect

@@ -111,8 +111,37 @@ func PutManifest(tx *badger.Txn, key string, manifest *Manifest) error {
 	return nil
 }
 
-func HasFile(tx *badger.Txn, key string) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixFiles + key))
+func ListManifests(tx *badger.Txn) ([]string, error) {
+	prefix := []byte(BadgerPrefixManifests)
+
+	iter := tx.NewIterator(badger.IteratorOptions{
+		Prefix:         prefix,
+		Reverse:        false,
+		AllVersions:    false,
+		PrefetchSize:   100,
+		PrefetchValues: false,
+	})
+
+	defer iter.Close()
+
+	iter.Seek(prefix)
+
+	var results []string
+
+	for iter.ValidForPrefix(prefix) {
+		item := iter.Item()
+		name := string(item.Key()[len(prefix):])
+
+		results = append(results, name)
+
+		iter.Next()
+	}
+
+	return results, nil
+}
+
+func HasManifestFile(tx *badger.Txn, file *ManifestFile) (bool, error) {
+	_, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	} else if err != nil {
@@ -122,8 +151,8 @@ func HasFile(tx *badger.Txn, key string) (bool, error) {
 	return true, nil
 }
 
-func GetFile(tx *badger.Txn, key string) ([]byte, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + key))
+func GetManifestFile(tx *badger.Txn, file *ManifestFile) ([]byte, error) {
+	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return nil, err
@@ -139,16 +168,49 @@ func GetFile(tx *badger.Txn, key string) ([]byte, error) {
 	return buf, nil
 }
 
-func PutFile(tx *badger.Txn, key string, buf []byte) error {
-	if err := tx.Set([]byte(BadgerPrefixFiles+key), buf); err != nil {
+func PutManifestFile(tx *badger.Txn, file *ManifestFile) error {
+	if file.Data == nil {
+		return errors.New("file data is nil")
+	}
+
+	if err := tx.Set([]byte(BadgerPrefixFiles+file.Basename()), file.Data); err != nil {
 		return fmt.Errorf("failed to put file in db: %w", err)
 	}
 
 	return nil
 }
 
-func MarkFileAsDownloaded(tx *badger.Txn, key string) error {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + key))
+func ListManifestFiles(tx *badger.Txn) ([]string, error) {
+	prefix := []byte(BadgerPrefixFiles)
+
+	iter := tx.NewIterator(badger.IteratorOptions{
+		Prefix:         prefix,
+		Reverse:        false,
+		AllVersions:    false,
+		PrefetchSize:   100,
+		PrefetchValues: false,
+	})
+
+	defer iter.Close()
+
+	iter.Seek(prefix)
+
+	var results []string
+
+	for iter.ValidForPrefix(prefix) {
+		item := iter.Item()
+		name := string(item.Key()[len(prefix):])
+
+		results = append(results, name)
+
+		iter.Next()
+	}
+
+	return results, nil
+}
+
+func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
+	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return err
@@ -170,8 +232,8 @@ func MarkFileAsDownloaded(tx *badger.Txn, key string) error {
 	return nil
 }
 
-func HasFileBeenDownloaded(tx *badger.Txn, key string) (bool, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + key))
+func HasFileBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
+	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return false, err

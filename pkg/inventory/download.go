@@ -27,6 +27,8 @@ type Downloader struct {
 	db     *badger.DB
 	client *Client
 
+	batchSize int
+
 	fetchCount     atomic.Uint64
 	fetchSizeBytes atomic.Uint64
 }
@@ -61,8 +63,10 @@ func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error)
 	}
 
 	return &Downloader{
-		db:             db,
-		client:         NewClient(s3, cfg.Inventory.BucketPrefix),
+		db:        db,
+		client:    NewClient(s3, cfg.Inventory.BucketPrefix),
+		batchSize: 1024,
+
 		fetchCount:     atomic.Uint64{},
 		fetchSizeBytes: atomic.Uint64{},
 	}, nil
@@ -116,7 +120,9 @@ LOOP:
 			var downloaded bool
 
 			if err = d.db.View(func(tx *badger.Txn) error {
-				downloaded, err = HasFileBeenDownloaded(tx, file.Key)
+				// each parquet file has a unique hash in its file name
+				// we store them into the db using this basename to keep things flat
+				downloaded, err = HasFileBeenDownloaded(tx, file)
 				if err != nil {
 					return fmt.Errorf("failed to check if file %s has been downloaded: %w", file.Key, err)
 				}
@@ -133,7 +139,7 @@ LOOP:
 
 			log.Infof("[%d / %d] downloading nar infos for file %s", idx+1, len(manifest.Files), file.Key)
 
-			if err := d.downloadNarInfosForFile(ctx, file); err != nil {
+			if err := d.downloadNarInfosForFile(ctx, &file); err != nil {
 				return fmt.Errorf("failed to download nar infos for file %s: %w", file.Key, err)
 			}
 		}
@@ -142,64 +148,18 @@ LOOP:
 	return nil
 }
 
-func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file ManifestFile) error {
+func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file *ManifestFile) error {
 	writeGroup := errgroup.Group{}
 
-	batchSize := 1024
-	entriesCh := make(chan *badger.Entry, batchSize*10)
+	entriesCh := make(chan *badger.Entry, d.batchSize*10)
 
-	writeGroup.Go(func() error {
-		batch := make([]*badger.Entry, 0, batchSize)
+	// start write processing
+	writeGroup.Go(d.writeNarInfos(entriesCh))
 
-		flush := func() error {
-			tx := d.db.NewTransaction(true)
-			defer tx.Discard()
-
-			for _, entry := range batch {
-				if err := tx.SetEntry(entry); err != nil {
-					return fmt.Errorf("failed to set entry: %w", err)
-				}
-
-				d.fetchSizeBytes.Add(uint64(len(entry.Value)))
-			}
-
-			if err := tx.Commit(); err != nil {
-				return fmt.Errorf("failed to commit transaction: %w", err)
-			}
-
-			d.fetchCount.Add(uint64(len(batch)))
-
-			//nolint:gosec
-			log.Infof(
-				"wrote %d nar infos to local db, total fetched = %s, total size = %s",
-				len(batch), humanize.Comma(int64(d.fetchCount.Load())), humanize.Bytes(d.fetchSizeBytes.Load()),
-			)
-
-			// reset the batch
-			batch = batch[:0]
-
-			return nil
-		}
-
-		for entry := range entriesCh {
-			batch = append(batch, entry)
-			if len(batch) == batchSize {
-				if err := flush(); err != nil {
-					return err
-				}
-			}
-		}
-
-		// flush any remaining entries
-		return flush()
-	})
-
-	downloadGroup, downloadCtx := errgroup.WithContext(ctx)
-
+	// create a group to download files concurrently
 	// we limit the pool to 16 threads, which is the max connections per host that minio client is configured to use
+	downloadGroup, downloadCtx := errgroup.WithContext(ctx)
 	downloadGroup.SetLimit(2048)
-
-	rows := make([]Object, batchSize)
 
 	var (
 		buf []byte
@@ -207,7 +167,7 @@ func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file ManifestF
 	)
 
 	if err = d.db.View(func(tx *badger.Txn) error {
-		buf, err = GetFile(tx, file.Key)
+		buf, err = GetManifestFile(tx, file)
 		if err != nil {
 			return fmt.Errorf("failed to get file %s from local db: %w", file.Key, err)
 		}
@@ -225,96 +185,22 @@ func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file ManifestF
 	defer pr.ReadStop()
 
 	numRows := int(pr.GetNumRows())
-	maxAttempts := 2
+	objects := make([]Object, d.batchSize)
 
 LOOP:
-	for i := 0; i < numRows; i += batchSize {
+	for i := 0; i < numRows; i += d.batchSize {
 		select {
 		case <-downloadCtx.Done():
 			break LOOP
 
 		default:
-
-			err := pr.Read(&rows)
+			err := pr.Read(&objects)
 			if err != nil {
 				return fmt.Errorf("failed to read row: %w", err)
 			}
 
-			err = d.db.View(func(tx *badger.Txn) error {
-				for _, obj := range rows {
-					// we're only interested in narinfos
-					if path.Ext(obj.Key) != ".narinfo" {
-						continue
-					}
-
-					exists, err := HasNarInfo(tx, obj.Key)
-					if err != nil {
-						return fmt.Errorf("failed to check if narinfo %s is in local db: %w", obj.Key, err)
-					}
-
-					if exists {
-						// verify the contents
-						log.Debugf("narinfo %s already exists in local db", obj.Key)
-
-						d.fetchCount.Add(1)
-						//nolint:gosec
-						d.fetchSizeBytes.Add(uint64(obj.Size))
-
-						continue
-					}
-
-					downloadGroup.Go(func() error {
-						success := false
-
-						for range maxAttempts {
-							log.Debugf("downloading narinfo %s from s3", obj.Key)
-
-							r, err := d.client.GetObject(ctx, obj.Bucket, obj.Key)
-
-							if err != nil && strings.Contains(err.Error(), "connection reset by peer") {
-								time.Sleep(1 * time.Second)
-								continue
-							} else if err != nil {
-								return fmt.Errorf("failed to get object %s from s3: %w", obj.Key, err)
-							}
-
-							//nolint:errcheck
-							defer r.Close()
-
-							value, err := io.ReadAll(r)
-							if err != nil {
-
-								if strings.Contains(err.Error(), "connection reset by peer") {
-									log.Warnf("connection reset by peer when reading object %s from s3, retrying in 1 second...", obj.Key)
-									time.Sleep(1 * time.Second)
-									continue
-								}
-
-								return fmt.Errorf("failed to read object %s bytes from s3: %w", obj.Key, err)
-							}
-
-							entriesCh <- &badger.Entry{
-								Key:   []byte(BadgerPrefixNarInfo + obj.Key),
-								Value: value,
-							}
-
-							success = true
-
-							break
-						}
-
-						if !success {
-							return fmt.Errorf("failed to download narinfo %s from s3, max retries exceeded", obj.Key)
-						}
-
-						return nil
-					})
-				}
-
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("failed to download nar infos: %w", err)
+			if err = d.downloadNarInfoBatch(downloadCtx, objects, downloadGroup, entriesCh); err != nil {
+				return fmt.Errorf("failed to download nar info batch: %w", err)
 			}
 		}
 	}
@@ -330,12 +216,161 @@ LOOP:
 		return fmt.Errorf("failed to finish writing nar infos to local db: %w", err)
 	}
 
-	// mark this file has downloaded
+	// mark this file and all its narinfo files as downloaded
 	if err = d.db.Update(func(tx *badger.Txn) error {
-		return MarkFileAsDownloaded(tx, file.Key)
+		return MarkManifestFileAsDownloaded(tx, file)
 	}); err != nil {
 		return fmt.Errorf("failed to mark file %s as downloaded: %w", file.Key, err)
 	}
+
+	return nil
+}
+
+func (d *Downloader) downloadNarInfoBatch(
+	ctx context.Context,
+	objects []Object,
+	downloadGroup *errgroup.Group,
+	entriesCh chan *badger.Entry,
+) error {
+	maxDownloadAttempts := 2
+
+	tx := d.db.NewTransaction(false)
+	defer tx.Discard()
+
+	for _, obj := range objects {
+		// we're only interested in narinfos
+		if path.Ext(obj.Key) != ".narinfo" {
+			continue
+		}
+
+		exists, err := HasNarInfo(tx, obj.Key)
+		if err != nil {
+			return fmt.Errorf("failed to check if narinfo %s is in local db: %w", obj.Key, err)
+		}
+
+		if exists {
+			// verify the contents
+			log.Debugf("narinfo %s already exists in local db", obj.Key)
+
+			d.fetchCount.Add(1)
+			//nolint:gosec
+			d.fetchSizeBytes.Add(uint64(obj.Size))
+
+			continue
+		}
+
+		downloadGroup.Go(d.downloadNarInfo(ctx, obj, maxDownloadAttempts, entriesCh))
+	}
+
+	return nil
+}
+
+func (d *Downloader) downloadNarInfo(
+	ctx context.Context,
+	obj Object,
+	maxAttempts int,
+	entriesCh chan *badger.Entry,
+) func() error {
+	return func() error {
+		success := false
+
+		for range maxAttempts {
+			log.Debugf("downloading narinfo %s from s3", obj.Key)
+
+			r, err := d.client.GetObject(ctx, obj.Bucket, obj.Key)
+
+			if err != nil && strings.Contains(err.Error(), "connection reset by peer") {
+				time.Sleep(1 * time.Second)
+				continue
+			} else if err != nil {
+				return fmt.Errorf("failed to get object %s from s3: %w", obj.Key, err)
+			}
+
+			//nolint:errcheck
+			defer r.Close()
+
+			value, err := io.ReadAll(r)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection reset by peer") {
+					log.Warnf("connection reset by peer when reading object %s from s3, retrying in 1 second...", obj.Key)
+					time.Sleep(1 * time.Second)
+
+					continue
+				}
+
+				return fmt.Errorf("failed to read object %s bytes from s3: %w", obj.Key, err)
+			}
+
+			entriesCh <- &badger.Entry{
+				Key:   []byte(BadgerPrefixNarInfo + obj.Key),
+				Value: value,
+			}
+
+			success = true
+
+			break
+		}
+
+		if !success {
+			return fmt.Errorf("failed to download narinfo %s from s3, max retries exceeded", obj.Key)
+		}
+
+		return nil
+	}
+}
+
+func (d *Downloader) writeNarInfos(entriesCh <-chan *badger.Entry) func() error {
+	return func() error {
+		batch := make([]*badger.Entry, 0, d.batchSize)
+
+		flush := func() error {
+			if err := d.writeNarInfoBatch(batch); err != nil {
+				return fmt.Errorf("failed to write nar infos: %w", err)
+			}
+
+			// reset the batch
+			batch = batch[:0]
+
+			return nil
+		}
+
+		for entry := range entriesCh {
+			batch = append(batch, entry)
+			if len(batch) == d.batchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+
+		// flush any remaining entries
+		return flush()
+	}
+}
+
+func (d *Downloader) writeNarInfoBatch(batch []*badger.Entry) error {
+	tx := d.db.NewTransaction(true)
+	defer tx.Discard()
+
+	for _, entry := range batch {
+		if err := tx.SetEntry(entry); err != nil {
+			return fmt.Errorf("failed to set entry: %w", err)
+		}
+
+		d.fetchSizeBytes.Add(uint64(len(entry.Value)))
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	d.fetchCount.Add(uint64(len(batch)))
+
+	//nolint:gosec
+	log.Infof(
+		"wrote %d nar infos to local db, total fetched = %s, total size = %s",
+		len(batch), humanize.Comma(int64(d.fetchCount.Load())), humanize.Bytes(d.fetchSizeBytes.Load()),
+	)
 
 	return nil
 }
@@ -366,7 +401,7 @@ func (d *Downloader) downloadFiles(ctx context.Context, manifest *Manifest) erro
 			log.Infof("writing file %s to local db", file.Key)
 
 			if err = d.db.Update(func(tx *badger.Txn) error {
-				return PutFile(tx, file.Key, file.Data)
+				return PutManifestFile(tx, file)
 			}); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", file.Key, err)
 			}
@@ -438,7 +473,7 @@ LOOP:
 		return fmt.Errorf("failed to write files: %w", err)
 	}
 
-	log.Info("finished downloading files")
+	log.Info("finished downloading manifest files")
 
 	return nil
 }
@@ -448,14 +483,13 @@ func (d *Downloader) missingFiles(files []ManifestFile) ([]ManifestFile, error) 
 	tx := d.db.NewTransaction(false)
 
 	// ensure a discard is called if a commit is never made
-
 	defer tx.Discard()
 
 	missing := make([]ManifestFile, 0, len(files))
 
 	// iterate the list of files and check if they are already in the db
 	for _, file := range files {
-		exists, err := HasFile(tx, file.Key)
+		exists, err := HasManifestFile(tx, &file)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check if file %s is in local db: %w", file.Key, err)
 		}

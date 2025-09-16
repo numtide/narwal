@@ -120,7 +120,7 @@ LOOP:
 			break LOOP
 		default:
 			verifyGroup.Go(func() error {
-				if err := v.verifyFile(verifyCtx, file, counterCh); err != nil {
+				if err := v.verifyFile(verifyCtx, &file, counterCh); err != nil {
 					return fmt.Errorf("failed to verify file %s: %w", file.Key, err)
 				}
 
@@ -153,7 +153,7 @@ func (v *Verifier) Close() error {
 	return nil
 }
 
-func (v *Verifier) verifyFile(ctx context.Context, file ManifestFile, counter chan countRecord) error {
+func (v *Verifier) verifyFile(ctx context.Context, file *ManifestFile, counter chan countRecord) error {
 	// read the file from db
 	var (
 		err error
@@ -161,7 +161,7 @@ func (v *Verifier) verifyFile(ctx context.Context, file ManifestFile, counter ch
 	)
 
 	if err = v.db.View(func(tx *badger.Txn) error {
-		exists, err := HasFile(tx, file.Key)
+		exists, err := HasManifestFile(tx, file)
 		if err != nil {
 			return fmt.Errorf("failed to check if file %s is in local db: %w", file.Key, err)
 		}
@@ -174,7 +174,7 @@ func (v *Verifier) verifyFile(ctx context.Context, file ManifestFile, counter ch
 			return nil
 		}
 
-		buf, err = GetFile(tx, file.Key)
+		buf, err = GetManifestFile(tx, file)
 		if err != nil {
 			return fmt.Errorf("failed to get file %s from db: %w", file.Key, err)
 		}
@@ -214,82 +214,86 @@ func (v *Verifier) verifyFile(ctx context.Context, file ManifestFile, counter ch
 		default:
 			err := pr.Read(&rows)
 			if err != nil {
-				return fmt.Errorf("failed to read row: %w", err)
+				return fmt.Errorf("failed to read rows: %w", err)
 			}
 
-			err = v.db.View(func(tx *badger.Txn) error {
-				for _, row := range rows {
-					ext := path.Ext(row.Key)
-
-					if len(ext) > 0 {
-						// drop the leading `.`
-						ext = ext[1:]
-					}
-
-					counter <- countRecord{
-						key: "object_count",
-						val: 1,
-					}
-
-					counter <- countRecord{
-						key: "object_count_with_ext_" + ext,
-						val: 1,
-					}
-
-					counter <- countRecord{
-						key: "object_size",
-						val: row.Size,
-					}
-
-					if ext != "narinfo" {
-						continue
-					}
-
-					counter <- countRecord{
-						key: "nar_info_count",
-						val: 1,
-					}
-
-					counter <- countRecord{
-						key: "nar_info_size",
-						val: row.Size,
-					}
-
-					// check whether the narinfo is valid
-					err = VerifyNarInfo(tx, row.Key, int(row.Size), row.ETag)
-					if errors.Is(err, ErrKeyNotFound) {
-						counter <- countRecord{
-							key: "nar_info_missing",
-							val: 1,
-						}
-
-						continue
-					} else if err != nil {
-						log.Errorf("failed to verify narinfo %s: %s", row.Key, err)
-
-						counter <- countRecord{
-							key: "nar_info_invalid",
-							val: 1,
-						}
-
-						continue
-					}
-
-					counter <- countRecord{
-						key: "nar_info_valid",
-						val: 1,
-					}
-				}
-
-				return nil
-			})
-			if err != nil {
+			if err = v.verifyNarInfoBatch(rows, counter); err != nil {
 				return fmt.Errorf("failed to verify narinfo batch: %w", err)
 			}
 		}
 	}
 
 	log.Infof("verified file %s with %s rows in %v", file.Key, humanize.Comma(pr.GetNumRows()), time.Since(start))
+
+	return nil
+}
+
+func (v *Verifier) verifyNarInfoBatch(rows []Object, counterCh chan countRecord) error {
+	tx := v.db.NewTransaction(false)
+	defer tx.Discard()
+
+	for _, row := range rows {
+		ext := path.Ext(row.Key)
+
+		if len(ext) > 0 {
+			// drop the leading `.`
+			ext = ext[1:]
+		}
+
+		counterCh <- countRecord{
+			key: "object_count",
+			val: 1,
+		}
+
+		counterCh <- countRecord{
+			key: "object_count_with_ext_" + ext,
+			val: 1,
+		}
+
+		counterCh <- countRecord{
+			key: "object_size",
+			val: row.Size,
+		}
+
+		if ext != "narinfo" {
+			continue
+		}
+
+		counterCh <- countRecord{
+			key: "nar_info_count",
+			val: 1,
+		}
+
+		counterCh <- countRecord{
+			key: "nar_info_size",
+			val: row.Size,
+		}
+
+		// check whether the narinfo is valid
+		err := VerifyNarInfo(tx, row.Key, int(row.Size), row.ETag)
+		if errors.Is(err, ErrKeyNotFound) {
+			counterCh <- countRecord{
+				key: "nar_info_missing",
+				val: 1,
+			}
+
+			continue
+		} else if err != nil {
+			log.Errorf("failed to verify narinfo %s: %s", row.Key, err)
+
+			counterCh <- countRecord{
+				key: "nar_info_invalid",
+				val: 1,
+			}
+
+			continue
+		}
+
+		counterCh <- countRecord{
+			key: "nar_info_valid",
+			val: 1,
+		}
+	}
 
 	return nil
 }
