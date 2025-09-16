@@ -89,10 +89,23 @@ func NewBucketClient(
 		}
 	}
 
+	transport, err := minio.DefaultTransport(useSSL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transport: %w", err)
+	}
+
+	// increase the number of idle connections to 128 to improve downloading of narinfos
+	transport.MaxIdleConnsPerHost = 2048
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transport: %w", err)
+	}
+
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  creds,
-		Secure: useSSL,
-		Region: region,
+		Creds:     creds,
+		Secure:    useSSL,
+		Region:    region,
+		Transport: transport,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MinIO client: %w", err)

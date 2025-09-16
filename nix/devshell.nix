@@ -62,6 +62,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       pprof
       gotools
       golangci-lint
+      enumer
 
       # LSPs
       nil
@@ -80,6 +81,8 @@ perSystem.self.narwal.overrideAttrs (old: {
       pqrs # parquet inspection
       sqlc # type-safe queries
       openssl
+      badger
+      clickhouse
 
       # rust tooling
       cargo

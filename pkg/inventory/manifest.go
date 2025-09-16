@@ -5,33 +5,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 
 	"github.com/charmbracelet/log"
 	"github.com/minio/minio-go/v7"
 )
 
-// InventoryManifest represents the structure of an S3 inventory manifest.json file.
-type InventoryManifest struct {
-	Files        []InventoryManifestInfo `json:"files"`
-	SourceBucket string                  `json:"sourceBucket"`
-	DestBucket   string                  `json:"destinationBucket"`
-	Version      string                  `json:"version"`
-	CreationTime string                  `json:"creationTimestamp"`
-	FileFormat   string                  `json:"fileFormat"`
-	FileSchema   string                  `json:"fileSchema"`
+// Manifest represents the structure of an S3 inventory manifest.json file.
+type Manifest struct {
+	Files        []ManifestFile `json:"files"`
+	SourceBucket string         `json:"sourceBucket"`
+	DestBucket   string         `json:"destinationBucket"`
+	Version      string         `json:"version"`
+	CreationTime string         `json:"creationTimestamp"`
+	FileFormat   string         `json:"fileFormat"`
+	FileSchema   string         `json:"fileSchema"`
 }
 
-// InventoryManifestInfo represents information about a single inventory file in the manifest.
-type InventoryManifestInfo struct {
+// ManifestFile represents information about a single inventory file in the manifest.
+type ManifestFile struct {
 	Key         string `json:"key"`
-	Size        int64  `json:"size"`
+	Size        uint64 `json:"size"`
 	MD5Checksum string `json:"MD5checksum"`
+
+	Data []byte `json:"-"`
+}
+
+func (m *ManifestFile) Basename() string {
+	return path.Base(m.Key)
 }
 
 // GetManifest retrieves and parses the inventory manifest for a given report ID.
-func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryManifest, error) {
+func (c *Client) GetManifest(ctx context.Context, reportID string) (*Manifest, error) {
 	manifestKey := c.prefix + reportID + "/manifest.json"
-	log.Debug("Fetching inventory manifest", "bucket", c.bucketClient.BucketName(), "key", manifestKey)
+	log.Debug("fetching inventory manifest", "bucket", c.bucketClient.BucketName(), "key", manifestKey)
 
 	// Get the manifest.json file from S3
 	reader, err := c.bucketClient.GetObject(ctx, manifestKey, minio.GetObjectOptions{})
@@ -41,7 +48,7 @@ func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryMa
 	defer reader.Close() //nolint:errcheck
 
 	// Parse the JSON manifest directly from the stream
-	var manifest InventoryManifest
+	var manifest Manifest
 
 	decoder := json.NewDecoder(reader)
 	if err := decoder.Decode(&manifest); err != nil {
@@ -53,13 +60,13 @@ func (c *Client) GetManifest(ctx context.Context, reportID string) (*InventoryMa
 		return nil, fmt.Errorf("failed to validate manifest: %w", err)
 	}
 
-	log.Debug("Parsed inventory manifest", "files", len(manifest.Files))
+	log.Debug("parsed inventory manifest", "files", len(manifest.Files))
 
 	return &manifest, nil
 }
 
-// ValidateManifest performs basic validation on a manifest.
-func (m *InventoryManifest) Validate() error {
+// Validate performs basic validation on a manifest.
+func (m *Manifest) Validate() error {
 	if len(m.Files) == 0 {
 		return errors.New("manifest contains no files")
 	}
@@ -82,8 +89,8 @@ func (m *InventoryManifest) Validate() error {
 }
 
 // TotalSize returns the total size of all files in the manifest.
-func (m *InventoryManifest) TotalSize() int64 {
-	var total int64
+func (m *Manifest) TotalSize() uint64 {
+	var total uint64
 	for _, file := range m.Files {
 		total += file.Size
 	}

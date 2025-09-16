@@ -1,47 +1,70 @@
 package inventory
 
 import (
-	"github.com/numtide/narwal/cmd/inventory/download"
-	"github.com/numtide/narwal/cmd/inventory/explore"
-	listreports "github.com/numtide/narwal/cmd/inventory/list-reports"
-	"github.com/numtide/narwal/cmd/inventory/manifest"
+	"fmt"
+
+	"github.com/charmbracelet/log"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+)
+
+//nolint:gochecknoglobals
+var (
+	cfg *config.Config
+
+	s3 *awssdk.BucketClient
 )
 
 func NewCmd() *cobra.Command {
+	// create the command
 	cmd := &cobra.Command{
-		Use:   "inventory",
-		Short: "Interact with S3 inventory data",
-		Long: `The inventory command provides sub-commands to interact with S3 inventory data
-without importing all the data. Use these commands to explore available reports,
-get the latest inventory report, or examine manifest information.`,
-		Example: `  # List all available inventory reports
-  narwal inventory list-reports --bucket nix-cache-inventory --prefix data/
-
-  # Get manifest information for a specific report
-  narwal inventory manifest --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
-
-  # Download parquet files for interactive analysis
-  narwal inventory download --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z
-
-  # Explore downloaded data interactively with ClickHouse
-  narwal inventory explore --bucket nix-cache-inventory --prefix data/ --report 2025-06-03T01-00Z`,
+		Use:               "inventory",
+		Short:             "Inventory service related commands such as downloading manifest and list files",
+		PersistentPreRunE: preRunE,
 	}
 
-	// set flags
-	config.SetS3Flags(cmd.PersistentFlags())
+	fs := cmd.PersistentFlags()
+	config.SetS3Flags(fs)
+	config.SetInventoryFlags(fs)
 
-	// Add sub-commands
-	cmd.AddCommand(listreports.NewCmd())
-	cmd.AddCommand(manifest.NewCmd())
-	cmd.AddCommand(download.NewCmd())
-	cmd.AddCommand(explore.NewCmd())
+	// bind our command's flags to viper
+	if err := viper.BindPFlags(fs); err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
+	}
 
-	// Note: Sub-commands handle their own flag binding
+	cmd.AddCommand(manifestCmd())
+	cmd.AddCommand(downloadCmd())
+	cmd.AddCommand(verifyCmd())
+	cmd.AddCommand(fuseCmd())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true
 
 	return cmd
+}
+
+func preRunE(cmd *cobra.Command, _ []string) error {
+	var err error
+
+	// parse viper into our config object
+	v := viper.GetViper()
+	if err = config.FromViper(v, &cfg); err != nil {
+		return fmt.Errorf("failed to create config from viper: %w", err)
+	}
+
+	if err = cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
+
+	// connect to s3
+	if s3, err = cfg.S3.Connect(cmd.Context()); err != nil {
+		//nolint:wrapcheck
+		return err
+	}
+
+	return nil
 }
