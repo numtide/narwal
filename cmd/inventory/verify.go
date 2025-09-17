@@ -16,13 +16,7 @@ func verifyCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
-
-			verifier, err := inventory.NewVerifier(cfg)
-			if err != nil {
-				return fmt.Errorf("failed to create verifier: %w", err)
-			}
-
-			return verifier.Verify(cmd.Context(), report)
+			return inventory.Verify(cmd.Context(), cfg, report)
 		},
 	}
 

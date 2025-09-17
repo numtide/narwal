@@ -17,7 +17,7 @@ func downloadCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
 
-			dl, err := inventory.NewDownloader(cmd.Context(), cfg)
+			dl, err := inventory.NewDownloader(cfg)
 			if err != nil {
 				return fmt.Errorf("failed to create downloader: %w", err)
 			}
@@ -26,7 +26,7 @@ func downloadCmd() *cobra.Command {
 				return fmt.Errorf("failed to download: %w", err)
 			}
 
-			return dl.Close()
+			return nil
 		},
 	}
 

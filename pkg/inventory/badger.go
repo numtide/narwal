@@ -234,7 +234,7 @@ func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
 	return nil
 }
 
-func HasFileBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
+func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
 	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck

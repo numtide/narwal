@@ -39,8 +39,11 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 				return fmt.Errorf("failed to open database: %w", err)
 			}
 
-			//nolint:errcheck
-			defer db.Close()
+			defer func() {
+				if closeErr := db.Close(); closeErr != nil {
+					log.Errorf("failed to close db: %s", err)
+				}
+			}()
 
 			// Check if mountpoint exists
 			if _, err := os.Stat(mountpoint); os.IsNotExist(err) {

@@ -24,34 +24,30 @@ type countRecord struct {
 	val int64
 }
 
-type Verifier struct {
-	db *badger.DB
-}
+func Verify(ctx context.Context, cfg *config.Config, report string) error {
+	var err error
 
-func NewVerifier(cfg *config.Config) (*Verifier, error) {
 	// check we have bolt config
 	if cfg.Badger == nil {
-		return nil, errors.New("badger config is required")
+		return errors.New("badger config is required")
 	}
 
 	// open the db
 	db, err := OpenDB(cfg.Badger)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to open db: %w", err)
 	}
 
-	return &Verifier{
-		db: db,
-	}, nil
-}
-
-func (v *Verifier) Verify(ctx context.Context, report string) error {
-	var err error
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Errorf("failed to close db: %s", closeErr)
+		}
+	}()
 
 	// lookup the manifest
 	var manifest *Manifest
 
-	if err := v.db.Update(func(tx *badger.Txn) error {
+	if err := db.Update(func(tx *badger.Txn) error {
 		manifest, err = GetManifest(tx, report)
 		if err != nil {
 			return fmt.Errorf("failed to get manifest: %w", err)
@@ -120,7 +116,7 @@ LOOP:
 			break LOOP
 		default:
 			verifyGroup.Go(func() error {
-				if err := v.verifyFile(verifyCtx, &file, counterCh); err != nil {
+				if err := verifyManifestFile(verifyCtx, db, &file, counterCh); err != nil {
 					return fmt.Errorf("failed to verify file %s: %w", file.Key, err)
 				}
 
@@ -145,22 +141,14 @@ LOOP:
 	return nil
 }
 
-func (v *Verifier) Close() error {
-	if err := v.db.Close(); err != nil {
-		return fmt.Errorf("failed to close db: %w", err)
-	}
-
-	return nil
-}
-
-func (v *Verifier) verifyFile(ctx context.Context, file *ManifestFile, counter chan countRecord) error {
+func verifyManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile, counter chan countRecord) error {
 	// read the file from db
 	var (
 		err error
 		buf []byte
 	)
 
-	if err = v.db.View(func(tx *badger.Txn) error {
+	if err = db.View(func(tx *badger.Txn) error {
 		exists, err := HasManifestFile(tx, file)
 		if err != nil {
 			return fmt.Errorf("failed to check if file %s is in local db: %w", file.Key, err)
@@ -217,7 +205,7 @@ func (v *Verifier) verifyFile(ctx context.Context, file *ManifestFile, counter c
 				return fmt.Errorf("failed to read rows: %w", err)
 			}
 
-			if err = v.verifyNarInfoBatch(rows, counter); err != nil {
+			if err = verifyNarInfoBatch(db, rows, counter); err != nil {
 				return fmt.Errorf("failed to verify narinfo batch: %w", err)
 			}
 		}
@@ -228,8 +216,8 @@ func (v *Verifier) verifyFile(ctx context.Context, file *ManifestFile, counter c
 	return nil
 }
 
-func (v *Verifier) verifyNarInfoBatch(rows []Object, counterCh chan countRecord) error {
-	tx := v.db.NewTransaction(false)
+func verifyNarInfoBatch(db *badger.DB, rows []Object, counterCh chan countRecord) error {
+	tx := db.NewTransaction(false)
 	defer tx.Discard()
 
 	for _, row := range rows {

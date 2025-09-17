@@ -24,16 +24,17 @@ import (
 )
 
 type Downloader struct {
+	cfg       *config.Config
+	batchSize int
+
 	db     *badger.DB
 	client *Client
-
-	batchSize int
 
 	fetchCount     atomic.Uint64
 	fetchSizeBytes atomic.Uint64
 }
 
-func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error) {
+func NewDownloader(cfg *config.Config) (*Downloader, error) {
 	// check we have badger config
 	if cfg.Badger == nil {
 		return nil, errors.New("badger config is required")
@@ -49,30 +50,33 @@ func NewDownloader(ctx context.Context, cfg *config.Config) (*Downloader, error)
 		return nil, errors.New("inventory config is required")
 	}
 
-	// open the db
-	db, err := OpenDB(cfg.Badger)
-	if err != nil {
-		return nil, err
-	}
-
-	// create an s3 client
-	s3, err := cfg.S3.Connect(ctx)
-	if err != nil {
-		//nolint:wrapcheck
-		return nil, err
-	}
-
-	return &Downloader{
-		db:        db,
-		client:    NewClient(s3, cfg.Inventory.BucketPrefix),
-		batchSize: 1024,
-
-		fetchCount:     atomic.Uint64{},
-		fetchSizeBytes: atomic.Uint64{},
-	}, nil
+	return &Downloader{cfg: cfg, batchSize: 1024}, nil
 }
 
 func (d *Downloader) Download(ctx context.Context, report string) error {
+	var err error
+
+	// open the db
+	if d.db, err = OpenDB(d.cfg.Badger); err != nil {
+		return fmt.Errorf("failed to open db: %w", err)
+	}
+
+	defer func() {
+		if closeErr := d.db.Close(); closeErr != nil {
+			log.Errorf("failed to close db: %s", closeErr)
+		}
+	}()
+
+	// create a prefixed s3 client
+	s3, err := d.cfg.S3.Connect(ctx)
+	if err != nil {
+		//nolint:wrapcheck
+		return err
+	}
+
+	d.client = NewClient(s3, d.cfg.Inventory.BucketPrefix)
+
+	// start download
 	log.Infof("downloading inventory report %s", report)
 
 	// fetch the manifest, either from local db or remotely from s3
@@ -80,6 +84,10 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 	if err != nil {
 		return err
 	}
+
+	// init some counters
+	d.fetchCount = atomic.Uint64{}
+	d.fetchSizeBytes = atomic.Uint64{}
 
 	log.Info("downloading inventory files")
 
@@ -93,14 +101,6 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 	// download nar infos based on the information in the inventory files
 	if err = d.downloadNarInfos(ctx, *manifest); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (d *Downloader) Close() error {
-	if err := d.db.Close(); err != nil {
-		return fmt.Errorf("failed to close db: %w", err)
 	}
 
 	return nil
@@ -122,7 +122,7 @@ LOOP:
 			if err = d.db.View(func(tx *badger.Txn) error {
 				// each parquet file has a unique hash in its file name
 				// we store them into the db using this basename to keep things flat
-				downloaded, err = HasFileBeenDownloaded(tx, file)
+				downloaded, err = HasFileNarInfosBeenDownloaded(tx, file)
 				if err != nil {
 					return fmt.Errorf("failed to check if file %s has been downloaded: %w", file.Key, err)
 				}
