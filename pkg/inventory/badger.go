@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"bytes"
 	//nolint:gosec
 	"crypto/md5"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/badger/v4/options"
+	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/config"
 )
 
@@ -274,6 +276,11 @@ func VerifyNarInfo(tx *badger.Txn, key string, size int, etag string) error {
 
 		if checksumHex != etag {
 			return fmt.Errorf("narinfo checksum mismatch: %s != %s", checksumHex, etag)
+		}
+
+		// check if we can parse it
+		if _, err = narinfo.Parse(bytes.NewReader(val)); err != nil {
+			return fmt.Errorf("failed to parse narinfo: %w", err)
 		}
 
 		log.Debugf("narinfo %s is valid: size = %d, checksum = %s", key, size, etag)
