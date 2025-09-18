@@ -1,11 +1,13 @@
 package inventory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -14,8 +16,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/config"
-	"github.com/xitongsys/parquet-go-source/buffer"
-	"github.com/xitongsys/parquet-go/reader"
+	"github.com/parquet-go/parquet-go"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -102,32 +103,19 @@ func Verify(ctx context.Context, cfg *config.Config, report string) error {
 		return nil
 	})
 
-	// create a new errgroup for concurrent processing
-	verifyGroup, verifyCtx := errgroup.WithContext(ctx)
-	verifyGroup.SetLimit(8)
-
-	log.Infof("verifying %d files", len(manifest.Files))
-
 LOOP:
-	// verify each file concurrently
-	for _, file := range manifest.Files {
+	for idx, file := range manifest.Files {
 		select {
 		case <-ctx.Done():
 			break LOOP
+
 		default:
-			verifyGroup.Go(func() error {
-				if err := verifyManifestFile(verifyCtx, db, &file, counterCh); err != nil {
-					return fmt.Errorf("failed to verify file %s: %w", file.Key, err)
-				}
+			log.Infof("[%d / %d] verifying manifest file %s", idx+1, len(manifest.Files), file.Key)
 
-				return nil
-			})
+			if err = verifyManifestFile(ctx, db, &file, counterCh); err != nil {
+				return fmt.Errorf("failed to verify manifest file %s: %w", file.Key, err)
+			}
 		}
-	}
-
-	// wait for all files to be verified
-	if err = verifyGroup.Wait(); err != nil {
-		return fmt.Errorf("failed to verify files: %w", err)
 	}
 
 	// indicate no more counter records
@@ -177,110 +165,109 @@ func verifyManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile, 
 		return nil
 	}
 
-	log.Infof("verifying file %s", file.Key)
-
 	start := time.Now()
 
-	// create a parquet reader for the file
-	pr, err := reader.NewParquetReader(buffer.NewBufferFileFromBytes(buf), new(Object), 4)
+	// read everything from the parquet file into memory
+	objs, err := parquet.Read[Object](bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
-		return fmt.Errorf("failed to create parquet reader: %w", err)
+		return errors.New("failed to read parquet file")
 	}
-
-	defer pr.ReadStop()
 
 	// process the contents of the file
-	numRows := int(pr.GetNumRows())
-	batchSize := 1024
+	numRows := len(objs)
 
-	rows := make([]Object, batchSize)
-
-	for i := 0; i < numRows; i += batchSize {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			err := pr.Read(&rows)
-			if err != nil {
-				return fmt.Errorf("failed to read rows: %w", err)
-			}
-
-			if err = verifyNarInfoBatch(db, rows, counter); err != nil {
-				return fmt.Errorf("failed to verify narinfo batch: %w", err)
-			}
-		}
+	if err = verifyNarInfoBatch(ctx, db, objs, counter); err != nil {
+		return fmt.Errorf("failed to verify narinfo batch: %w", err)
 	}
 
-	log.Infof("verified file %s with %s rows in %v", file.Key, humanize.Comma(pr.GetNumRows()), time.Since(start))
+	log.Infof("verified file %s with %s rows in %v", file.Key, humanize.Comma(int64(numRows)), time.Since(start))
 
 	return nil
 }
 
-func verifyNarInfoBatch(db *badger.DB, rows []Object, counterCh chan countRecord) error {
+func verifyNarInfoBatch(ctx context.Context, db *badger.DB, rows []Object, counterCh chan countRecord) error {
+	eg := errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
 	tx := db.NewTransaction(false)
 	defer tx.Discard()
 
+LOOP:
 	for _, row := range rows {
-		ext := path.Ext(row.Key)
+		select {
+		case <-ctx.Done():
+			break LOOP
 
-		if len(ext) > 0 {
-			// drop the leading `.`
-			ext = ext[1:]
-		}
+		default:
+			ext := path.Ext(row.Key)
 
-		counterCh <- countRecord{
-			key: "object_count",
-			val: 1,
-		}
+			if len(ext) > 0 {
+				// drop the leading `.`
+				ext = ext[1:]
+			}
 
-		counterCh <- countRecord{
-			key: "object_count_with_ext_" + ext,
-			val: 1,
-		}
-
-		counterCh <- countRecord{
-			key: "object_size",
-			val: row.Size,
-		}
-
-		if ext != "narinfo" {
-			continue
-		}
-
-		counterCh <- countRecord{
-			key: "nar_info_count",
-			val: 1,
-		}
-
-		counterCh <- countRecord{
-			key: "nar_info_size",
-			val: row.Size,
-		}
-
-		// check whether the narinfo is valid
-		err := VerifyNarInfo(tx, row.Key, int(row.Size), row.ETag)
-		if errors.Is(err, ErrKeyNotFound) {
 			counterCh <- countRecord{
-				key: "nar_info_missing",
+				key: "object_count",
 				val: 1,
 			}
 
-			continue
-		} else if err != nil {
-			log.Errorf("failed to verify narinfo %s: %s", row.Key, err)
-
 			counterCh <- countRecord{
-				key: "nar_info_invalid",
+				key: "object_count_with_ext_" + ext,
 				val: 1,
 			}
 
-			continue
-		}
+			counterCh <- countRecord{
+				key: "object_size",
+				val: row.Size,
+			}
 
-		counterCh <- countRecord{
-			key: "nar_info_valid",
-			val: 1,
+			if ext != "narinfo" {
+				continue
+			}
+
+			counterCh <- countRecord{
+				key: "nar_info_count",
+				val: 1,
+			}
+
+			counterCh <- countRecord{
+				key: "nar_info_size",
+				val: row.Size,
+			}
+
+			eg.Go(func() error {
+				// check whether the narinfo is valid
+				err := VerifyNarInfo(tx, row.Key, int(row.Size), row.ETag)
+				if errors.Is(err, ErrKeyNotFound) {
+					counterCh <- countRecord{
+						key: "nar_info_missing",
+						val: 1,
+					}
+
+					return nil
+				} else if err != nil {
+					log.Errorf("failed to verify narinfo %s: %s", row.Key, err)
+
+					counterCh <- countRecord{
+						key: "nar_info_invalid",
+						val: 1,
+					}
+
+					return nil
+				}
+
+				counterCh <- countRecord{
+					key: "nar_info_valid",
+					val: 1,
+				}
+
+				return nil
+			})
 		}
+	}
+
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("failed to verify narinfos: %w", err)
 	}
 
 	return nil

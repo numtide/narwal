@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path"
@@ -18,8 +19,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/config"
-	"github.com/xitongsys/parquet-go-source/buffer"
-	"github.com/xitongsys/parquet-go/reader"
+	"github.com/parquet-go/parquet-go"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -177,15 +177,13 @@ func (d *Downloader) downloadNarInfosForFile(ctx context.Context, file *Manifest
 		return err
 	}
 
-	pr, err := reader.NewParquetReader(buffer.NewBufferFileFromBytes(buf), new(Object), 4)
+	// read all the objects from the parquet file into memory
+	objs, err := parquet.Read[Object](bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
-		return fmt.Errorf("failed to create parquet reader: %w", err)
+		return errors.New("failed to read parquet file")
 	}
 
-	defer pr.ReadStop()
-
-	numRows := int(pr.GetNumRows())
-	objects := make([]Object, d.batchSize)
+	numRows := len(objs)
 
 LOOP:
 	for i := 0; i < numRows; i += d.batchSize {
@@ -194,12 +192,20 @@ LOOP:
 			break LOOP
 
 		default:
-			err := pr.Read(&objects)
-			if err != nil {
-				return fmt.Errorf("failed to read row: %w", err)
+
+			// work out the new batch slice within objs
+			end := i + d.batchSize
+			if end > len(objs) {
+				end = len(objs)
 			}
 
-			if err = d.downloadNarInfoBatch(downloadCtx, objects, downloadGroup, entriesCh); err != nil {
+			batch := objs[i:end]
+			if len(batch) == 0 {
+				// nothing more to process
+				break LOOP
+			}
+
+			if err = d.downloadNarInfoBatch(downloadCtx, batch, downloadGroup, entriesCh); err != nil {
 				return fmt.Errorf("failed to download nar info batch: %w", err)
 			}
 		}
