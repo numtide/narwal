@@ -257,11 +257,6 @@ func (d *Downloader) downloadNarInfoBatch(
 		if exists {
 			// verify the contents
 			log.Debugf("narinfo %s already exists in local db", obj.Key)
-
-			d.fetchCount.Add(1)
-			//nolint:gosec
-			d.fetchSizeBytes.Add(uint64(obj.Size))
-
 			continue
 		}
 
