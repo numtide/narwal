@@ -85,9 +85,9 @@ func (d *manifestDir) Lookup(ctx context.Context, name string, out *fuse.EntryOu
 	var key []byte
 
 	if name == manifestFileName {
-		key = []byte(inventory.BadgerPrefixManifests + d.name)
+		key = []byte(inventory.BadgerPrefixManifest + d.name)
 	} else {
-		key = []byte(inventory.BadgerPrefixFiles + name)
+		key = []byte(inventory.BadgerPrefixFile + name)
 	}
 
 	err := d.db.View(func(txn *badger.Txn) error {
@@ -164,7 +164,7 @@ func (d *manifestsDir) Lookup(ctx context.Context, name string, out *fuse.EntryO
 		return nil, syscall.EIO
 	}
 
-	key := []byte(inventory.BadgerPrefixManifests + name)
+	key := []byte(inventory.BadgerPrefixManifest + name)
 
 	out.Mode = syscall.S_IFDIR | 0o555
 	out.SetAttrTimeout(time.Hour)

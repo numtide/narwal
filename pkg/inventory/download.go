@@ -302,8 +302,21 @@ func (d *Downloader) downloadNarInfo(
 				return fmt.Errorf("failed to read object %s bytes from s3: %w", obj.Key, err)
 			}
 
+			// prefix with the checksum from the parquet file
+			checksum, err := hex.DecodeString(obj.ETag)
+			if err != nil {
+				return fmt.Errorf("failed to decode ETag %s: %w", obj.ETag, err)
+			}
+
+			if len(checksum) != md5.Size {
+				return fmt.Errorf("ETag %s is not a valid md5 checksum: length %d != %d", obj.ETag, len(checksum), md5.Size)
+			}
+
+			value = append(checksum, value...)
+
+			// append to the entries channel
 			entriesCh <- &badger.Entry{
-				Key:   []byte(BadgerPrefixNarInfo + obj.Key),
+				Key:   []byte(BadgerPrefixObject + obj.Key),
 				Value: value,
 			}
 

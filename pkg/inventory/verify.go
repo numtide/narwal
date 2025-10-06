@@ -3,12 +3,10 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec
 	"errors"
 	"fmt"
-	"os"
 	"path"
-	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,16 +15,23 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/parquet-go/parquet-go"
-	"golang.org/x/sync/errgroup"
 )
 
-type countRecord struct {
-	key string
-	val int64
-}
+var (
+	ErrMissingManifest      = errors.New("manifest is missing")
+	ErrMissingManifestFiles = errors.New("one or more manifest files are missing")
+)
 
+// Verify verifies the integrity of the inventory database.
+// For the given report, it checks that all parquet files listed in the manifest have been downloaded, and that all
+// narinfos in the manifest have been downloaded. It then checks that all narinfos in the database match the checksums
+// in the manifest.
 func Verify(ctx context.Context, cfg *config.Config, report string) error {
 	var err error
+
+	start := time.Now()
+
+	log.Infof("verifying inventory for report %s", report)
 
 	// check we have bolt config
 	if cfg.Badger == nil {
@@ -39,236 +44,264 @@ func Verify(ctx context.Context, cfg *config.Config, report string) error {
 		return fmt.Errorf("failed to open db: %w", err)
 	}
 
+	// ensure we close the db cleanly
 	defer func() {
 		if closeErr := db.Close(); closeErr != nil {
 			log.Errorf("failed to close db: %s", closeErr)
 		}
 	}()
 
-	// lookup the manifest
-	var manifest *Manifest
-
-	if err := db.Update(func(tx *badger.Txn) error {
-		manifest, err = GetManifest(tx, report)
-		if err != nil {
-			return fmt.Errorf("failed to get manifest: %w", err)
-		}
-
-		return nil
-	}); err != nil {
-		//nolint:wrapcheck
+	// ensure we have downloaded the manifest and its associated parquet files
+	manifest, err := checkForManifest(db, report)
+	if err != nil {
 		return err
 	}
 
-	// create a channel for counting
-	counterCh := make(chan countRecord, 1024*10)
-	counterGroup := errgroup.Group{}
+	// read the manifest files and check that all narinfos are present in the db
+	statz, err := readManifestFiles(ctx, db, manifest)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest files: %w", err)
+	}
 
-	counterGroup.Go(func() error {
-		counts := make(map[string]int64)
+	// verify that all narinfos in the db match the checksums in the manifest
+	if err = verifyObjects(ctx, db, statz); err != nil {
+		return fmt.Errorf("failed to verify objects: %w", err)
+	}
 
-		var (
-			ok    bool
-			count int64
-		)
+	log.Infof("finished verifying inventory for report %s in %v", report, time.Since(start))
 
-		for record := range counterCh {
-			count, ok = counts[record.key]
-			if !ok {
-				count = 0
-			}
+	return nil
+}
 
-			counts[record.key] = count + record.val
+func checkForManifest(db *badger.DB, id string) (*Manifest, error) {
+	log.Infof("checking inventory for manifest %s", id)
+
+	tx := db.NewTransaction(false)
+	defer tx.Discard()
+
+	manifest, err := GetManifest(tx, id)
+	if errors.Is(err, ErrKeyNotFound) {
+		return nil, ErrMissingManifest
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to read manifest from db: %w", err)
+	}
+
+	log.Infof("manifest %s found, checking for manifest files", id)
+
+	hasMissing := false
+
+	for _, file := range manifest.Files {
+		exists, err := HasManifestFile(tx, &file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if manifest file %s exists: %w", file.Key, err)
 		}
 
-		keys := make([]string, 0, len(counts))
-		for k := range counts {
-			keys = append(keys, k)
+		log.Debugf("manifest file %s exists = %t", file.Key, exists)
+
+		if !exists {
+			log.Warnf("manifest file %s is missing", file.Key)
+
+			hasMissing = true
 		}
+	}
 
-		sort.Strings(keys)
+	if hasMissing {
+		return nil, ErrMissingManifestFiles
+	}
 
-		for _, key := range keys {
-			var formatted string
-			if strings.Contains(key, "size") {
-				//nolint:gosec
-				formatted = humanize.Bytes(uint64(counts[key]))
-			} else {
-				formatted = humanize.Comma(counts[key])
-			}
+	log.Infof("all %d manifest files for %s have been downloaded", len(manifest.Files), id)
 
-			_, _ = fmt.Fprintf(os.Stdout, "%s: %s\n", key, formatted)
-		}
+	return manifest, nil
+}
 
-		return nil
-	})
+func readManifestFiles(ctx context.Context, db *badger.DB, manifest *Manifest) (*Stats, error) {
+	allStats := &Stats{}
+
+	log.Infof("reading manifest files")
 
 LOOP:
 	for idx, file := range manifest.Files {
 		select {
 		case <-ctx.Done():
+			log.Warnf("context cancelled, stopping reading manifest files")
 			break LOOP
 
 		default:
-			log.Infof("[%d / %d] verifying manifest file %s", idx+1, len(manifest.Files), file.Key)
+			ml := log.WithPrefix(fmt.Sprintf("[%d / %d]", idx+1, len(manifest.Files)))
 
-			if err = verifyManifestFile(ctx, db, &file, counterCh); err != nil {
-				return fmt.Errorf("failed to verify manifest file %s: %w", file.Key, err)
+			ml.Infof("reading manifest file: %s", file.Key)
+
+			fileStats, err := readManifestFile(ctx, db, &file)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read manifest file %s: %w", file.Key, err)
 			}
+
+			log.Infof("finished reading manifest file %s", file.Key)
+			log.Debugf("file stats:\n%s", fileStats)
+
+			// merge the stats from this file with the overall stats
+			allStats.Merge(fileStats)
+
+			log.Infof("summary:\n%s", allStats)
 		}
 	}
 
-	// indicate no more counter records
-	close(counterCh)
+	log.Infof("finished reading manifest files\nfinal summary:\n%s", allStats)
 
-	// wait for the counter group to finish
-	if err = counterGroup.Wait(); err != nil {
-		return fmt.Errorf("failed to count: %w", err)
-	}
-
-	return nil
+	return allStats, nil
 }
 
-func verifyManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile, counter chan countRecord) error {
-	// read the file from db
+func readManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile) (*Stats, error) {
+	// retrieve the file contents from the db
 	var (
 		err error
 		buf []byte
 	)
 
 	if err = db.View(func(tx *badger.Txn) error {
-		exists, err := HasManifestFile(tx, file)
-		if err != nil {
-			return fmt.Errorf("failed to check if file %s is in local db: %w", file.Key, err)
-		}
-
-		if !exists {
-			counter <- countRecord{
-				key: "file_missing",
-				val: 1,
-			}
-			return nil
-		}
-
 		buf, err = GetManifestFile(tx, file)
-		if err != nil {
+		if errors.Is(err, ErrKeyNotFound) {
+			return fmt.Errorf("file %s is missing from db", file.Key)
+		} else if err != nil {
 			return fmt.Errorf("failed to get file %s from db: %w", file.Key, err)
 		}
 
 		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to get file %s from db: %w", file.Key, err)
+		return nil, err
 	}
 
-	if buf == nil {
-		log.Warnf("file %s is missing from db", file.Key)
-		return nil
-	}
-
-	start := time.Now()
-
-	// read everything from the parquet file into memory
-	objs, err := parquet.Read[Object](bytes.NewReader(buf), int64(len(buf)))
+	// read the entire parquet file into memory
+	objects, err := parquet.Read[Object](bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
-		return errors.New("failed to read parquet file")
+		return nil, fmt.Errorf("failed to read parquet file: %w", err)
 	}
 
-	// process the contents of the file
-	numRows := len(objs)
+	// create a read-only transaction for reading objects from the db
+	tx := db.NewTransaction(false)
+	defer tx.Discard()
 
-	if err = verifyNarInfoBatch(ctx, db, objs, counter); err != nil {
-		return fmt.Errorf("failed to verify narinfo batch: %w", err)
+	prefix := []byte(BadgerPrefixObject)
+
+	// create an iterator for iterating over the objects in the db
+	iter := tx.NewIterator(badger.IteratorOptions{
+		Prefix: prefix,
+	})
+	defer iter.Close()
+
+	// seek to the first object in the db
+	iter.Seek(prefix)
+
+	// create a stats object for tracking what we find
+	statz := Stats{}
+	statz.Objects.Count += Count(len(objects))
+
+LOOP:
+	for _, obj := range objects {
+		select {
+		case <-ctx.Done():
+			log.Warnf("context cancelled, stopping reading manifest file")
+			break LOOP
+
+		default:
+			// record total size of all objects
+			statz.Objects.Size += SizeBytes(uint64(obj.Size)) //nolint:gosec
+
+			// we only download narinfos, so skip anything else for further processing
+			if path.Ext(obj.Key) != ".narinfo" {
+				continue LOOP
+			}
+
+			// record some narinfo stats
+			statz.Narinfo.Size += SizeBytes(uint64(obj.Size)) //nolint:gosec
+			statz.Narinfo.Count++
+
+			// check if we have an entry for this narinfo in the db
+			key := []byte(BadgerPrefixObject + obj.Key)
+
+			if iter.Seek(key); iter.ValidForPrefix(key) {
+				// do nothing
+			} else {
+				// record that we have a missing narinfo
+				log.Debugf("missing narinfo: manifest file = %s, key = %s", file.Key, obj.Key)
+				statz.Narinfo.Missing++
+			}
+		}
 	}
 
-	log.Infof("verified file %s with %s rows in %v", file.Key, humanize.Comma(int64(numRows)), time.Since(start))
-
-	return nil
+	return &statz, nil
 }
 
-func verifyNarInfoBatch(ctx context.Context, db *badger.DB, rows []Object, counterCh chan countRecord) error {
-	eg := errgroup.Group{}
-	eg.SetLimit(runtime.NumCPU())
+// verifyObjects checks that all narinfos in the db match the checksums in the manifest.
+func verifyObjects(ctx context.Context, db *badger.DB, statz *Stats) error {
+	log.Infof("verifying objects")
+
+	start := time.Now()
 
 	tx := db.NewTransaction(false)
 	defer tx.Discard()
 
+	prefix := []byte(BadgerPrefixObject)
+
+	iter := tx.NewIterator(badger.IteratorOptions{
+		Prefix:         prefix,
+		Reverse:        false,
+		AllVersions:    false,
+		PrefetchSize:   100,
+		PrefetchValues: true,
+	})
+	defer iter.Close()
+
+	iter.Seek(prefix)
+
+	processed := int64(0)
+
 LOOP:
-	for _, row := range rows {
+	for iter.ValidForPrefix(prefix) {
 		select {
 		case <-ctx.Done():
 			break LOOP
 
 		default:
-			ext := path.Ext(row.Key)
 
-			if len(ext) > 0 {
-				// drop the leading `.`
-				ext = ext[1:]
+			if processed%100000 == 0 {
+				log.Infof("processed %s objects\n%s", humanize.Comma(processed), statz)
 			}
 
-			counterCh <- countRecord{
-				key: "object_count",
-				val: 1,
-			}
+			processed++
 
-			counterCh <- countRecord{
-				key: "object_count_with_ext_" + ext,
-				val: 1,
-			}
+			item := iter.Item()
 
-			counterCh <- countRecord{
-				key: "object_size",
-				val: row.Size,
-			}
+			key := string(item.Key()[len(BadgerPrefixObject):])
 
-			if ext != "narinfo" {
-				continue
-			}
+			err := item.Value(func(val []byte) error {
+				checksum := val[:md5.Size]
 
-			counterCh <- countRecord{
-				key: "nar_info_count",
-				val: 1,
-			}
-
-			counterCh <- countRecord{
-				key: "nar_info_size",
-				val: row.Size,
-			}
-
-			eg.Go(func() error {
-				// check whether the narinfo is valid
-				err := VerifyNarInfo(tx, row.Key, int(row.Size), row.ETag)
-				if errors.Is(err, ErrKeyNotFound) {
-					counterCh <- countRecord{
-						key: "nar_info_missing",
-						val: 1,
-					}
-
-					return nil
-				} else if err != nil {
-					log.Errorf("failed to verify narinfo %s: %s", row.Key, err)
-
-					counterCh <- countRecord{
-						key: "nar_info_invalid",
-						val: 1,
-					}
+				buf := val[md5.Size:]
+				if !strings.HasPrefix(string(buf), "StorePath:") {
+					log.Errorf("object %s has no checksum corrupt", key)
+					statz.Narinfo.NoChecksum++
 
 					return nil
 				}
 
-				counterCh <- countRecord{
-					key: "nar_info_valid",
-					val: 1,
+				hash := md5.Sum(buf) //nolint:gosec
+
+				if !bytes.Equal(checksum, hash[:]) {
+					statz.Narinfo.BadChecksum++
 				}
 
 				return nil
 			})
+			if err != nil {
+				return fmt.Errorf("failed to read object %s: %w", key, err)
+			}
+
+			iter.Next()
 		}
 	}
 
-	if err := eg.Wait(); err != nil {
-		return fmt.Errorf("failed to verify narinfos: %w", err)
-	}
+	log.Infof("finished veryfing objects in %v", time.Since(start))
 
 	return nil
 }

@@ -8,8 +8,3 @@ type Object struct {
 	ETag             string `parquet:"e_tag"`
 	StorageClass     string `parquet:"storage_class"`
 }
-
-type ObjectEssential struct {
-	Bucket string `parquet:"bucket"`
-	Key    string `parquet:"key"`
-}

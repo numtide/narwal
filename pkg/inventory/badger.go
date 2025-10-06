@@ -4,7 +4,6 @@ import (
 	"bytes"
 	//nolint:gosec
 	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,17 +11,17 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/badger/v4/options"
-	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/config"
 )
 
 //nolint:gochecknoglobals
 var (
-	BadgerPrefixFiles     = "files:"
-	BadgerPrefixNarInfo   = "narinfo:"
-	BadgerPrefixManifests = "manifests:"
+	BadgerPrefixFile     = "f:"
+	BadgerPrefixObject   = "o:"
+	BadgerPrefixManifest = "m:"
 
-	ErrKeyNotFound = errors.New("key not found")
+	ErrKeyNotFound      = errors.New("key not found")
+	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
 // badgerLogger adapts charmbracelet/log to badger's Logger interface.
@@ -39,7 +38,8 @@ func (l *badgerLogger) Warningf(format string, args ...interface{}) {
 }
 
 func (l *badgerLogger) Infof(format string, args ...interface{}) {
-	l.logger.Infof(format, args...)
+	// demote badger info logging to debug
+	l.logger.Debugf(format, args...)
 }
 
 func (l *badgerLogger) Debugf(format string, args ...interface{}) {
@@ -53,8 +53,8 @@ func OpenDB(cfg *config.Badger) (*badger.DB, error) {
 	opts := badger.DefaultOptions(cfg.Path).
 		WithLogger(logger).
 		WithCompression(options.ZSTD).
-		WithBlockCacheSize(256 << 20). // 256 MB block cache (increase from default 0)
-		WithIndexCacheSize(256 << 20)  // 256 MB index cache
+		WithBlockCacheSize(1024 << 20). // 256 MB block cache (increase from default 0)
+		WithIndexCacheSize(1024 << 20)  // 256 MB index cache
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -64,22 +64,10 @@ func OpenDB(cfg *config.Badger) (*badger.DB, error) {
 	return db, nil
 }
 
-func HasManifest(tx *badger.Txn, key string) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixManifests + key))
-	if errors.Is(err, badger.ErrKeyNotFound) {
-		return false, nil
-	} else if err != nil {
-		return false, fmt.Errorf("failed to get manifest item from db: %w", err)
-	}
-
-	return true, nil
-}
-
 func GetManifest(tx *badger.Txn, key string) (*Manifest, error) {
-	item, err := tx.Get([]byte(BadgerPrefixManifests + key))
+	item, err := tx.Get([]byte(BadgerPrefixManifest + key))
 	if errors.Is(err, badger.ErrKeyNotFound) {
-		//nolint:wrapcheck
-		return nil, err
+		return nil, ErrKeyNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get manifest item from db: %w", err)
 	}
@@ -106,7 +94,7 @@ func PutManifest(tx *badger.Txn, key string, manifest *Manifest) error {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	if err = tx.Set([]byte(BadgerPrefixManifests+key), buf); err != nil {
+	if err = tx.Set([]byte(BadgerPrefixManifest+key), buf); err != nil {
 		return fmt.Errorf("failed to put manifest in db: %w", err)
 	}
 
@@ -114,7 +102,7 @@ func PutManifest(tx *badger.Txn, key string, manifest *Manifest) error {
 }
 
 func ListManifests(tx *badger.Txn) ([]string, error) {
-	prefix := []byte(BadgerPrefixManifests)
+	prefix := []byte(BadgerPrefixManifest)
 
 	iter := tx.NewIterator(badger.IteratorOptions{
 		Prefix:         prefix,
@@ -143,7 +131,7 @@ func ListManifests(tx *badger.Txn) ([]string, error) {
 }
 
 func HasManifestFile(tx *badger.Txn, file *ManifestFile) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
+	_, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	} else if err != nil {
@@ -154,10 +142,9 @@ func HasManifestFile(tx *badger.Txn, file *ManifestFile) (bool, error) {
 }
 
 func GetManifestFile(tx *badger.Txn, file *ManifestFile) ([]byte, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
-		//nolint:wrapcheck
-		return nil, err
+		return nil, ErrKeyNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get manifest item from db: %w", err)
 	}
@@ -175,7 +162,7 @@ func PutManifestFile(tx *badger.Txn, file *ManifestFile) error {
 		return errors.New("file data is nil")
 	}
 
-	if err := tx.Set([]byte(BadgerPrefixFiles+file.Basename()), file.Data); err != nil {
+	if err := tx.Set([]byte(BadgerPrefixFile+file.Basename()), file.Data); err != nil {
 		return fmt.Errorf("failed to put file in db: %w", err)
 	}
 
@@ -183,7 +170,7 @@ func PutManifestFile(tx *badger.Txn, file *ManifestFile) error {
 }
 
 func ListManifestFiles(tx *badger.Txn) ([]string, error) {
-	prefix := []byte(BadgerPrefixFiles)
+	prefix := []byte(BadgerPrefixFile)
 
 	iter := tx.NewIterator(badger.IteratorOptions{
 		Prefix:         prefix,
@@ -212,7 +199,7 @@ func ListManifestFiles(tx *badger.Txn) ([]string, error) {
 }
 
 func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return err
@@ -235,7 +222,7 @@ func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
 }
 
 func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFiles + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return false, err
@@ -247,7 +234,7 @@ func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, err
 }
 
 func HasNarInfo(tx *badger.Txn, key string) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixNarInfo + key))
+	_, err := tx.Get([]byte(BadgerPrefixObject + key))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	} else if err != nil {
@@ -257,39 +244,31 @@ func HasNarInfo(tx *badger.Txn, key string) (bool, error) {
 	return true, nil
 }
 
-func VerifyNarInfo(tx *badger.Txn, key string, size int, etag string) error {
-	item, err := tx.Get([]byte(BadgerPrefixNarInfo + key))
+func ReadObject(tx *badger.Txn, key string) ([]byte, error) {
+	item, err := tx.Get([]byte(BadgerPrefixObject + key))
 	if errors.Is(err, badger.ErrKeyNotFound) {
-		return ErrKeyNotFound
+		return nil, ErrKeyNotFound
 	} else if err != nil {
-		return fmt.Errorf("failed to get narinfo item from db: %w", err)
+		return nil, fmt.Errorf("failed to get obejct from db: %w", err)
 	}
 
-	err = item.Value(func(val []byte) error {
-		if len(val) != size {
-			return fmt.Errorf("narinfo size mismatch: %d != %d", len(val), size)
-		}
-
-		//nolint:gosec
-		checksum := md5.Sum(val)
-		checksumHex := hex.EncodeToString(checksum[:])
-
-		if checksumHex != etag {
-			return fmt.Errorf("narinfo checksum mismatch: %s != %s", checksumHex, etag)
-		}
-
-		// check if we can parse it
-		if _, err = narinfo.Parse(bytes.NewReader(val)); err != nil {
-			return fmt.Errorf("failed to parse narinfo: %w", err)
-		}
-
-		log.Debugf("narinfo %s is valid: size = %d, checksum = %s", key, size, etag)
-
-		return nil
-	})
+	buf, err := item.ValueCopy(nil)
 	if err != nil {
-		return fmt.Errorf("failed to verify narinfo: %w", err)
+		return nil, fmt.Errorf("failed to copy object value from db: %w", err)
 	}
 
-	return nil
+	return ReadObjectBuf(buf)
+}
+
+func ReadObjectBuf(buf []byte) ([]byte, error) {
+	value := buf[md5.Size:]
+
+	actualChecksum := md5.Sum(value) //nolint:gosec
+	expectedChecksum := buf[:md5.Size]
+
+	if !bytes.Equal(expectedChecksum, actualChecksum[:]) {
+		return nil, ErrChecksumMismatch
+	}
+
+	return value, nil
 }

@@ -70,7 +70,7 @@ func (d *narinfoDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 }
 
 func (d *narinfoDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	key := []byte(inventory.BadgerPrefixNarInfo + name)
+	key := []byte(inventory.BadgerPrefixObject + name)
 	inode := stableInode(key)
 
 	err := d.db.View(func(txn *badger.Txn) error {
@@ -120,7 +120,7 @@ func (d *narinfosDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 }
 
 func (d *narinfosDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	inode := stableInode([]byte(inventory.BadgerPrefixNarInfo + name))
+	inode := stableInode([]byte(inventory.BadgerPrefixObject + name))
 
 	out.Mode = syscall.S_IFDIR | 0o555
 	out.SetAttrTimeout(time.Hour)
@@ -144,7 +144,7 @@ func newNarinfosDir(db *badger.DB) *narinfosDir {
 
 	for i := range 512 {
 		name := fmt.Sprintf("%03x", i)
-		prefix := []byte(inventory.BadgerPrefixNarInfo + name)
+		prefix := []byte(inventory.BadgerPrefixObject + name)
 
 		iter := tx.NewIterator(badger.IteratorOptions{
 			Prefix:         prefix,
