@@ -8,3 +8,19 @@ type Object struct {
 	ETag             string `parquet:"e_tag"`
 	StorageClass     string `parquet:"storage_class"`
 }
+
+// NarInfoRecord represents a parsed .narinfo file for parquet export.
+type NarInfoRecord struct {
+	StorePath   string   `parquet:"store_path"`
+	URL         string   `parquet:"url"`
+	Compression string   `parquet:"compression,dict"`
+	FileHash    string   `parquet:"file_hash"`
+	FileSize    uint64   `parquet:"file_size"`
+	NarHash     string   `parquet:"nar_hash"`
+	NarSize     uint64   `parquet:"nar_size"`
+	References  []string `parquet:"references,list,dict"`
+	Deriver     string   `parquet:"deriver"`
+	System      string   `parquet:"system,optional,dict"`
+	CA          string   `parquet:"ca,optional,dict"`
+	Signatures  []string `parquet:"signatures,list"`
+}
