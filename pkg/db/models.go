@@ -152,3 +152,53 @@ type Object struct {
 	CreatedAt       pgtype.Timestamp `json:"created_at"`
 	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
 }
+
+type ObjectDebug struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+}
+
+type ObjectL struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+}
+
+type ObjectLog struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+}
+
+type ObjectNar struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+}
+
+type ObjectNarinfo struct {
+	Hash            string           `json:"hash"`
+	ObjectType      ObjectType       `json:"object_type"`
+	CompressionType CompressionType  `json:"compression_type"`
+	Path            string           `json:"path"`
+	Size            int64            `json:"size"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+}

@@ -237,7 +237,7 @@ func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
 const putObject = `-- name: PutObject :exec
 insert into object (hash, object_type, compression_type, path, size, created_at)
 values ($1, $2, $3, $4, $5, timezone('UTC', now()))
-on conflict(path) do update
+on conflict(object_type, hash, path) do update
     set size       = excluded.size,
         created_at = timezone('UTC', now())
 `

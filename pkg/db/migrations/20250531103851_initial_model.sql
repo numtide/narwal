@@ -15,14 +15,90 @@ create table object
     last_accessed_at timestamp,
 
     primary key (hash, object_type, compression_type)
-);
+) partition by list (object_type);
+
+-- Create LIST partitions for each object_type, then HASH sub-partition each
+create table object_nar partition of object
+    for values in ('nar')
+    partition by hash (hash);
+
+create table object_narinfo partition of object
+    for values in ('narinfo')
+    partition by hash (hash);
+
+create table object_ls partition of object
+    for values in ('ls')
+    partition by hash (hash);
+
+create table object_debug partition of object
+    for values in ('debug')
+    partition by hash (hash);
+
+create table object_log partition of object
+    for values in ('log')
+    partition by hash (hash);
+
+-- Create 128 hash sub-partitions for nar using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..128 loop
+        execute format('create table object_nar_p%s partition of object_nar for values with (modulus 128, remainder %s)',
+                      lpad(i::text, 3, '0'), i - 1);
+    end loop;
+end $$;
+
+-- Create 128 hash sub-partitions for narinfo (same as nar, paired storage) using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..128 loop
+        execute format('create table object_narinfo_p%s partition of object_narinfo for values with (modulus 128, remainder %s)',
+                      lpad(i::text, 3, '0'), i - 1);
+    end loop;
+end $$;
+
+-- Create 64 hash sub-partitions for ls using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..64 loop
+        execute format('create table object_ls_p%s partition of object_ls for values with (modulus 64, remainder %s)',
+                      lpad(i::text, 2, '0'), i - 1);
+    end loop;
+end $$;
+
+-- Create 64 hash sub-partitions for debug using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..64 loop
+        execute format('create table object_debug_p%s partition of object_debug for values with (modulus 64, remainder %s)',
+                      lpad(i::text, 2, '0'), i - 1);
+    end loop;
+end $$;
+
+-- Create 32 hash sub-partitions for log (lower volume) using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..32 loop
+        execute format('create table object_log_p%s partition of object_log for values with (modulus 32, remainder %s)',
+                      lpad(i::text, 2, '0'), i - 1);
+    end loop;
+end $$;
 
 create index idx_object_type on object(object_type);
-create unique index idx_object_path on object(path);
+create unique index idx_object_path on object(object_type, hash, path);
 
 create table nar_info
 (
-    hash char(32) primary key,
+    hash char(32) not null,
     url varchar(128) not null,
     store_path varchar(1024) not null,
     compression compression_type not null,
@@ -33,17 +109,40 @@ create table nar_info
     nar_hash varchar(128) not null,
     nar_size bigint constraint positive_nar_size check (nar_size > 0) not null,
 
-    deriver varchar(1024) not null
-);
+    deriver varchar(1024) not null,
+
+    primary key (hash)
+) partition by hash (hash);
+
+-- Create 128 partitions for nar_info using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..128 loop
+        execute format('create table nar_info_p%s partition of nar_info for values with (modulus 128, remainder %s)',
+                      lpad(i::text, 3, '0'), i - 1);
+    end loop;
+end $$;
 
 create table nar_info_reference
 (
     hash varchar(32) not null references nar_info on delete cascade,
     refers_to varchar(32) not null,
     primary key (hash, refers_to)
-);
+) partition by hash (hash);
 
-create index idx_nar_info_reference_hash on nar_info_reference(hash);
+-- Create 128 partitions for nar_info_reference using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..128 loop
+        execute format('create table nar_info_reference_p%s partition of nar_info_reference for values with (modulus 128, remainder %s)',
+                      lpad(i::text, 3, '0'), i - 1);
+    end loop;
+end $$;
+
 create index idx_nar_info_reference_refers_to on nar_info_reference(refers_to);
 
 create table nar_info_signature
@@ -52,9 +151,19 @@ create table nar_info_signature
     name varchar(128) not null,
     data varchar(512) not null,
     primary key (hash, name)
-);
+) partition by hash (hash);
 
-create index idx_nar_info_signature_hash on nar_info_signature(hash);
+-- Create 128 partitions for nar_info_signature using DO block
+do $$
+declare
+    i integer;
+begin
+    for i in 1..128 loop
+        execute format('create table nar_info_signature_p%s partition of nar_info_signature for values with (modulus 128, remainder %s)',
+                      lpad(i::text, 3, '0'), i - 1);
+    end loop;
+end $$;
+
 create index idx_nar_info_signature_name on nar_info_signature(name);
 
 create table gc_root
@@ -129,8 +238,7 @@ $$ language plpgsql;
 drop function generate_gc_root_closure;
 
 drop index idx_nar_info_signature_name;
-drop index idx_nar_info_reference_hash;
-drop index idx_nar_info_signature_hash;
+drop index idx_nar_info_reference_refers_to;
 drop index idx_object_type;
 drop index idx_object_path;
 
