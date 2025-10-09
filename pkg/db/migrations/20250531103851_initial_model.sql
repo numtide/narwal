@@ -38,51 +38,38 @@ create table object_log partition of object
     for values in ('log')
     partition by hash (hash);
 
--- Create 128 hash sub-partitions for nar using DO block
 do $$
 declare
     i integer;
 begin
     for i in 1..128 loop
+        -- Create 128 hash sub-partitions for nar using DO block
         execute format('create table object_nar_p%s partition of object_nar for values with (modulus 128, remainder %s)',
                       lpad(i::text, 3, '0'), i - 1);
-    end loop;
-end $$;
 
--- Create 128 hash sub-partitions for narinfo (same as nar, paired storage) using DO block
-do $$
-declare
-    i integer;
-begin
-    for i in 1..128 loop
+        -- Create 128 hash sub-partitions for narinfo (same as nar, paired storage)
         execute format('create table object_narinfo_p%s partition of object_narinfo for values with (modulus 128, remainder %s)',
-                      lpad(i::text, 3, '0'), i - 1);
+                       lpad(i::text, 3, '0'), i - 1);
     end loop;
 end $$;
 
--- Create 64 hash sub-partitions for ls using DO block
+
 do $$
 declare
     i integer;
 begin
     for i in 1..64 loop
+        -- Create 64 hash sub-partitions for ls
         execute format('create table object_ls_p%s partition of object_ls for values with (modulus 64, remainder %s)',
                       lpad(i::text, 2, '0'), i - 1);
-    end loop;
-end $$;
 
--- Create 64 hash sub-partitions for debug using DO block
-do $$
-declare
-    i integer;
-begin
-    for i in 1..64 loop
+        -- Create 64 hash sub-partitions for debug
         execute format('create table object_debug_p%s partition of object_debug for values with (modulus 64, remainder %s)',
-                      lpad(i::text, 2, '0'), i - 1);
+                       lpad(i::text, 2, '0'), i - 1);
     end loop;
 end $$;
 
--- Create 32 hash sub-partitions for log (lower volume) using DO block
+-- Create 32 hash sub-partitions for log (lower volume)
 do $$
 declare
     i integer;
