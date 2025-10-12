@@ -11,6 +11,10 @@ type Object struct {
 
 // NarInfoRecord represents a parsed .narinfo file for parquet export.
 type NarInfoRecord struct {
+	// Idx is the sequential index from BadgerDB iteration, used for ordering records.
+	// Not exported to parquet.
+	Idx int64 `parquet:"-"`
+
 	StorePath   string   `parquet:"store_path"`
 	URL         string   `parquet:"url"`
 	Compression string   `parquet:"compression,dict"`
@@ -23,4 +27,8 @@ type NarInfoRecord struct {
 	System      string   `parquet:"system,optional,dict"`
 	CA          string   `parquet:"ca,optional,dict"`
 	Signatures  []string `parquet:"signatures,list"`
+
+	// last_modified_at is a unix timestamp in millis which has been truncated to the beginning of the week in which
+	// the object was last modified.
+	LastModifiedAt int64 `parquet:"last_modified_at"`
 }

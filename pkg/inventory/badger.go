@@ -1,12 +1,11 @@
 package inventory
 
 import (
-	"bytes"
-	//nolint:gosec
-	"crypto/md5"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
@@ -38,8 +37,7 @@ func (l *badgerLogger) Warningf(format string, args ...interface{}) {
 }
 
 func (l *badgerLogger) Infof(format string, args ...interface{}) {
-	// demote badger info logging to debug
-	l.logger.Debugf(format, args...)
+	l.logger.Infof(format, args...)
 }
 
 func (l *badgerLogger) Debugf(format string, args ...interface{}) {
@@ -53,8 +51,8 @@ func OpenDB(cfg *config.Badger) (*badger.DB, error) {
 	opts := badger.DefaultOptions(cfg.Path).
 		WithLogger(logger).
 		WithCompression(options.ZSTD).
-		WithBlockCacheSize(1024 << 20). // 256 MB block cache (increase from default 0)
-		WithIndexCacheSize(1024 << 20)  // 256 MB index cache
+		WithBlockCacheSize(1024 << 20).
+		WithIndexCacheSize(1024 << 20)
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -198,6 +196,18 @@ func ListManifestFiles(tx *badger.Txn) ([]string, error) {
 	return results, nil
 }
 
+func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		//nolint:wrapcheck
+		return false, err
+	} else if err != nil {
+		return false, fmt.Errorf("failed to get file item from db: %w", err)
+	}
+
+	return item.UserMeta() == 1, nil
+}
+
 func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
 	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
@@ -221,20 +231,10 @@ func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
 	return nil
 }
 
-func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
-	if errors.Is(err, badger.ErrKeyNotFound) {
-		//nolint:wrapcheck
-		return false, err
-	} else if err != nil {
-		return false, fmt.Errorf("failed to get file item from db: %w", err)
-	}
+func HasNarInfo(tx *badger.Txn, obj *Object) (bool, error) {
+	key := ObjectKey(obj)
 
-	return item.UserMeta() == 1, nil
-}
-
-func HasNarInfo(tx *badger.Txn, key string) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixObject + key))
+	_, err := tx.Get(key)
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	} else if err != nil {
@@ -244,31 +244,61 @@ func HasNarInfo(tx *badger.Txn, key string) (bool, error) {
 	return true, nil
 }
 
-func ReadObject(tx *badger.Txn, key string) ([]byte, error) {
-	item, err := tx.Get([]byte(BadgerPrefixObject + key))
-	if errors.Is(err, badger.ErrKeyNotFound) {
-		return nil, ErrKeyNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to get obejct from db: %w", err)
+func ReadObjectKey(buf []byte) (int64, string, error) {
+	buf = buf[len(BadgerPrefixObject):]
+
+	if len(buf) < 9 {
+		return 0, "", fmt.Errorf("key is too short: %d", len(buf))
 	}
 
-	buf, err := item.ValueCopy(nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to copy object value from db: %w", err)
-	}
-
-	return ReadObjectBuf(buf)
+	return DecodeTimestamp(buf[:8]), string(buf[8:]), nil
 }
 
-func ReadObjectBuf(buf []byte) ([]byte, error) {
-	value := buf[md5.Size:]
+func ObjectKey(obj *Object) []byte {
+	ts := TruncateToWeek(obj.LastModifiedDate)
 
-	actualChecksum := md5.Sum(value) //nolint:gosec
-	expectedChecksum := buf[:md5.Size]
+	key := append([]byte(BadgerPrefixObject), EncodeTimestamp(ts)...)
+	key = append(key, obj.Key...)
 
-	if !bytes.Equal(expectedChecksum, actualChecksum[:]) {
-		return nil, ErrChecksumMismatch
+	return key
+}
+
+func NewObjectEntry(obj *Object, buf []byte) *badger.Entry {
+	return &badger.Entry{
+		Key:   ObjectKey(obj),
+		Value: buf,
+	}
+}
+
+func TruncateToWeek(msEpoch int64) int64 {
+	t := time.UnixMilli(msEpoch).UTC()
+
+	// Calculate days since Monday
+	weekday := int(t.Weekday())
+	if weekday == 0 { // Sunday
+		weekday = 7
 	}
 
-	return value, nil
+	daysSinceMonday := weekday - 1
+
+	// Truncate to start of day, then subtract days to get to Monday
+	truncated := t.Truncate(24*time.Hour).AddDate(0, 0, -daysSinceMonday)
+
+	return truncated.UnixMilli()
+}
+
+func EncodeTimestamp(ms int64) []byte {
+	if ms < 0 {
+		// should never happen
+		panic("timestamp cannot be negative")
+	}
+
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(ms))
+
+	return buf
+}
+
+func DecodeTimestamp(buf []byte) int64 {
+	return int64(binary.BigEndian.Uint64(buf)) //nolint:gosec
 }

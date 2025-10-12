@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,7 +26,7 @@ const (
 	recordsPerFile = 1_000_000
 
 	// recordBatchSize defines how many records to accumulate before writing.
-	recordBatchSize = 10_000
+	recordBatchSize = 50_000
 
 	// progressInterval defines how often to log progress.
 	progressInterval = 100_000
@@ -42,6 +43,7 @@ const (
 
 // narinfoBytes represents raw narinfo data from the database.
 type rawNarinfo struct {
+	idx   int64
 	key   []byte
 	value []byte
 }
@@ -111,9 +113,9 @@ func readNarinfos(
 
 	defer iter.Close()
 
-	iter.Seek(prefix)
+	var idx int64
 
-	for iter.ValidForPrefix(prefix) {
+	for iter.Rewind(); iter.ValidForPrefix(prefix); iter.Next() {
 		select {
 		case <-ctx.Done():
 			// exit early if context is cancelled
@@ -139,11 +141,12 @@ func readNarinfos(
 
 			// add to the channel for parsing
 			rawChan <- rawNarinfo{
+				idx:   idx,
 				key:   item.Key(),
 				value: val,
 			}
 
-			iter.Next()
+			idx++
 		}
 	}
 
@@ -177,7 +180,17 @@ func parseNarinfos(
 			}
 
 			// add to the channel for writing
-			recordChan <- convertToRecord(info)
+			record := convertToRecord(info)
+
+			record.Idx = raw.idx
+
+			record.LastModifiedAt, _, err = ReadObjectKey(raw.key)
+			if err != nil {
+				log.Debugf("failed to read object key %s: %s", raw.key, err)
+				continue
+			}
+
+			recordChan <- record
 		}
 	}
 }
@@ -361,6 +374,11 @@ func (w *pipelineWriter) writeBatch(batch []NarInfoRecord) error {
 		return nil
 	}
 
+	// Sort the batch by Idx to ensure records are written in order
+	sort.Slice(batch, func(i, j int) bool {
+		return batch[i].Idx < batch[j].Idx
+	})
+
 	if _, err := w.writer.Write(batch); err != nil {
 		return fmt.Errorf("failed to write batch: %w", err)
 	}
@@ -406,12 +424,7 @@ func (w *pipelineWriter) logSummary() {
 
 // parseNarinfo parses a narinfo from badger value.
 func parseNarinfo(val []byte) (*narinfo.NarInfo, error) {
-	content, err := ReadObjectBuf(val)
-	if err != nil {
-		return nil, fmt.Errorf("read object: %w", err)
-	}
-
-	info, err := narinfo.Parse(bytes.NewReader(content))
+	info, err := narinfo.Parse(bytes.NewReader(val))
 	if err != nil {
 		return nil, fmt.Errorf("parse narinfo: %w", err)
 	}

@@ -37,9 +37,11 @@ type ObjectStats struct {
 type NarinfoStats struct {
 	Size        SizeBytes `json:"size,omitempty"`
 	Count       Count     `json:"count,omitempty"`
+	Verified    Count     `json:"verified,omitempty"`
 	Missing     Count     `json:"missing,omitempty"`
-	NoChecksum  Count     `json:"no_checksum,omitempty"`
+	Invalid     Count     `json:"invalid,omitempty"`
 	BadChecksum Count     `json:"bad_checksum,omitempty"`
+	Deleted     Count     `json:"deleted,omitempty"`
 }
 
 type Stats struct {
@@ -53,9 +55,11 @@ func (s *Stats) Merge(other *Stats) {
 
 	s.Narinfo.Size += other.Narinfo.Size
 	s.Narinfo.Count += other.Narinfo.Count
+	s.Narinfo.Verified += other.Narinfo.Verified
 	s.Narinfo.Missing += other.Narinfo.Missing
-	s.Narinfo.NoChecksum += other.Narinfo.NoChecksum
+	s.Narinfo.Invalid += other.Narinfo.Invalid
 	s.Narinfo.BadChecksum += other.Narinfo.BadChecksum
+	s.Narinfo.Deleted += other.Narinfo.Deleted
 }
 
 func (s *Stats) String() string {

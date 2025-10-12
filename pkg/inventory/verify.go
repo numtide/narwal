@@ -4,15 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/parquet-go/parquet-go"
 )
@@ -58,14 +57,8 @@ func Verify(ctx context.Context, cfg *config.Config, report string) error {
 	}
 
 	// read the manifest files and check that all narinfos are present in the db
-	statz, err := readManifestFiles(ctx, db, manifest)
-	if err != nil {
+	if err = readManifestFiles(ctx, cfg, db, manifest); err != nil {
 		return fmt.Errorf("failed to read manifest files: %w", err)
-	}
-
-	// verify that all narinfos in the db match the checksums in the manifest
-	if err = verifyObjects(ctx, db, statz); err != nil {
-		return fmt.Errorf("failed to verify objects: %w", err)
 	}
 
 	log.Infof("finished verifying inventory for report %s in %v", report, time.Since(start))
@@ -114,7 +107,7 @@ func checkForManifest(db *badger.DB, id string) (*Manifest, error) {
 	return manifest, nil
 }
 
-func readManifestFiles(ctx context.Context, db *badger.DB, manifest *Manifest) (*Stats, error) {
+func readManifestFiles(ctx context.Context, cfg *config.Config, db *badger.DB, manifest *Manifest) error {
 	allStats := &Stats{}
 
 	log.Infof("reading manifest files")
@@ -131,12 +124,13 @@ LOOP:
 
 			ml.Infof("reading manifest file: %s", file.Key)
 
-			fileStats, err := readManifestFile(ctx, db, &file)
+			start := time.Now()
+			fileStats, err := readManifestFile(ctx, cfg, db, &file)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read manifest file %s: %w", file.Key, err)
+				return fmt.Errorf("failed to read manifest file %s: %w", file.Key, err)
 			}
 
-			log.Infof("finished reading manifest file %s", file.Key)
+			log.Infof("finished reading manifest file %s in %v", file.Key, time.Since(start))
 			log.Debugf("file stats:\n%s", fileStats)
 
 			// merge the stats from this file with the overall stats
@@ -148,10 +142,10 @@ LOOP:
 
 	log.Infof("finished reading manifest files\nfinal summary:\n%s", allStats)
 
-	return allStats, nil
+	return nil
 }
 
-func readManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile) (*Stats, error) {
+func readManifestFile(ctx context.Context, cfg *config.Config, db *badger.DB, file *ManifestFile) (*Stats, error) {
 	// retrieve the file contents from the db
 	var (
 		err error
@@ -181,20 +175,11 @@ func readManifestFile(ctx context.Context, db *badger.DB, file *ManifestFile) (*
 	tx := db.NewTransaction(false)
 	defer tx.Discard()
 
-	prefix := []byte(BadgerPrefixObject)
-
-	// create an iterator for iterating over the objects in the db
-	iter := tx.NewIterator(badger.IteratorOptions{
-		Prefix: prefix,
-	})
-	defer iter.Close()
-
-	// seek to the first object in the db
-	iter.Seek(prefix)
-
 	// create a stats object for tracking what we find
 	statz := Stats{}
 	statz.Objects.Count += Count(len(objects))
+
+	wb := db.NewWriteBatch()
 
 LOOP:
 	for _, obj := range objects {
@@ -209,99 +194,73 @@ LOOP:
 
 			// we only download narinfos, so skip anything else for further processing
 			if path.Ext(obj.Key) != ".narinfo" {
-				continue LOOP
+				continue
 			}
 
 			// record some narinfo stats
 			statz.Narinfo.Size += SizeBytes(uint64(obj.Size)) //nolint:gosec
 			statz.Narinfo.Count++
 
-			// check if we have an entry for this narinfo in the db
-			key := []byte(BadgerPrefixObject + obj.Key)
-
-			if iter.Seek(key); iter.ValidForPrefix(key) {
-				// do nothing
-			} else {
-				// record that we have a missing narinfo
-				log.Debugf("missing narinfo: manifest file = %s, key = %s", file.Key, obj.Key)
-				statz.Narinfo.Missing++
+			if err = verifyNarInfo(cfg, &obj, tx, wb, &statz); err != nil {
+				return nil, fmt.Errorf("failed to verify narinfo %s: %w", obj.Key, err)
 			}
 		}
+	}
+
+	if err = wb.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush write batch: %w", err)
 	}
 
 	return &statz, nil
 }
 
-// verifyObjects checks that all narinfos in the db match the checksums in the manifest.
-func verifyObjects(ctx context.Context, db *badger.DB, statz *Stats) error {
-	log.Infof("verifying objects")
+func verifyNarInfo(cfg *config.Config, obj *Object, tx *badger.Txn, wb *badger.WriteBatch, statz *Stats) error {
+	// check if we have an entry for this narinfo in the db
+	key := ObjectKey(obj)
 
-	start := time.Now()
+	item, err := tx.Get(key)
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		// record that we have a missing narinfo
+		statz.Narinfo.Missing++
 
-	tx := db.NewTransaction(false)
-	defer tx.Discard()
+		log.Debugf("missing narinfo: %s", obj.Key)
 
-	prefix := []byte(BadgerPrefixObject)
-
-	iter := tx.NewIterator(badger.IteratorOptions{
-		Prefix:         prefix,
-		Reverse:        false,
-		AllVersions:    false,
-		PrefetchSize:   100,
-		PrefetchValues: true,
-	})
-	defer iter.Close()
-
-	iter.Seek(prefix)
-
-	processed := int64(0)
-
-LOOP:
-	for iter.ValidForPrefix(prefix) {
-		select {
-		case <-ctx.Done():
-			break LOOP
-
-		default:
-
-			if processed%100000 == 0 {
-				log.Infof("processed %s objects\n%s", humanize.Comma(processed), statz)
-			}
-
-			processed++
-
-			item := iter.Item()
-
-			key := string(item.Key()[len(BadgerPrefixObject):])
-
-			err := item.Value(func(val []byte) error {
-				checksum := val[:md5.Size]
-
-				buf := val[md5.Size:]
-				if !strings.HasPrefix(string(buf), "StorePath:") {
-					log.Errorf("object %s has no checksum corrupt", key)
-					statz.Narinfo.NoChecksum++
-
-					return nil
-				}
-
-				hash := md5.Sum(buf) //nolint:gosec
-
-				if !bytes.Equal(checksum, hash[:]) {
-					statz.Narinfo.BadChecksum++
-				}
-
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("failed to read object %s: %w", key, err)
-			}
-
-			iter.Next()
-		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to get object %s from db: %w", obj.Key, err)
 	}
 
-	log.Infof("finished veryfing objects in %v", time.Since(start))
+	checksum, err := hex.DecodeString(obj.ETag)
+	if err != nil {
+		return fmt.Errorf("failed to decode ETag %s: %w", obj.ETag, err)
+	}
+
+	err = item.Value(func(val []byte) error {
+		hash := md5.Sum(val) //nolint:gosec
+
+		if bytes.Equal(checksum, hash[:]) {
+			statz.Narinfo.Verified++
+
+			return nil
+		}
+
+		statz.Narinfo.BadChecksum++
+
+		if !cfg.Inventory.DeleteInvalidNarInfos {
+			return nil
+		}
+
+		if err = wb.Delete(key); err != nil {
+			return fmt.Errorf("failed to delete object %s from db: %w", obj.Key, err)
+		}
+
+		statz.Narinfo.Deleted++
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to read object %v, %s: %w", obj.LastModifiedDate, obj.Key, err)
+	}
 
 	return nil
 }
