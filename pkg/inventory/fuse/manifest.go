@@ -37,7 +37,7 @@ func (m *manifestDirStream) Next() (fuse.DirEntry, syscall.Errno) {
 		}
 	} else {
 		entry = fuse.DirEntry{
-			Name: m.manifest.Files[m.idx].Basename(),
+			Name: m.manifest.Files[m.idx].UUID(),
 			Mode: syscall.S_IFREG,
 		}
 	}

@@ -88,7 +88,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/12345678901234567890123456789012.drv",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionTypeNone,
-			expectedHash: "12345678901234567890123456789012.drv",
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -96,7 +96,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/12345678901234567890123456789012.drv.zstd",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionType("zstd"),
-			expectedHash: "12345678901234567890123456789012.drv.zstd",
+			expectedHash: "12345678901234567890123456789012",
 			expectError:  false,
 		},
 		{
@@ -143,7 +143,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/qhg4r459wvvhbljfh1c4r72q0sqlcrjn-polkit-0.113-itstool.patch",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionTypeNone,
-			expectedHash: "qhg4r459wvvhbljfh1c4r72q0sqlcrjn-polkit-0.113-itstool.patch",
+			expectedHash: "qhg4r459wvvhbljfh1c4r72q0sqlcrjn",
 			expectError:  false,
 		},
 		{
@@ -151,7 +151,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/l68bhyychrnfjj8w6xfc8mq81hh2ky4k-spin646.tar.gz",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionTypeNone,
-			expectedHash: "l68bhyychrnfjj8w6xfc8mq81hh2ky4k-spin646.tar.gz",
+			expectedHash: "l68bhyychrnfjj8w6xfc8mq81hh2ky4k",
 			expectError:  false,
 		},
 		{
@@ -159,7 +159,7 @@ func TestAnalyzePath(t *testing.T) {
 			path:         "log/60kyz51167cx976v96vnn1igavhpghlc-",
 			expectedType: db.ObjectTypeLog,
 			expectedComp: db.CompressionTypeNone,
-			expectedHash: "60kyz51167cx976v96vnn1igavhpghlc-",
+			expectedHash: "60kyz51167cx976v96vnn1igavhpghlc",
 			expectError:  false,
 		},
 	}

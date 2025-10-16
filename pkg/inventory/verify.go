@@ -32,7 +32,7 @@ func Verify(ctx context.Context, cfg *config.Config, report string) error {
 
 	log.Infof("verifying inventory for report %s", report)
 
-	// check we have bolt config
+	// check we have badger config
 	if cfg.Badger == nil {
 		return errors.New("badger config is required")
 	}

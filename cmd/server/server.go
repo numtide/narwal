@@ -18,7 +18,6 @@ func NewCmd() *cobra.Command {
 	// add our config flags to the command's persistent flag set
 	// so they're available to all subcommands
 	fs := cmd.PersistentFlags()
-	config.SetS3Flags(fs)
 	config.SetPostgresFlags(fs)
 
 	// bind our command's flags to viper
@@ -28,6 +27,7 @@ func NewCmd() *cobra.Command {
 
 	// add subcommands
 	cmd.AddCommand(runCmd())
+	cmd.AddCommand(importCmd())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

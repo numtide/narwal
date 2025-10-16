@@ -9,6 +9,59 @@ import (
 	"context"
 )
 
+const checkObjectsExistByTypeHashSize = `-- name: CheckObjectsExistByTypeHashSize :many
+select o.hash, o.object_type, o.size, o.path
+from object o
+inner join (
+    select
+        unnest($1::text[])::object_type as object_type,
+        unnest($2::varchar[]) as hash,
+        unnest($3::bigint[]) as size
+) input on o.object_type = input.object_type
+    and o.hash = input.hash
+    and o.size = input.size
+`
+
+type CheckObjectsExistByTypeHashSizeParams struct {
+	Column1 []string `json:"column_1"`
+	Column2 []string `json:"column_2"`
+	Column3 []int64  `json:"column_3"`
+}
+
+type CheckObjectsExistByTypeHashSizeRow struct {
+	Hash       string     `json:"hash"`
+	ObjectType ObjectType `json:"object_type"`
+	Size       int64      `json:"size"`
+	Path       string     `json:"path"`
+}
+
+// Check which objects already exist in the database by (object_type, hash, size)
+// This query takes three parallel arrays and returns matching objects
+func (q *Queries) CheckObjectsExistByTypeHashSize(ctx context.Context, arg CheckObjectsExistByTypeHashSizeParams) ([]CheckObjectsExistByTypeHashSizeRow, error) {
+	rows, err := q.db.Query(ctx, checkObjectsExistByTypeHashSize, arg.Column1, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CheckObjectsExistByTypeHashSizeRow
+	for rows.Next() {
+		var i CheckObjectsExistByTypeHashSizeRow
+		if err := rows.Scan(
+			&i.Hash,
+			&i.ObjectType,
+			&i.Size,
+			&i.Path,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteGCPlan = `-- name: DeleteGCPlan :one
 with deleted as (
     delete from gc_plan where id = $1 returning id, created_at, completed_at
@@ -133,6 +186,17 @@ type InsertNarInfoSignaturesParams struct {
 	Data string `json:"data"`
 }
 
+const isManifestFileImported = `-- name: IsManifestFileImported :one
+select exists(select 1 from imported_manifest_file where basename = $1)
+`
+
+func (q *Queries) IsManifestFileImported(ctx context.Context, basename string) (bool, error) {
+	row := q.db.QueryRow(ctx, isManifestFileImported, basename)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listGCPlans = `-- name: ListGCPlans :many
 select id, created_at, completed_at from gc_plan
 `
@@ -179,6 +243,71 @@ func (q *Queries) ListGCRoots(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listImportedManifestFiles = `-- name: ListImportedManifestFiles :many
+select basename from imported_manifest_file where basename = ANY($1::varchar[])
+`
+
+func (q *Queries) ListImportedManifestFiles(ctx context.Context, dollar_1 []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listImportedManifestFiles, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var basename string
+		if err := rows.Scan(&basename); err != nil {
+			return nil, err
+		}
+		items = append(items, basename)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listImportedPaths = `-- name: ListImportedPaths :many
+select path from object where path = ANY($1::varchar[])
+`
+
+func (q *Queries) ListImportedPaths(ctx context.Context, dollar_1 []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listImportedPaths, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		items = append(items, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markManifestFileAsImported = `-- name: MarkManifestFileAsImported :exec
+insert into imported_manifest_file (basename, md5_checksum, size, imported_at)
+values ($1, $2, $3, timezone('UTC', now()))
+on conflict (basename) do nothing
+`
+
+type MarkManifestFileAsImportedParams struct {
+	Basename    string `json:"basename"`
+	Md5Checksum string `json:"md5_checksum"`
+	Size        int64  `json:"size"`
+}
+
+func (q *Queries) MarkManifestFileAsImported(ctx context.Context, arg MarkManifestFileAsImportedParams) error {
+	_, err := q.db.Exec(ctx, markManifestFileAsImported, arg.Basename, arg.Md5Checksum, arg.Size)
+	return err
 }
 
 const putGCRoot = `-- name: PutGCRoot :exec
@@ -237,9 +366,6 @@ func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
 const putObject = `-- name: PutObject :exec
 insert into object (hash, object_type, compression_type, path, size, created_at)
 values ($1, $2, $3, $4, $5, timezone('UTC', now()))
-on conflict(object_type, hash, path) do update
-    set size       = excluded.size,
-        created_at = timezone('UTC', now())
 `
 
 type PutObjectParams struct {
