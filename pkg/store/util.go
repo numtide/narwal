@@ -89,19 +89,21 @@ func HashFromPath(path string, objectType db.ObjectType) (string, error) {
 
 		hash = path[4:56]
 	case db.ObjectTypeDebug:
-		// prefixed with 'debuginfo/' and a hash size of 40
-		if len(path) < 50 {
-			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
+		// prefixed with 'debuginfo/' and a hash size of 40 with a .debug extension
+		// historically there are some entries with less characters and no .debug extension
+		// todo enforce this pattern better
+		if len(path) > 50 {
+			hash = path[10:50]
+		} else {
+			hash = path[10:]
 		}
-
-		hash = path[10:50]
 	case db.ObjectTypeLog:
 		// 'log/<hash>-<pname>.drv'
 		if len(path) < 36 {
 			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
 
-		hash = path[4:]
+		hash = path[4:36]
 	case db.ObjectTypeNarinfo, db.ObjectTypeLs:
 		// all other hashes are at the beginning of the path and of size 32
 		if len(path) < 32 {

@@ -13,13 +13,9 @@ select object_type, compression_type, size
 from object as o
 where o.hash = $1;
 
-
 -- name: PutObject :exec
 insert into object (hash, object_type, compression_type, path, size, created_at)
-values ($1, $2, $3, $4, $5, timezone('UTC', now()))
-on conflict(object_type, hash, path) do update
-    set size       = excluded.size,
-        created_at = timezone('UTC', now());
+values ($1, $2, $3, $4, $5, timezone('UTC', now()));
 
 -- name: PutNarInfo :exec
 insert
@@ -82,3 +78,31 @@ with deleted as (
 
 -- name: SetGCPlanAsCompleted :exec
 update gc_plan set completed_at = timezone('UTC', now()) where id = $1 and completed_at is null;
+
+-- name: ListImportedPaths :many
+select path from object where path = ANY($1::varchar[]);
+
+-- name: MarkManifestFileAsImported :exec
+insert into imported_manifest_file (basename, md5_checksum, size, imported_at)
+values ($1, $2, $3, timezone('UTC', now()))
+on conflict (basename) do nothing;
+
+-- name: IsManifestFileImported :one
+select exists(select 1 from imported_manifest_file where basename = $1);
+
+-- name: ListImportedManifestFiles :many
+select basename from imported_manifest_file where basename = ANY($1::varchar[]);
+
+-- name: CheckObjectsExistByTypeHashSize :many
+-- Check which objects already exist in the database by (object_type, hash, size)
+-- This query takes three parallel arrays and returns matching objects
+select o.hash, o.object_type, o.size, o.path
+from object o
+inner join (
+    select
+        unnest($1::text[])::object_type as object_type,
+        unnest($2::varchar[]) as hash,
+        unnest($3::bigint[]) as size
+) input on o.object_type = input.object_type
+    and o.hash = input.hash
+    and o.size = input.size;

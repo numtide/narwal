@@ -31,7 +31,7 @@ type ManifestFile struct {
 	Data []byte `json:"-"`
 }
 
-func (m *ManifestFile) Basename() string {
+func (m *ManifestFile) UUID() string {
 	return path.Base(m.Key)
 }
 

@@ -9,12 +9,12 @@ create table object
     hash varchar(52) not null,
     object_type object_type not null,
     compression_type compression_type not null,
-    path varchar(128) not null,
-    size bigint constraint positive_size check (size > 0) not null,
+    path varchar(256) not null,
+    size bigint constraint positive_size check (size >= 0) not null,
     created_at timestamp not null,
     last_accessed_at timestamp,
 
-    primary key (hash, object_type, compression_type)
+    primary key (object_type, hash, path)
 ) partition by list (object_type);
 
 -- Create LIST partitions for each object_type, then HASH sub-partition each
@@ -81,7 +81,6 @@ begin
 end $$;
 
 create index idx_object_type on object(object_type);
-create unique index idx_object_path on object(object_type, hash, path);
 
 create table nar_info
 (
@@ -91,10 +90,10 @@ create table nar_info
     compression compression_type not null,
 
     file_hash varchar(128) not null,
-    file_size bigint constraint positive_file_size check (file_size > 0) not null,
+    file_size bigint constraint positive_file_size check (file_size >= 0) not null,
 
     nar_hash varchar(128) not null,
-    nar_size bigint constraint positive_nar_size check (nar_size > 0) not null,
+    nar_size bigint constraint positive_nar_size check (nar_size >= 0) not null,
 
     deriver varchar(1024) not null,
 
@@ -218,6 +217,16 @@ begin
 end;
 $$ language plpgsql;
 
+create table imported_manifest_file
+(
+    basename varchar(256) primary key,
+    md5_checksum varchar(32) not null,
+    size bigint constraint positive_size check (size >= 0) not null,
+    imported_at timestamp not null
+);
+
+create index idx_imported_manifest_file_imported_at on imported_manifest_file(imported_at);
+
 -- +goose StatementEnd
 
 -- +goose Down
@@ -238,5 +247,8 @@ drop table object;
 
 drop type compression_type;
 drop type object_type;
+
+drop index idx_imported_manifest_file_imported_at;
+drop table imported_manifest_file;
 
 -- +goose StatementEnd

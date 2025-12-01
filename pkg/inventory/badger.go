@@ -129,7 +129,7 @@ func ListManifests(tx *badger.Txn) ([]string, error) {
 }
 
 func HasManifestFile(tx *badger.Txn, file *ManifestFile) (bool, error) {
-	_, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
+	_, err := tx.Get([]byte(BadgerPrefixFile + file.UUID()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	} else if err != nil {
@@ -140,7 +140,7 @@ func HasManifestFile(tx *badger.Txn, file *ManifestFile) (bool, error) {
 }
 
 func GetManifestFile(tx *badger.Txn, file *ManifestFile) ([]byte, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.UUID()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		return nil, ErrKeyNotFound
 	} else if err != nil {
@@ -160,7 +160,7 @@ func PutManifestFile(tx *badger.Txn, file *ManifestFile) error {
 		return errors.New("file data is nil")
 	}
 
-	if err := tx.Set([]byte(BadgerPrefixFile+file.Basename()), file.Data); err != nil {
+	if err := tx.Set([]byte(BadgerPrefixFile+file.UUID()), file.Data); err != nil {
 		return fmt.Errorf("failed to put file in db: %w", err)
 	}
 
@@ -197,7 +197,7 @@ func ListManifestFiles(tx *badger.Txn) ([]string, error) {
 }
 
 func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, error) {
-	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.UUID()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return false, err
@@ -209,7 +209,7 @@ func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, err
 }
 
 func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
-	item, err := tx.Get([]byte(BadgerPrefixFile + file.Basename()))
+	item, err := tx.Get([]byte(BadgerPrefixFile + file.UUID()))
 	if errors.Is(err, badger.ErrKeyNotFound) {
 		//nolint:wrapcheck
 		return err

@@ -120,6 +120,13 @@ type GcRoot struct {
 	CreatedAt pgtype.Timestamp `json:"created_at"`
 }
 
+type ImportedManifestFile struct {
+	Basename    string           `json:"basename"`
+	Md5Checksum string           `json:"md5_checksum"`
+	Size        int64            `json:"size"`
+	ImportedAt  pgtype.Timestamp `json:"imported_at"`
+}
+
 type NarInfo struct {
 	Hash        string          `json:"hash"`
 	Url         string          `json:"url"`
