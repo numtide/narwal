@@ -8,8 +8,9 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/go-ini/ini"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type CredentialsConfig struct {
@@ -31,10 +32,11 @@ type AWSCredentials struct {
 	SessionToken    string `json:"SessionToken"`
 }
 
-func NewCredentials(ctx context.Context, config CredentialsConfig) (*credentials.Credentials, error) {
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func NewCredentials(ctx context.Context, config CredentialsConfig) (aws.CredentialsProvider, error) {
 	// If direct credentials are provided, use them
 	if config.AccessKeyID != "" && config.SecretAccessKey != "" {
-		return credentials.NewStaticV4(
+		return credentials.NewStaticCredentialsProvider(
 			config.AccessKeyID,
 			config.SecretAccessKey,
 			config.SessionToken,
@@ -50,7 +52,8 @@ func NewCredentials(ctx context.Context, config CredentialsConfig) (*credentials
 	return exportCredentials(ctx, config.Profile)
 }
 
-func exportCredentials(ctx context.Context, profile string) (*credentials.Credentials, error) {
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func exportCredentials(ctx context.Context, profile string) (aws.CredentialsProvider, error) {
 	args := []string{"configure", "export-credentials", "--format", "process"}
 	if profile != "" {
 		args = append(args, "--profile", profile)
@@ -74,7 +77,7 @@ func exportCredentials(ctx context.Context, profile string) (*credentials.Creden
 		return nil, fmt.Errorf("parse credentials failed: %w (output: %s)", err, string(output))
 	}
 
-	return credentials.NewStaticV4(
+	return credentials.NewStaticCredentialsProvider(
 		creds.AccessKeyId,
 		creds.SecretAccessKey,
 		creds.SessionToken,
@@ -82,7 +85,9 @@ func exportCredentials(ctx context.Context, profile string) (*credentials.Creden
 }
 
 // loadFromCredentialsFile loads AWS credentials from a specified credentials file.
-func loadFromCredentialsFile(config CredentialsConfig) (*credentials.Credentials, error) {
+//
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func loadFromCredentialsFile(config CredentialsConfig) (aws.CredentialsProvider, error) {
 	// Only load from file if explicitly specified
 	if config.File == "" {
 		return nil, errors.New("no credentials file specified")
@@ -102,7 +107,7 @@ func loadFromCredentialsFile(config CredentialsConfig) (*credentials.Credentials
 
 	// If we have the required credentials, return them
 	if accessKeyID != "" && secretAccessKey != "" {
-		return credentials.NewStaticV4(accessKeyID, secretAccessKey, sessionToken), nil
+		return credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken), nil
 	}
 
 	return nil, errors.New("no valid credentials found in credentials file")

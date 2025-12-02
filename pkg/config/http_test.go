@@ -53,6 +53,8 @@ func TestHTTP_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.http.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -89,6 +91,7 @@ func TestHTTP_ValidateBasicAuth(t *testing.T) {
 				h.BasicAuth.Enabled = true
 				h.BasicAuth.Username = testUsername
 				h.BasicAuth.Password = "secret"
+
 				return h
 			}(),
 		},
@@ -101,6 +104,7 @@ func TestHTTP_ValidateBasicAuth(t *testing.T) {
 				}
 				h.BasicAuth.Enabled = true
 				h.BasicAuth.Password = "secret"
+
 				return h
 			}(),
 			err: "basic auth username is required",
@@ -114,6 +118,7 @@ func TestHTTP_ValidateBasicAuth(t *testing.T) {
 				}
 				h.BasicAuth.Enabled = true
 				h.BasicAuth.Username = testUsername
+
 				return h
 			}(),
 			err: "either basic auth password or password_file must be provided",
@@ -122,6 +127,8 @@ func TestHTTP_ValidateBasicAuth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.http.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -137,6 +144,7 @@ func TestHTTP_ValidatePasswordFile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("reads password from file", func(t *testing.T) {
+		t.Parallel()
 		// Create temp password file
 		tmpDir := t.TempDir()
 		passwordFile := filepath.Join(tmpDir, "password")
@@ -156,6 +164,8 @@ func TestHTTP_ValidatePasswordFile(t *testing.T) {
 	})
 
 	t.Run("password file not found", func(t *testing.T) {
+		t.Parallel()
+
 		h := config.HTTP{
 			Host: "127.0.0.1",
 			Port: 8080,
@@ -198,6 +208,7 @@ func TestHTTP_FromViper(t *testing.T) {
 
 	t.Run("from viper set", func(t *testing.T) {
 		t.Parallel()
+
 		v := viper.New()
 		v.Set("http.host", "0.0.0.0")
 		v.Set("http.port", 9090)
@@ -206,6 +217,7 @@ func TestHTTP_FromViper(t *testing.T) {
 		v.Set("http.basic_auth.password", "testpass")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.HTTP)
@@ -217,6 +229,8 @@ func TestHTTP_FromViper(t *testing.T) {
 	})
 
 	t.Run("from flags", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetHttpFlags(fs)
@@ -228,6 +242,7 @@ func TestHTTP_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.HTTP)
@@ -236,6 +251,8 @@ func TestHTTP_FromViper(t *testing.T) {
 	})
 
 	t.Run("flag overrides default", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetHttpFlags(fs)
@@ -243,6 +260,7 @@ func TestHTTP_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.HTTP)
@@ -261,6 +279,7 @@ func TestHTTP_EnvOverride(t *testing.T) {
 	t.Setenv("NARWAL_HTTP_BASIC_AUTH_USERNAME", "envuser")
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.HTTP)

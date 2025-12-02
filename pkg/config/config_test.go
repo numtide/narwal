@@ -120,6 +120,8 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.cfg.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -135,6 +137,8 @@ func TestConfig_FromViper(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unmarshals complete config", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
@@ -145,6 +149,7 @@ func TestConfig_FromViper(t *testing.T) {
 		v.Set("inventory.bucket_prefix", "nix-cache/")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -167,6 +172,8 @@ func TestConfig_FromViper(t *testing.T) {
 	})
 
 	t.Run("handles nested credentials", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		v.Set("s3.bucket", "test-bucket")
 		v.Set("s3.credentials.access_key_id", "AKIATEST")
@@ -174,6 +181,7 @@ func TestConfig_FromViper(t *testing.T) {
 		v.Set("s3.credentials.profile", "production")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -184,6 +192,8 @@ func TestConfig_FromViper(t *testing.T) {
 	})
 
 	t.Run("handles basic auth nested config", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		v.Set("http.host", "127.0.0.1")
 		v.Set("http.port", 8080)
@@ -192,6 +202,7 @@ func TestConfig_FromViper(t *testing.T) {
 		v.Set("http.basic_auth.password", "secret")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -211,6 +222,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_POSTGRES_URL", "postgres://env/db")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -230,6 +242,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_S3_CREDENTIALS_SECRET_ACCESS_KEY", "ENV_SECRET")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -250,6 +263,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_HTTP_BASIC_AUTH_PASSWORD", "envpass")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -270,6 +284,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_S3_REGION", "env-region")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -283,6 +298,8 @@ func TestConfig_ConfigureViper(t *testing.T) {
 	t.Parallel()
 
 	t.Run("configures viper with correct settings", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		err := config.ConfigureViper(v)
 		require.NoError(t, err)
@@ -336,6 +353,7 @@ force_nar_info_download = true
 	require.NoError(t, v.ReadInConfig())
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 
@@ -391,6 +409,7 @@ region = "toml-region"
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -427,6 +446,7 @@ bucket = "toml-bucket"
 		v.Set("s3.bucket", "set-bucket")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 

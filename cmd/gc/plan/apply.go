@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/db"
 
 	ci "github.com/Eun/go-pgx-cursor-iterator/v2"
@@ -76,11 +75,11 @@ func applyPlan(cmd *cobra.Command, args []string) error {
 
 	deleted := 0
 
-	objects := make([]minio.ObjectInfo, 1024)
+	keys := make([]string, 1024)
 	cursorValues := make([]deletionEntry, 1024)
 
 	for {
-		n, deleteErr := tryDelete(ctx, conn, int32(planID), objects, cursorValues)
+		n, deleteErr := tryDelete(ctx, conn, int32(planID), keys, cursorValues)
 		if deleteErr != nil {
 			return fmt.Errorf("failed to apply plan: %w", deleteErr)
 		}
@@ -117,7 +116,7 @@ func tryDelete(
 	ctx context.Context,
 	conn *pgxpool.Conn,
 	planID int32,
-	objects []minio.ObjectInfo,
+	keys []string,
 	cursorValues []deletionEntry,
 ) (int, error) {
 	// start a tx
@@ -129,7 +128,7 @@ func tryDelete(
 	//nolint:errcheck
 	defer tx.Rollback(ctx)
 
-	n, err := readDeletions(ctx, tx, planID, objects, cursorValues)
+	n, err := readDeletions(ctx, tx, planID, keys, cursorValues)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read deletions: %w", err)
 	}
@@ -137,7 +136,7 @@ func tryDelete(
 	if n > 0 { //nolint:nestif
 		timestamp := time.Now().UTC()
 
-		removedPaths, failedPaths := removeFromS3(ctx, objects[:n])
+		removedPaths, failedPaths := removeFromS3(ctx, keys[:n])
 
 		// record the successes
 		deletionsTable := deletionsTableName(planID)
@@ -147,7 +146,6 @@ func tryDelete(
 			fmt.Sprintf(`update %s set applied_at = $1, error = null where path = any($2)`, deletionsTable),
 			timestamp, removedPaths,
 		)
-
 		if updateErr != nil {
 			return 0, fmt.Errorf("failed to update deletions table: %w", updateErr)
 		}
@@ -221,7 +219,7 @@ func readDeletions(
 	ctx context.Context,
 	tx pgx.Tx,
 	planID int32,
-	objects []minio.ObjectInfo,
+	keys []string,
 	cursorValues []deletionEntry,
 ) (int, error) {
 	query := fmt.Sprintf(
@@ -237,8 +235,8 @@ func readDeletions(
 	idx := 0
 
 	// only consume up until we fill the batch
-	for idx < len(objects) && iter.Next(ctx) {
-		objects[idx].Key = cursorValues[iter.ValueIndex()].Path
+	for idx < len(keys) && iter.Next(ctx) {
+		keys[idx] = cursorValues[iter.ValueIndex()].Path
 		idx += 1
 	}
 
@@ -252,31 +250,30 @@ func readDeletions(
 //nolint:nonamedreturns
 func removeFromS3(
 	ctx context.Context,
-	objects []minio.ObjectInfo,
+	keys []string,
 ) (successes []string, failures map[string]error) {
-	objectsCh := make(chan minio.ObjectInfo, len(objects))
-
-	go func() {
-		for idx := range objects {
-			objectsCh <- objects[idx]
+	failures, err := s3.RemoveObjects(ctx, keys)
+	if err != nil {
+		// If we get an error, treat all keys as failed
+		failures = make(map[string]error)
+		for _, key := range keys {
+			failures[key] = err
 		}
+	}
 
-		close(objectsCh)
-	}()
+	if failures == nil {
+		failures = make(map[string]error)
+	}
 
-	errCh := s3.UnderlyingClient().RemoveObjects(ctx, cfg.S3.Bucket, objectsCh, minio.RemoveObjectsOptions{})
-
-	failures = make(map[string]error)
-
-	for removeErr := range errCh {
-		failures[removeErr.ObjectName] = removeErr.Err
-		log.Errorf("failed to remove object '%s': %s", removeErr.ObjectName, removeErr.Err)
+	// Log individual failures
+	for key, removeErr := range failures {
+		log.Errorf("failed to remove object '%s': %s", key, removeErr)
 	}
 
 	// construct success list
-	for _, object := range objects {
-		if _, ok := failures[object.Key]; !ok {
-			successes = append(successes, object.Key)
+	for _, key := range keys {
+		if _, ok := failures[key]; !ok {
+			successes = append(successes, key)
 		}
 	}
 

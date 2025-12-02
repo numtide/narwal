@@ -192,12 +192,8 @@ LOOP:
 			break LOOP
 
 		default:
-
 			// work out the new batch slice within objs
-			end := i + d.batchSize
-			if end > len(objs) {
-				end = len(objs)
-			}
+			end := min(i+d.batchSize, len(objs))
 
 			batch := objs[i:end]
 			if len(batch) == 0 {

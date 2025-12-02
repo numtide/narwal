@@ -9,12 +9,13 @@ import (
 	"io"
 
 	"github.com/andybalholm/brotli"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/mime"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/minio/minio-go/v7"
 	"github.com/numtide/narwal/pkg/db"
 )
 
@@ -65,7 +66,10 @@ func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
 		return nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
-	body, err := s.s3.GetObject(ctx, s.bucketName, path, minio.GetObjectOptions{})
+	output, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(path),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object from s3: %w", err)
 	}
@@ -75,7 +79,7 @@ func (s *Store) GetObject(ctx context.Context, path string) (*Object, error) {
 		Type:        entry.ObjectType,
 		Compression: entry.CompressionType,
 		Size:        uint64(entry.Size),
-		Body:        body,
+		Body:        output.Body,
 	}, nil
 }
 
@@ -94,6 +98,7 @@ func (s *Store) PutObject(
 	// we should ensure the same to preserve the same storage layout for direct reads against S3
 
 	var compression db.CompressionType
+
 	body, compression = s.compressIfRequired(analysis.ObjectType, body)
 
 	if compression == db.CompressionTypeBr {
@@ -111,19 +116,25 @@ func (s *Store) PutObject(
 	}
 
 	// put into S3
-	putOptions := minio.PutObjectOptions{
+	putInput := &s3.PutObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(path),
+		Body:   body,
 		// set the appropriate content type
-		ContentType: mime.For(analysis.ObjectType),
+		ContentType: aws.String(mime.For(analysis.ObjectType)),
+	}
+
+	if size >= 0 {
+		putInput.ContentLength = aws.Int64(size)
 	}
 
 	if compression != db.CompressionTypeNone {
 		// set the appropriate content encoding if compressed
-		putOptions.ContentEncoding = string(compression)
+		putInput.ContentEncoding = aws.String(string(compression))
 	}
 
-	// put into S3
-	objectInfo, err := s.s3.PutObject(ctx, s.bucketName, path, body, size, putOptions)
-	if err != nil {
+	// put into S3 using the upload manager (handles streaming/unseekable readers)
+	if _, err = s.uploader.Upload(ctx, putInput); err != nil {
 		return fmt.Errorf("failed to upload object to s3: %w", err)
 	}
 
@@ -145,8 +156,8 @@ func (s *Store) PutObject(
 		Hash:            hash,
 		ObjectType:      analysis.ObjectType,
 		CompressionType: compression,
-		Path:            objectInfo.Key,
-		Size:            objectInfo.Size,
+		Path:            path,
+		Size:            size,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put object in db: %w", err)

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/numtide/narwal/pkg/awssdk"
 )
 
@@ -28,8 +27,8 @@ func TestNewCredentials_DirectCredentials(t *testing.T) {
 		t.Fatal("Expected credentials, got nil")
 	}
 
-	// Test that we can get values from the credentials
-	value, err := creds.GetWithContext(&credentials.CredContext{})
+	// Test that we can retrieve credentials
+	value, err := creds.Retrieve(t.Context())
 	if err != nil {
 		t.Fatalf("Failed to get credential values: %v", err)
 	}
@@ -118,8 +117,8 @@ aws_secret_access_key = profile-secret-key
 				t.Fatal("Expected credentials, got nil")
 			}
 
-			// Test that we can get values from the credentials
-			value, err := creds.GetWithContext(&credentials.CredContext{})
+			// Test that we can retrieve credentials
+			value, err := creds.Retrieve(t.Context())
 			if err != nil {
 				t.Fatalf("Failed to get credential values: %v", err)
 			}
@@ -169,7 +168,7 @@ aws_secret_access_key = file-secret-key
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	value, err := creds.GetWithContext(&credentials.CredContext{})
+	value, err := creds.Retrieve(t.Context())
 	if err != nil {
 		t.Fatalf("Failed to get credential values: %v", err)
 	}
@@ -297,7 +296,7 @@ aws_secret_access_key = file-secret-key
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	value, err := creds.GetWithContext(&credentials.CredContext{})
+	value, err := creds.Retrieve(t.Context())
 	if err != nil {
 		t.Fatalf("Failed to get credential values: %v", err)
 	}

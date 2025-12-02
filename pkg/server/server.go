@@ -62,7 +62,7 @@ func NewServer(cfg *config.Server) (*Server, error) {
 		return nil, err
 	}
 
-	// create a store (pass underlying minio client for now)
+	// create a store
 	if srv.store, err = store.New(cfg, srv.pgPool, srv.s3Client.UnderlyingClient(), srv.eg); err != nil {
 		return nil, fmt.Errorf("failed to create store: %w", err)
 	}

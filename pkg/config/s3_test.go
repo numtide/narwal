@@ -75,6 +75,8 @@ func TestS3_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.s3.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -129,6 +131,8 @@ func TestS3_ValidateCredentialsConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.creds.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -169,6 +173,7 @@ func TestS3_FromViper(t *testing.T) {
 
 	t.Run("from viper set", func(t *testing.T) {
 		t.Parallel()
+
 		v := viper.New()
 		v.Set("s3.bucket", "test-bucket")
 		v.Set("s3.region", "us-west-2")
@@ -177,6 +182,7 @@ func TestS3_FromViper(t *testing.T) {
 		v.Set("s3.credentials.secret_access_key", "secret123")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.S3)
@@ -188,6 +194,8 @@ func TestS3_FromViper(t *testing.T) {
 	})
 
 	t.Run("from flags", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetS3Flags(fs)
@@ -199,6 +207,7 @@ func TestS3_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.S3)
@@ -207,6 +216,8 @@ func TestS3_FromViper(t *testing.T) {
 	})
 
 	t.Run("flag overrides default", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetS3Flags(fs)
@@ -215,6 +226,7 @@ func TestS3_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.S3)
@@ -232,6 +244,7 @@ func TestS3_EnvOverride(t *testing.T) {
 	t.Setenv("NARWAL_S3_CREDENTIALS_ACCESS_KEY_ID", "ENV_KEY")
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.S3)

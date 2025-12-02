@@ -120,7 +120,7 @@ func FromViper(v *viper.Viper, cfg any) error {
 
 // BindEnvVars walks the config struct and binds each field to an environment variable.
 // This allows single-underscore env vars like NARWAL_S3_USE_SSL instead of double-underscore.
-func BindEnvVars(v *viper.Viper, prefix string, cfg interface{}) {
+func BindEnvVars(v *viper.Viper, prefix string, cfg any) {
 	bindEnvVarsRecursive(v, prefix, "", reflect.TypeOf(cfg))
 }
 

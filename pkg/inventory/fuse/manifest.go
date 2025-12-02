@@ -54,6 +54,7 @@ func (m *manifestDirStream) Close() {
 
 type manifestDir struct {
 	fs.Inode
+
 	db *badger.DB
 
 	name     string
@@ -129,6 +130,7 @@ func (d *manifestDir) Lookup(ctx context.Context, name string, out *fuse.EntryOu
 
 type manifestsDir struct {
 	fs.Inode
+
 	db *badger.DB
 }
 

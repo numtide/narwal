@@ -8,7 +8,6 @@ import (
 	"path"
 
 	"github.com/charmbracelet/log"
-	"github.com/minio/minio-go/v7"
 )
 
 // Manifest represents the structure of an S3 inventory manifest.json file.
@@ -41,16 +40,16 @@ func (c *Client) GetManifest(ctx context.Context, reportID string) (*Manifest, e
 	log.Debug("fetching inventory manifest", "bucket", c.bucketClient.BucketName(), "key", manifestKey)
 
 	// Get the manifest.json file from S3
-	reader, err := c.bucketClient.GetObject(ctx, manifestKey, minio.GetObjectOptions{})
+	output, err := c.bucketClient.GetObject(ctx, manifestKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest file: %w", err)
 	}
-	defer reader.Close() //nolint:errcheck
+	defer output.Body.Close() //nolint:errcheck
 
 	// Parse the JSON manifest directly from the stream
 	var manifest Manifest
 
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(output.Body)
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse manifest JSON: %w", err)
 	}

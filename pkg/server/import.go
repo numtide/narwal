@@ -142,6 +142,7 @@ LOOP:
 			// Skip files that have already been imported
 			if _, imported := importedSet[file.UUID()]; imported {
 				l.Infof("skipping already-imported manifest file %s", file.UUID())
+
 				skipped++
 
 				continue
@@ -357,7 +358,7 @@ func importBatch(
 		ctx,
 		pgx.Identifier{"object"},
 		[]string{"hash", "object_type", "compression_type", "path", "size", "created_at"},
-		pgx.CopyFromSlice(len(batch), func(idx int) ([]interface{}, error) {
+		pgx.CopyFromSlice(len(batch), func(idx int) ([]any, error) {
 			p := batch[idx]
 
 			return []any{

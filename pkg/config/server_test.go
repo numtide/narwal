@@ -97,6 +97,8 @@ func TestServer_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.server.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -113,6 +115,7 @@ func TestServer_ValidateNestedConfigs(t *testing.T) {
 
 	t.Run("S3 validation propagates", func(t *testing.T) {
 		t.Parallel()
+
 		server := config.Server{
 			S3: config.S3{
 				Bucket:   "bucket",
@@ -135,6 +138,8 @@ func TestServer_ValidateNestedConfigs(t *testing.T) {
 	})
 
 	t.Run("HTTP validation propagates", func(t *testing.T) {
+		t.Parallel()
+
 		server := config.Server{
 			S3: config.S3{
 				Bucket: "bucket",
@@ -154,6 +159,8 @@ func TestServer_ValidateNestedConfigs(t *testing.T) {
 	})
 
 	t.Run("Postgres validation propagates", func(t *testing.T) {
+		t.Parallel()
+
 		server := config.Server{
 			S3: config.S3{
 				Bucket: "bucket",
