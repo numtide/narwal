@@ -15,6 +15,10 @@ where o.hash = $1;
 
 -- name: PutObject :exec
 insert into object (hash, object_type, compression_type, path, size, created_at)
+values ($1, $2, $3, $4, $5, timezone('UTC', now()))
+on conflict(object_type, hash, path) do update
+    set size       = excluded.size,
+        created_at = timezone('UTC', now());
 values ($1, $2, $3, $4, $5, timezone('UTC', now()));
 
 -- name: PutNarInfo :exec

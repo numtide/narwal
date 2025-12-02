@@ -71,7 +71,8 @@ perSystem.self.narwal.overrideAttrs (old: {
       process-compose
       postgresql_17
       postgres-init
-      minio
+      localstack
+      perSystem.self.awslocal
 
       # tooling
       awscli2
