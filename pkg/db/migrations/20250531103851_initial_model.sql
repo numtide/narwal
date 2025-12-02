@@ -236,7 +236,6 @@ drop function generate_gc_root_closure;
 drop index idx_nar_info_signature_name;
 drop index idx_nar_info_reference_refers_to;
 drop index idx_object_type;
-drop index idx_object_path;
 
 drop table gc_plan;
 drop table gc_root;
