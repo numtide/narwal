@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/adrg/xdg"
@@ -80,13 +81,11 @@ func ConfigureViper(v *viper.Viper) error {
 	// set config type to TOML
 	v.SetConfigType("toml")
 
-	// setup automatic env override with the `NARWAL` prefix
-	v.SetEnvPrefix("narwal")
+	// enable automatic env variable reading
 	v.AutomaticEnv()
 
-	// to target a sub config section in an ENV variable use "__" in place of "."
-	// for example `foo.bar.baz` would be `NARWAL_FOO__BAR__BAZ`
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
+	// bind env vars with single-underscore format (e.g., NARWAL_S3_USE_SSL)
+	BindEnvVars(v, "NARWAL", Config{})
 
 	// set config filename to narwal.toml
 	v.SetConfigName("narwal")
@@ -95,13 +94,8 @@ func ConfigureViper(v *viper.Viper) error {
 	v.AddConfigPath(".")
 	v.AddConfigPath("/etc/narwal")
 
-	// add the standard xdg config file path too
-	xdgPath, err := xdg.ConfigFile("narwal/narwal.toml")
-	if err != nil {
-		return fmt.Errorf("failed to create xdg path for config file: %w", err)
-	}
-
-	v.AddConfigPath(xdgPath)
+	// add the standard xdg config directory too
+	v.AddConfigPath(xdg.ConfigHome + "/narwal")
 
 	return nil
 }
@@ -122,4 +116,52 @@ func FromViper(v *viper.Viper, cfg any) error {
 	}
 
 	return nil
+}
+
+// BindEnvVars walks the config struct and binds each field to an environment variable.
+// This allows single-underscore env vars like NARWAL_S3_USE_SSL instead of double-underscore.
+func BindEnvVars(v *viper.Viper, prefix string, cfg interface{}) {
+	bindEnvVarsRecursive(v, prefix, "", reflect.TypeOf(cfg))
+}
+
+func bindEnvVarsRecursive(v *viper.Viper, envPrefix, keyPrefix string, t reflect.Type) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+
+		// get the mapstructure tag, skip if not present
+		tag := field.Tag.Get("mapstructure")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		// build the viper key path (dot-separated)
+		viperKey := tag
+		if keyPrefix != "" {
+			viperKey = keyPrefix + "." + tag
+		}
+
+		// build the env var name (underscore-separated, uppercase)
+		envVar := strings.ToUpper(envPrefix + "_" + strings.ReplaceAll(viperKey, ".", "_"))
+
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Ptr {
+			fieldType = fieldType.Elem()
+		}
+
+		if fieldType.Kind() == reflect.Struct {
+			// recurse into nested structs
+			bindEnvVarsRecursive(v, envPrefix, viperKey, fieldType)
+		} else {
+			// bind leaf field to env var
+			_ = v.BindEnv(viperKey, envVar)
+		}
+	}
 }
