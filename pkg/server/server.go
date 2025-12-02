@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"golang.org/x/sync/errgroup"
 )
@@ -19,6 +20,7 @@ type Server struct {
 	log    *log.Logger
 	config *config.Server
 
+	s3     *awssdk.BucketClient
 	pgPool *pgxpool.Pool
 
 	eg *errgroup.Group // for background tasks
@@ -44,6 +46,11 @@ func NewServer(cfg *config.Server) (*Server, error) {
 	// connect to postgres and migrate the database
 	if srv.pgPool, err = cfg.Postgres.Connect(ctx, true); err != nil {
 		//nolint:wrapcheck
+		return nil, err
+	}
+
+	// create s3 client
+	if srv.s3, err = awssdk.NewS3Client(ctx, &cfg.AWS, &cfg.S3); err != nil {
 		return nil, err
 	}
 

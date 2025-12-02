@@ -22,6 +22,7 @@ func runCmd() *cobra.Command {
 
 	// add http and s3 flags to the command
 	fs := cmd.Flags()
+	config.SetAWSFlags(fs)
 	config.SetS3Flags(fs)
 	config.SetHttpFlags(fs)
 

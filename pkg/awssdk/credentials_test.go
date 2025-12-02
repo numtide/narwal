@@ -7,18 +7,19 @@ import (
 	"testing"
 
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 func TestNewCredentials_DirectCredentials(t *testing.T) {
 	t.Parallel()
 
-	config := awssdk.CredentialsConfig{
+	cfg := config.CredentialsConfig{
 		AccessKeyID:     "test-access-key",
 		SecretAccessKey: "test-secret-key",
 		SessionToken:    "test-session-token",
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), config)
+	creds, err := awssdk.NewCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -103,12 +104,12 @@ aws_secret_access_key = profile-secret-key
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			config := awssdk.CredentialsConfig{
+			cfg := config.CredentialsConfig{
 				File:    credentialsFile,
 				Profile: tt.profile,
 			}
 
-			creds, err := awssdk.NewCredentials(t.Context(), config)
+			creds, err := awssdk.NewCredentials(t.Context(), cfg)
 			if err != nil {
 				t.Fatalf("Expected no error, got: %v", err)
 			}
@@ -157,13 +158,13 @@ aws_secret_access_key = file-secret-key
 	}
 
 	// Direct credentials should take priority over file credentials
-	config := awssdk.CredentialsConfig{
+	cfg := config.CredentialsConfig{
 		AccessKeyID:     "direct-access-key",
 		SecretAccessKey: "direct-secret-key",
 		File:            credentialsFile,
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), config)
+	creds, err := awssdk.NewCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -244,12 +245,12 @@ func TestNewCredentials_CredentialsFileErrors(t *testing.T) {
 				}
 			}
 
-			config := awssdk.CredentialsConfig{
+			cfg := config.CredentialsConfig{
 				File:    file,
 				Profile: tt.profile,
 			}
 
-			_, err := awssdk.NewCredentials(t.Context(), config)
+			_, err := awssdk.NewCredentials(t.Context(), cfg)
 
 			if tt.expectError {
 				if err == nil {
@@ -285,13 +286,13 @@ aws_secret_access_key = file-secret-key
 	}
 
 	// Only provide access key, not secret key - should fall back to file
-	config := awssdk.CredentialsConfig{
+	cfg := config.CredentialsConfig{
 		AccessKeyID: "partial-access-key",
 		// SecretAccessKey intentionally omitted
 		File: credentialsFile,
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), config)
+	creds, err := awssdk.NewCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -315,11 +316,11 @@ func TestNewCredentials_NoCredentialsFile_FallsBackToAWSCLI(t *testing.T) {
 	t.Parallel()
 
 	// Test that when no file is specified, it falls back to AWS CLI
-	config := awssdk.CredentialsConfig{
+	cfg := config.CredentialsConfig{
 		Profile: "nonexistent-profile", // This should fail with AWS CLI
 	}
 
-	_, err := awssdk.NewCredentials(t.Context(), config)
+	_, err := awssdk.NewCredentials(t.Context(), cfg)
 	// Should get an error from AWS CLI since the profile doesn't exist
 	if err == nil {
 		t.Error("Expected error when using nonexistent AWS CLI profile, got none")

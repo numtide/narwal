@@ -42,16 +42,22 @@ var (
 			return c.Postgres.Validate()
 		},
 		func(c *Config) error {
-			if c.S3 == nil {
+			if c.AWS == nil {
 				return nil
 			}
-			return c.S3.Validate()
+			return c.AWS.Validate()
 		},
 		func(c *Config) error {
 			if c.Inventory == nil {
 				return nil
 			}
 			return c.Inventory.Validate()
+		},
+		func(c *Config) error {
+			if c.S3 == nil {
+				return nil
+			}
+			return c.S3.Validate()
 		},
 	}
 )
@@ -62,6 +68,7 @@ type Config struct {
 	GC        *GC        `mapstructure:"gc"`
 	HTTP      *HTTP      `mapstructure:"http"`
 	Postgres  *Postgres  `mapstructure:"postgres"`
+	AWS       *AWS       `mapstructure:"aws"`
 	S3        *S3        `mapstructure:"s3"`
 }
 

@@ -26,6 +26,7 @@ func NewCmd() *cobra.Command {
 	}
 
 	fs := cmd.PersistentFlags()
+	config.SetAWSFlags(fs)
 	config.SetS3Flags(fs)
 	config.SetInventoryFlags(fs)
 
@@ -61,8 +62,8 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 
 	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
 
-	// connect to s3
-	if s3, err = cfg.S3.Connect(cmd.Context()); err != nil {
+	// create s3 client
+	if s3, err = awssdk.NewS3Client(cmd.Context(), cfg.AWS, cfg.S3); err != nil {
 		//nolint:wrapcheck
 		return err
 	}

@@ -11,53 +11,32 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 // BucketClient is a bucket-bound S3 client that provides operations
 // for a specific bucket without requiring the bucket name in each method call.
 type BucketClient struct {
+	bucket   string
 	client   *s3.Client
 	uploader *manager.Uploader
-	bucket   string
 }
 
-// BucketConfig holds configuration for creating a BucketClient.
-type BucketConfig struct {
-	// S3 bucket name (required)
-	Bucket string
-
-	// S3 endpoint configuration (use either AWS region OR custom endpoint, not both)
-	Region string
-
-	// Custom endpoint options (for custom endpoints like LocalStack)
-	Endpoint string // use this OR Region, not both
-	UseSSL   bool   // defaults to true for AWS, configurable for custom endpoints
-}
-
-// NewBucketClient creates a new bucket-bound S3 client.
-func NewBucketClient(
-	ctx context.Context,
-	bucketCfg BucketConfig,
-	creds aws.CredentialsProvider,
-) (*BucketClient, error) {
+// NewS3Client creates a new bucket-bound S3 client from config objects.
+func NewS3Client(ctx context.Context, awsCfg *config.AWS, s3Cfg *config.S3) (*BucketClient, error) {
 	// Validate basic requirements
-	if bucketCfg.Bucket == "" {
+	if s3Cfg.Bucket == "" {
 		return nil, errors.New("bucket name is required")
 	}
 
-	if creds == nil {
-		return nil, errors.New("credentials are required")
-	}
-
-	// Validate configuration: cannot specify both Region and Endpoint
-	if bucketCfg.Region != "" && bucketCfg.Endpoint != "" {
-		return nil, errors.New("cannot specify both Region and Endpoint - " +
-			"use Region for AWS S3 or Endpoint for custom S3-compatible services")
+	// Create AWS credentials
+	creds, err := NewCredentials(ctx, awsCfg.Credentials)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AWS credentials: %w", err)
 	}
 
 	var (
@@ -67,25 +46,25 @@ func NewBucketClient(
 	)
 
 	//nolint:nestif
-	if bucketCfg.Endpoint != "" {
+	if awsCfg.Endpoint != "" {
 		// Custom endpoint mode (LocalStack, MinIO, etc.)
-		endpoint = bucketCfg.Endpoint
-		useSSL = bucketCfg.UseSSL
+		endpoint = awsCfg.Endpoint
+		useSSL = awsCfg.UseSSL
 
-		region = bucketCfg.Region
+		region = awsCfg.Region
 		if region == "" {
 			region = "us-east-1" // Default region for custom endpoints
 		}
 	} else {
 		// AWS S3 mode - determine region
 		useSSL = true
-		region = bucketCfg.Region
+		region = awsCfg.Region
 
 		// If region is not specified, try to detect it automatically
 		if region == "" {
-			detectedRegion, err := DetectBucketRegion(ctx, bucketCfg.Bucket, creds)
+			detectedRegion, err := DetectBucketRegion(ctx, s3Cfg.Bucket, creds)
 			if err != nil {
-				return nil, fmt.Errorf("failed to detect bucket region for %s: %w", bucketCfg.Bucket, err)
+				return nil, fmt.Errorf("failed to detect bucket region for %s: %w", s3Cfg.Bucket, err)
 			}
 
 			region = detectedRegion
@@ -98,10 +77,10 @@ func NewBucketClient(
 	}
 
 	// Load AWS config
-	awsCfg, err := config.LoadDefaultConfig(ctx,
-		config.WithCredentialsProvider(creds),
-		config.WithRegion(region),
-		config.WithHTTPClient(httpClient),
+	sdkCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithCredentialsProvider(creds),
+		awsconfig.WithRegion(region),
+		awsconfig.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -123,7 +102,7 @@ func NewBucketClient(
 		})
 	}
 
-	client := s3.NewFromConfig(awsCfg, s3Opts...)
+	client := s3.NewFromConfig(sdkCfg, s3Opts...)
 
 	// Create the uploader for streaming uploads
 	uploader := manager.NewUploader(client)
@@ -131,7 +110,7 @@ func NewBucketClient(
 	return &BucketClient{
 		client:   client,
 		uploader: uploader,
-		bucket:   bucketCfg.Bucket,
+		bucket:   s3Cfg.Bucket,
 	}, nil
 }
 
@@ -375,9 +354,9 @@ func DetectBucketRegion(ctx context.Context, bucketName string, creds aws.Creden
 
 	// Create a temporary S3 client to detect bucket region
 	// Use us-east-1 as the default region for the lookup
-	awsCfg, err := config.LoadDefaultConfig(ctx,
-		config.WithCredentialsProvider(creds),
-		config.WithRegion("us-east-1"),
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithCredentialsProvider(creds),
+		awsconfig.WithRegion("us-east-1"),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS config: %w", err)
@@ -416,11 +395,4 @@ func (bc *BucketClient) CreateBucket(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// NewStaticCredentials is a convenience function for creating static credentials.
-//
-//nolint:ireturn // AWS SDK uses CredentialsProvider interface
-func NewStaticCredentials(accessKeyID, secretAccessKey, sessionToken string) aws.CredentialsProvider {
-	return credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken)
 }

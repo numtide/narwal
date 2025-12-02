@@ -5,94 +5,87 @@ import (
 	"testing"
 
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
 )
 
-func TestBucketConfig_Validation(t *testing.T) {
+func TestNewS3Client_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		config      awssdk.BucketConfig
-		credentials awssdk.CredentialsConfig
-		wantError   bool
-		errorMsg    string
+		name      string
+		awsCfg    *config.AWS
+		s3Cfg     *config.S3
+		wantError bool
+		errorMsg  string
 	}{
 		{
-			name: "valid bucket config with explicit region",
-			config: awssdk.BucketConfig{
-				Bucket: "test-bucket",
-				Region: "us-west-2", // Explicit region to avoid AWS CLI call
-				UseSSL: true,
+			name: "valid config with explicit region",
+			awsCfg: &config.AWS{
+				Region: "us-west-2",
+				Credentials: config.CredentialsConfig{
+					AccessKeyID:     "test-key",
+					SecretAccessKey: "test-secret",
+				},
 			},
-			credentials: awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
+			s3Cfg: &config.S3{
+				Bucket: "test-bucket",
 			},
 			wantError: false,
 		},
 		{
 			name: "valid endpoint config",
-			config: awssdk.BucketConfig{
-				Bucket:   "test-bucket",
+			awsCfg: &config.AWS{
 				Endpoint: "localhost:9000",
 				UseSSL:   false,
+				Credentials: config.CredentialsConfig{
+					AccessKeyID:     "test-key",
+					SecretAccessKey: "test-secret",
+				},
 			},
-			credentials: awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
+			s3Cfg: &config.S3{
+				Bucket: "test-bucket",
 			},
 			wantError: false,
 		},
 		{
-			name: "both region and endpoint specified",
-			config: awssdk.BucketConfig{
-				Bucket:   "test-bucket",
-				Region:   "us-west-2",
-				Endpoint: "localhost:9000",
-				UseSSL:   true,
-			},
-			credentials: awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
-			},
-			wantError: true,
-			errorMsg:  "cannot specify both Region and Endpoint",
-		},
-		{
 			name: "neither region nor endpoint specified - should auto-detect",
-			config: awssdk.BucketConfig{
-				Bucket: "test-bucket",
-				UseSSL: true,
+			awsCfg: &config.AWS{
+				Credentials: config.CredentialsConfig{
+					AccessKeyID:     "test-key",
+					SecretAccessKey: "test-secret",
+				},
 			},
-			credentials: awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
+			s3Cfg: &config.S3{
+				Bucket: "test-bucket",
 			},
 			wantError: true, // Will fail because test credentials can't access real AWS
 			errorMsg:  "failed to detect bucket region",
 		},
 		{
 			name: "empty bucket name",
-			config: awssdk.BucketConfig{
+			awsCfg: &config.AWS{
 				Region: "us-west-2",
-				UseSSL: true,
+				Credentials: config.CredentialsConfig{
+					AccessKeyID:     "test-key",
+					SecretAccessKey: "test-secret",
+				},
 			},
-			credentials: awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
+			s3Cfg: &config.S3{
+				Bucket: "",
 			},
 			wantError: true,
 			errorMsg:  "bucket name is required",
 		},
 		{
-			name: "nil credentials",
-			config: awssdk.BucketConfig{
-				Bucket: "test-bucket",
+			name: "invalid credentials file",
+			awsCfg: &config.AWS{
 				Region: "us-west-2",
-				UseSSL: true,
+				Credentials: config.CredentialsConfig{
+					File: "/nonexistent/path/credentials",
+				},
 			},
-			credentials: awssdk.CredentialsConfig{
-				File: "/nonexistent/path/credentials",
+			s3Cfg: &config.S3{
+				Bucket: "test-bucket",
 			},
 			wantError: true,
 			errorMsg:  "credentials file does not exist",
@@ -103,36 +96,19 @@ func TestBucketConfig_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Create credentials first
-			creds, credErr := awssdk.NewCredentials(t.Context(), tt.credentials)
-			if credErr != nil {
-				// If we expect an error and credentials creation fails, check if it's the expected error
-				if tt.wantError && strings.Contains(credErr.Error(), tt.errorMsg) {
-					return // This is the expected error
-				}
-				// If we don't expect an error, this is a failure
-				if !tt.wantError {
-					t.Fatalf("Failed to create credentials: %v", credErr)
-				}
-				// If we do expect an error but it's not the right message, log and continue to see if bucket client fails
-				t.Logf("Got credential error: %v", credErr)
-
-				return
-			}
-
-			_, err := awssdk.NewBucketClient(t.Context(), tt.config, creds)
+			_, err := awssdk.NewS3Client(t.Context(), tt.awsCfg, tt.s3Cfg)
 
 			if tt.wantError {
 				if err == nil {
-					t.Errorf("NewBucketClient() expected error but got none")
+					t.Errorf("NewS3Client() expected error but got none")
 					return
 				}
 
 				if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
-					t.Errorf("NewBucketClient() error = %v, want error containing %v", err, tt.errorMsg)
+					t.Errorf("NewS3Client() error = %v, want error containing %v", err, tt.errorMsg)
 				}
 			} else if err != nil {
-				t.Errorf("NewBucketClient() unexpected error = %v", err)
+				t.Errorf("NewS3Client() unexpected error = %v", err)
 			}
 		})
 	}
@@ -145,7 +121,7 @@ func TestDetectBucketRegion_MockAWSCLI(t *testing.T) {
 	t.Skip("Skipping test that requires AWS CLI - implement with mock in future")
 }
 
-func TestBucketConfig_AWSMode(t *testing.T) {
+func TestNewS3Client_AWSMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -173,59 +149,54 @@ func TestBucketConfig_AWSMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			creds, err := awssdk.NewCredentials(t.Context(), awssdk.CredentialsConfig{
-				AccessKeyID:     "test-key",
-				SecretAccessKey: "test-secret",
-			})
-			if err != nil {
-				t.Fatalf("Failed to create credentials: %v", err)
-			}
-
-			config := awssdk.BucketConfig{
-				Bucket: tt.bucket,
-				Region: tt.region,
-				UseSSL: true,
-			}
-
 			if tt.skipRegionTest {
 				t.Skip("Skipping test that requires AWS CLI region detection")
 			}
 
-			client, err := awssdk.NewBucketClient(t.Context(), config, creds)
+			awsCfg := &config.AWS{
+				Region: tt.region,
+				Credentials: config.CredentialsConfig{
+					AccessKeyID:     "test-key",
+					SecretAccessKey: "test-secret",
+				},
+			}
+			s3Cfg := &config.S3{
+				Bucket: tt.bucket,
+			}
+
+			client, err := awssdk.NewS3Client(t.Context(), awsCfg, s3Cfg)
 			if err != nil {
-				t.Fatalf("NewBucketClient() unexpected error = %v", err)
+				t.Fatalf("NewS3Client() unexpected error = %v", err)
 			}
 
 			if client == nil {
-				t.Fatal("NewBucketClient() returned nil client")
+				t.Fatal("NewS3Client() returned nil client")
 			}
 		})
 	}
 }
 
-func TestBucketConfig_CustomEndpoint(t *testing.T) {
+func TestNewS3Client_CustomEndpoint(t *testing.T) {
 	t.Parallel()
 
-	creds, err := awssdk.NewCredentials(t.Context(), awssdk.CredentialsConfig{
-		AccessKeyID:     "minioadmin",
-		SecretAccessKey: "minioadmin",
-	})
-	if err != nil {
-		t.Fatalf("Failed to create credentials: %v", err)
-	}
-
-	config := awssdk.BucketConfig{
-		Bucket:   "test-bucket",
+	awsCfg := &config.AWS{
 		Endpoint: "localhost:9000",
 		UseSSL:   false,
+		Credentials: config.CredentialsConfig{
+			AccessKeyID:     "minioadmin",
+			SecretAccessKey: "minioadmin",
+		},
+	}
+	s3Cfg := &config.S3{
+		Bucket: "test-bucket",
 	}
 
-	client, err := awssdk.NewBucketClient(t.Context(), config, creds)
+	client, err := awssdk.NewS3Client(t.Context(), awsCfg, s3Cfg)
 	if err != nil {
-		t.Fatalf("Failed to create credentials: %v", err)
+		t.Fatalf("NewS3Client() unexpected error = %v", err)
 	}
 
 	if client == nil {
-		t.Fatal("NewBucketClient() returned nil client")
+		t.Fatal("NewS3Client() returned nil client")
 	}
 }

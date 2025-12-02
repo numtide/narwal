@@ -36,6 +36,12 @@ func TestConfig_Validate(t *testing.T) {
 			err: "badger db path is required",
 		},
 		{
+			name: "valid AWS only",
+			cfg: config.Config{
+				AWS: &config.AWS{Region: "us-east-1"},
+			},
+		},
+		{
 			name: "valid S3 only",
 			cfg: config.Config{
 				S3: &config.S3{Bucket: "bucket"},
@@ -84,6 +90,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid GC only",
 			cfg: config.Config{
 				GC: &config.GC{
+					AWS:      config.AWS{Region: "us-east-1"},
 					S3:       config.S3{Bucket: "bucket"},
 					Postgres: config.Postgres{URL: "postgres://localhost/db"},
 				},
@@ -93,6 +100,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "invalid GC - missing bucket",
 			cfg: config.Config{
 				GC: &config.GC{
+					AWS:      config.AWS{},
 					S3:       config.S3{},
 					Postgres: config.Postgres{URL: "postgres://localhost/db"},
 				},
@@ -103,6 +111,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "multiple valid configs",
 			cfg: config.Config{
 				Badger:   &config.Badger{Path: "./db"},
+				AWS:      &config.AWS{Region: "us-east-1"},
 				S3:       &config.S3{Bucket: "bucket"},
 				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
 				HTTP:     &config.HTTP{Host: "127.0.0.1", Port: 8080},
@@ -142,7 +151,7 @@ func TestConfig_FromViper(t *testing.T) {
 		v := viper.New()
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
-		v.Set("s3.region", "us-west-2")
+		v.Set("aws.region", "us-west-2")
 		v.Set("postgres.url", "postgres://user:pass@localhost:5432/db")
 		v.Set("http.host", "0.0.0.0")
 		v.Set("http.port", 9000)
@@ -158,7 +167,9 @@ func TestConfig_FromViper(t *testing.T) {
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "test-bucket", cfg.S3.Bucket)
-		require.Equal(t, "us-west-2", cfg.S3.Region)
+
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "us-west-2", cfg.AWS.Region)
 
 		require.NotNil(t, cfg.Postgres)
 		require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.Postgres.URL)
@@ -175,20 +186,19 @@ func TestConfig_FromViper(t *testing.T) {
 		t.Parallel()
 
 		v := viper.New()
-		v.Set("s3.bucket", "test-bucket")
-		v.Set("s3.credentials.access_key_id", "AKIATEST")
-		v.Set("s3.credentials.secret_access_key", "secret")
-		v.Set("s3.credentials.profile", "production")
+		v.Set("aws.credentials.access_key_id", "AKIATEST")
+		v.Set("aws.credentials.secret_access_key", "secret")
+		v.Set("aws.credentials.profile", "production")
 
 		var cfg config.Config
 
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
-		require.NotNil(t, cfg.S3)
-		require.Equal(t, "AKIATEST", cfg.S3.Credentials.AccessKeyID)
-		require.Equal(t, "secret", cfg.S3.Credentials.SecretAccessKey)
-		require.Equal(t, "production", cfg.S3.Credentials.Profile)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "AKIATEST", cfg.AWS.Credentials.AccessKeyID)
+		require.Equal(t, "secret", cfg.AWS.Credentials.SecretAccessKey)
+		require.Equal(t, "production", cfg.AWS.Credentials.Profile)
 	})
 
 	t.Run("handles basic auth nested config", func(t *testing.T) {
@@ -238,8 +248,8 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		config.BindEnvVars(v, "NARWAL", config.Config{})
 
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
-		t.Setenv("NARWAL_S3_CREDENTIALS_ACCESS_KEY_ID", "ENV_KEY_ID")
-		t.Setenv("NARWAL_S3_CREDENTIALS_SECRET_ACCESS_KEY", "ENV_SECRET")
+		t.Setenv("NARWAL_AWS_CREDENTIALS_ACCESS_KEY_ID", "ENV_KEY_ID")
+		t.Setenv("NARWAL_AWS_CREDENTIALS_SECRET_ACCESS_KEY", "ENV_SECRET")
 
 		var cfg config.Config
 
@@ -248,8 +258,9 @@ func TestConfig_BindEnvVars(t *testing.T) {
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "env-bucket", cfg.S3.Bucket)
-		require.Equal(t, "ENV_KEY_ID", cfg.S3.Credentials.AccessKeyID)
-		require.Equal(t, "ENV_SECRET", cfg.S3.Credentials.SecretAccessKey)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "ENV_KEY_ID", cfg.AWS.Credentials.AccessKeyID)
+		require.Equal(t, "ENV_SECRET", cfg.AWS.Credentials.SecretAccessKey)
 	})
 
 	t.Run("binds HTTP basic auth fields", func(t *testing.T) {
@@ -281,7 +292,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 
 		// Set env vars without any v.Set() calls
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
-		t.Setenv("NARWAL_S3_REGION", "env-region")
+		t.Setenv("NARWAL_AWS_REGION", "env-region")
 
 		var cfg config.Config
 
@@ -290,7 +301,8 @@ func TestConfig_BindEnvVars(t *testing.T) {
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "env-bucket", cfg.S3.Bucket)
-		require.Equal(t, "env-region", cfg.S3.Region)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "env-region", cfg.AWS.Region)
 	})
 }
 
@@ -320,10 +332,12 @@ path = "/toml/badger/path"
 
 [s3]
 bucket = "toml-bucket"
+
+[aws]
 region = "us-east-1"
 use_ssl = true
 
-[s3.credentials]
+[aws.credentials]
 access_key_id = "TOML_KEY"
 secret_access_key = "TOML_SECRET"
 
@@ -362,10 +376,12 @@ force_nar_info_download = true
 
 	require.NotNil(t, cfg.S3)
 	require.Equal(t, "toml-bucket", cfg.S3.Bucket)
-	require.Equal(t, "us-east-1", cfg.S3.Region)
-	require.True(t, cfg.S3.UseSSL)
-	require.Equal(t, "TOML_KEY", cfg.S3.Credentials.AccessKeyID)
-	require.Equal(t, "TOML_SECRET", cfg.S3.Credentials.SecretAccessKey)
+
+	require.NotNil(t, cfg.AWS)
+	require.Equal(t, "us-east-1", cfg.AWS.Region)
+	require.True(t, cfg.AWS.UseSSL)
+	require.Equal(t, "TOML_KEY", cfg.AWS.Credentials.AccessKeyID)
+	require.Equal(t, "TOML_SECRET", cfg.AWS.Credentials.SecretAccessKey)
 
 	require.NotNil(t, cfg.Postgres)
 	require.Equal(t, "postgres://toml:toml@localhost:5432/tomldb", cfg.Postgres.URL)
@@ -390,6 +406,8 @@ func TestConfig_Precedence(t *testing.T) {
 		tomlContent := `
 [s3]
 bucket = "toml-bucket"
+
+[aws]
 region = "toml-region"
 `
 
@@ -414,8 +432,9 @@ region = "toml-region"
 		require.NoError(t, err)
 
 		require.NotNil(t, cfg.S3)
-		require.Equal(t, "env-bucket", cfg.S3.Bucket)  // env wins over toml
-		require.Equal(t, "toml-region", cfg.S3.Region) // toml value (no override)
+		require.Equal(t, "env-bucket", cfg.S3.Bucket) // env wins over toml
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "toml-region", cfg.AWS.Region) // toml value (no override)
 	})
 
 	t.Run("viper set has highest precedence", func(t *testing.T) {

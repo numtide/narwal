@@ -8,7 +8,7 @@
 
   # dependencies
   localstack-client,
-  awscli,
+  awscli2,
 }:
 
 buildPythonPackage rec {
@@ -26,7 +26,7 @@ buildPythonPackage rec {
 
   dependencies = [
     localstack-client
-    awscli
+    awscli2
   ];
 
   # No tests in the package

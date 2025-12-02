@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 // skipIfNoAWSCredentials checks if AWS credentials are available and skips
@@ -31,7 +32,7 @@ func skipIfNoAWSCredentials(t *testing.T) {
 	t.Helper()
 
 	// Try to create credentials using AWS CLI default
-	_, err := awssdk.NewCredentials(t.Context(), awssdk.CredentialsConfig{})
+	_, err := awssdk.NewCredentials(t.Context(), config.CredentialsConfig{})
 	if err != nil {
 		t.Skipf("Skipping integration test: AWS credentials not available (%v)", err)
 	}
@@ -44,8 +45,8 @@ func TestIntegration_NixCacheBucket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	// Get AWS credentials
-	creds, err := awssdk.NewCredentials(ctx, awssdk.CredentialsConfig{})
+	// Get AWS credentials to detect region first
+	creds, err := awssdk.NewCredentials(ctx, config.CredentialsConfig{})
 	if err != nil {
 		t.Fatalf("Failed to get AWS credentials: %v", err)
 	}
@@ -59,11 +60,11 @@ func TestIntegration_NixCacheBucket(t *testing.T) {
 	t.Logf("Detected region for nix-cache: %s", region)
 
 	// Create S3 client for nix-cache bucket
-	client, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
-		Bucket: "nix-cache",
+	client, err := awssdk.NewS3Client(ctx, &config.AWS{
 		Region: region,
-		UseSSL: true,
-	}, creds)
+	}, &config.S3{
+		Bucket: "nix-cache",
+	})
 	if err != nil {
 		t.Fatalf("Failed to create S3 client for nix-cache: %v", err)
 	}
@@ -103,8 +104,8 @@ func TestIntegration_NixReleasesBucket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	// Get AWS credentials
-	creds, err := awssdk.NewCredentials(ctx, awssdk.CredentialsConfig{})
+	// Get AWS credentials to detect region first
+	creds, err := awssdk.NewCredentials(ctx, config.CredentialsConfig{})
 	if err != nil {
 		t.Fatalf("Failed to get AWS credentials: %v", err)
 	}
@@ -118,11 +119,11 @@ func TestIntegration_NixReleasesBucket(t *testing.T) {
 	t.Logf("Detected region for nix-releases: %s", region)
 
 	// Create S3 client for nix-releases bucket
-	client, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
-		Bucket: "nix-releases",
+	client, err := awssdk.NewS3Client(ctx, &config.AWS{
 		Region: region,
-		UseSSL: true,
-	}, creds)
+	}, &config.S3{
+		Bucket: "nix-releases",
+	})
 	if err != nil {
 		t.Fatalf("Failed to create S3 client for nix-releases: %v", err)
 	}
@@ -180,18 +181,13 @@ func TestIntegration_AutoDetectRegion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// Create credentials
-			creds, err := awssdk.NewCredentials(ctx, awssdk.CredentialsConfig{})
-			if err != nil {
-				t.Skipf("Failed to get AWS credentials: %v", err)
-			}
 
 			// Create S3 client without specifying region (should auto-detect)
-			client, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
-				Bucket: tt.bucket,
-				UseSSL: true,
+			client, err := awssdk.NewS3Client(ctx, &config.AWS{
 				// No Region specified - should auto-detect
-			}, creds)
+			}, &config.S3{
+				Bucket: tt.bucket,
+			})
 			if err != nil {
 				t.Skipf("Failed to create S3 client with auto-detect for %s (access denied?): %v", tt.bucket, err)
 			}
@@ -232,17 +228,12 @@ func TestIntegration_GetObjectMetadata(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	// Create credentials
-	creds, err := awssdk.NewCredentials(ctx, awssdk.CredentialsConfig{})
-	if err != nil {
-		t.Fatalf("Failed to get AWS credentials: %v", err)
-	}
-
 	// Create S3 client for nix-cache bucket (more likely to be accessible)
-	client, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
+	client, err := awssdk.NewS3Client(ctx, &config.AWS{
+		// No Region specified - should auto-detect
+	}, &config.S3{
 		Bucket: "nix-cache",
-		UseSSL: true,
-	}, creds)
+	})
 	if err != nil {
 		t.Fatalf("Failed to create S3 client: %v", err)
 	}
@@ -289,17 +280,12 @@ func TestIntegration_UnderlyingClientAccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	// Create credentials
-	creds, err := awssdk.NewCredentials(ctx, awssdk.CredentialsConfig{})
-	if err != nil {
-		t.Fatalf("Failed to get AWS credentials: %v", err)
-	}
-
 	// Create S3 client
-	client, err := awssdk.NewBucketClient(ctx, awssdk.BucketConfig{
+	client, err := awssdk.NewS3Client(ctx, &config.AWS{
+		// No Region specified - should auto-detect
+	}, &config.S3{
 		Bucket: "nix-cache",
-		UseSSL: true,
-	}, creds)
+	})
 	if err != nil {
 		t.Fatalf("Failed to create S3 client: %v", err)
 	}

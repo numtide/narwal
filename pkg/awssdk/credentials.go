@@ -11,45 +11,33 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/go-ini/ini"
+	"github.com/numtide/narwal/pkg/config"
 )
 
-type CredentialsConfig struct {
-	// Direct credentials (highest priority)
-	AccessKeyID     string
-	SecretAccessKey string
-	SessionToken    string
-
-	// AWS credentials file (second priority)
-	File string
-
-	// AWS CLI profile (fallback)
-	Profile string
-}
-
-type AWSCredentials struct {
+type awsCredentials struct {
 	AccessKeyId     string `json:"AccessKeyId"`
 	SecretAccessKey string `json:"SecretAccessKey"`
 	SessionToken    string `json:"SessionToken"`
 }
 
 //nolint:ireturn // AWS SDK uses CredentialsProvider interface
-func NewCredentials(ctx context.Context, config CredentialsConfig) (aws.CredentialsProvider, error) {
+func NewCredentials(ctx context.Context, cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
 	// If direct credentials are provided, use them
-	if config.AccessKeyID != "" && config.SecretAccessKey != "" {
+	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
 		return credentials.NewStaticCredentialsProvider(
-			config.AccessKeyID,
-			config.SecretAccessKey,
-			config.SessionToken,
+			cfg.AccessKeyID,
+			cfg.SecretAccessKey,
+			cfg.SessionToken,
 		), nil
 	}
 
 	// Try to load from credentials file if specified
-	if config.File != "" {
-		return loadFromCredentialsFile(config)
+	if cfg.File != "" {
+		return loadFromCredentialsFile(cfg)
 	}
 
 	// Fallback to AWS CLI export credentials
-	return exportCredentials(ctx, config.Profile)
+	return exportCredentials(ctx, cfg.Profile)
 }
 
 //nolint:ireturn // AWS SDK uses CredentialsProvider interface
@@ -72,7 +60,7 @@ func exportCredentials(ctx context.Context, profile string) (aws.CredentialsProv
 		return nil, fmt.Errorf("export credentials failed: %w", err)
 	}
 
-	var creds AWSCredentials
+	var creds awsCredentials
 	if err := json.Unmarshal(output, &creds); err != nil {
 		return nil, fmt.Errorf("parse credentials failed: %w (output: %s)", err, string(output))
 	}
@@ -87,20 +75,20 @@ func exportCredentials(ctx context.Context, profile string) (aws.CredentialsProv
 // loadFromCredentialsFile loads AWS credentials from a specified credentials file.
 //
 //nolint:ireturn // AWS SDK uses CredentialsProvider interface
-func loadFromCredentialsFile(config CredentialsConfig) (aws.CredentialsProvider, error) {
+func loadFromCredentialsFile(cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
 	// Only load from file if explicitly specified
-	if config.File == "" {
+	if cfg.File == "" {
 		return nil, errors.New("no credentials file specified")
 	}
 
 	// Determine profile name
-	profile := config.Profile
+	profile := cfg.Profile
 	if profile == "" {
 		profile = "default"
 	}
 
 	// Load credentials from credentials file
-	accessKeyID, secretAccessKey, sessionToken, err := loadCredentialsFromFile(config.File, profile)
+	accessKeyID, secretAccessKey, sessionToken, err := loadCredentialsFromFile(cfg.File, profile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load credentials from file: %w", err)
 	}
