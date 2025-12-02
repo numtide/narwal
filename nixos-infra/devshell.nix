@@ -1,4 +1,4 @@
-{ pkgs, perSystem }:
+{ pkgs }:
 pkgs.mkShell {
   packages = [
     pkgs.awscli2

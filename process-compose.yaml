@@ -1,10 +1,75 @@
 version: "0.5"
 
 processes:
-    minio:
+    # NOTE: the free version of localstack doesn't provide any persistence of s3 etc between restarts
+    localstack:
         command: |
-            mkdir -p $MINIO_DATA/binary-cache            
-            minio server $MINIO_DATA
+            localstack start
+        readiness_probe:
+            http_get:
+                host: 127.0.0.1
+                scheme: http
+                path: "/"
+                port: 4566
+            period_seconds: 2
+            failure_threshold: 5
+            initial_delay_seconds: 5
+        shutdown:
+            command: "localstack stop"
+            timeout_seconds: 30
+
+    localstack-init:
+        command: |
+            # create s3 bucket
+
+            awslocal s3 mb "s3://$NARWAL_S3_BUCKET"
+
+            # create a queue for upload events
+
+            awslocal sqs create-queue --queue-name $NARWAL_SQS_UPLOAD_EVENT
+
+            NARWAL_SQS_UPLOAD_EVENT_ARN=$(awslocal sqs get-queue-attributes \
+              --attribute-names QueueArn \
+              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_UPLOAD_EVENT" \
+              --query 'Attributes.QueueArn' --output text)
+
+            # create a queue for delete events
+
+            awslocal sqs create-queue --queue-name $NARWAL_SQS_DELETE_EVENT
+
+            NARWAL_SQS_DELETE_EVENT_ARN=$(awslocal sqs get-queue-attributes \
+              --attribute-names QueueArn \
+              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_DELETE_EVENT" \
+              --query 'Attributes.QueueArn' --output text)
+
+            # configure the bucket to send notifications to the queues
+
+            awslocal s3api put-bucket-notification-configuration \
+              --bucket "$NARWAL_S3_BUCKET" \
+              --notification-configuration '{
+                "QueueConfigurations": [
+                  {
+                    "QueueArn": "'"$NARWAL_SQS_UPLOAD_EVENT_ARN"'",
+                    "Events": ["s3:ObjectCreated:*"]
+                  },
+                  {
+                    "QueueArn": "'"$NARWAL_SQS_DELETE_EVENT_ARN"'",
+                    "Events": ["s3:ObjectRemoved:*"]
+                  }
+                ]
+              }'
+
+            # output summary info
+
+            echo "S3 Buckets"
+            awslocal s3 ls
+
+            echo -e "\n$NARWAL_S3_BUCKET Notification Configuration"
+            awslocal s3api get-bucket-notification-configuration --bucket "$NARWAL_S3_BUCKET"
+
+        depends_on:
+            localstack:
+                condition: process_healthy
 
     postgres:
         command: |
