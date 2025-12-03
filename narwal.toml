@@ -10,41 +10,42 @@
 # ENV $NARWAL_WORKAREA_PATH
 path = "./work"
 
+[aws]
+# AWS region (for AWS S3) - use either region OR endpoint, not both
+# ENV $NARWAL_AWS_REGION
+region = ""
+
+# S3 endpoint URL (for custom S3-compatible services like MinIO/LocalStack)
+# Note: Use either region OR endpoint, not both
+# ENV $NARWAL_AWS_ENDPOINT
+endpoint = ""
+
+# Enable SSL for AWS connections
+# ENV $NARWAL_AWS_USE_SSL
+use_ssl = false
+
+# AWS credentials configuration
+[aws.credentials]
+# Direct AWS credentials (highest priority)
+# ENV $NARWAL_AWS_CREDENTIALS_ACCESS_KEY_ID
+access_key_id = ""
+# ENV $NARWAL_AWS_CREDENTIALS_SECRET_ACCESS_KEY
+secret_access_key = ""
+# ENV $NARWAL_AWS_CREDENTIALS_SESSION_TOKEN
+session_token = ""
+
+# AWS credentials file path (second priority)
+# ENV $NARWAL_AWS_CREDENTIALS_FILE
+file = ""
+
+# AWS CLI profile (fallback)
+# ENV $NARWAL_AWS_CREDENTIALS_PROFILE
+profile = ""
+
 [s3]
 # S3 bucket name (required)
 # ENV $NARWAL_S3_BUCKET
 bucket = ""
-
-# For AWS S3: specify region
-# ENV $NARWAL_S3_REGION
-region = ""
-
-# For custom S3-compatible services (like MinIO): specify endpoint
-# Note: Use either region OR endpoint, not both
-# ENV $NARWAL_S3_ENDPOINT
-endpoint = ""
-
-# Enable SSL for S3 connections (defaults to true for AWS, configurable for custom endpoints)
-# ENV $NARWAL_S3_USE_SSL
-use_ssl = false
-
-# S3 credentials configuration
-[s3.credentials]
-# Direct AWS credentials (highest priority)
-# ENV $NARWAL_S3_CREDENTIALS_ACCESS_KEY_ID
-access_key_id = ""
-# ENV $NARWAL_S3_CREDENTIALS_SECRET_ACCESS_KEY
-secret_access_key = ""
-# ENV $NARWAL_S3_CREDENTIALS_SESSION_TOKEN
-session_token = ""
-
-# AWS credentials file path (second priority)
-# ENV $NARWAL_S3_CREDENTIALS_FILE
-file = ""
-
-# AWS CLI profile (fallback)
-# ENV $NARWAL_S3_CREDENTIALS_PROFILE
-profile = ""
 
 [sqs]
 # SQS queue name for S3 upload events
