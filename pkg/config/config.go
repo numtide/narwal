@@ -59,6 +59,12 @@ var (
 			}
 			return c.S3.Validate()
 		},
+		func(c *Config) error {
+			if c.SQS == nil {
+				return nil
+			}
+			return c.SQS.Validate()
+		},
 	}
 )
 

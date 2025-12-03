@@ -17,7 +17,6 @@ import (
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/db"
 	"github.com/numtide/narwal/pkg/inventory"
-	"github.com/numtide/narwal/pkg/store"
 	"github.com/parquet-go/parquet-go"
 	"golang.org/x/sync/errgroup"
 )
@@ -239,12 +238,12 @@ func importManifestFile(
 		}
 
 		// Analyse the path
-		analysis, err := store.AnalyzePath(obj.Key)
+		analysis, err := examinePath(obj.Key)
 		if err != nil {
 			return fmt.Errorf("failed to analyze path '%s': %w", obj.Key, err)
 		}
 
-		hash, err := store.HashFromPath(obj.Key, analysis.ObjectType)
+		hash, err := hashFromPath(obj.Key, analysis.ObjectType)
 		if err != nil {
 			return fmt.Errorf("failed to get hash from path %s: %w", obj.Key, err)
 		}

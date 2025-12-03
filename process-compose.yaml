@@ -26,20 +26,20 @@ processes:
 
             # create a queue for upload events
 
-            awslocal sqs create-queue --queue-name $NARWAL_SQS_UPLOAD_EVENT
+            awslocal sqs create-queue --queue-name $NARWAL_SQS_UPLOAD_EVENT_QUEUE
 
             NARWAL_SQS_UPLOAD_EVENT_ARN=$(awslocal sqs get-queue-attributes \
               --attribute-names QueueArn \
-              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_UPLOAD_EVENT" \
+              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_UPLOAD_EVENT_QUEUE" \
               --query 'Attributes.QueueArn' --output text)
 
             # create a queue for delete events
 
-            awslocal sqs create-queue --queue-name $NARWAL_SQS_DELETE_EVENT
+            awslocal sqs create-queue --queue-name $NARWAL_SQS_DELETE_EVENT_QUEUE
 
             NARWAL_SQS_DELETE_EVENT_ARN=$(awslocal sqs get-queue-attributes \
               --attribute-names QueueArn \
-              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_DELETE_EVENT" \
+              --queue-url "http://localhost:4566/000000000000/$NARWAL_SQS_DELETE_EVENT_QUEUE" \
               --query 'Attributes.QueueArn' --output text)
 
             # configure the bucket to send notifications to the queues

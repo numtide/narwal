@@ -2,14 +2,13 @@ package server
 
 import (
 	"context"
-	"runtime"
+	"fmt"
 	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/awssdk/sqs"
 	"github.com/numtide/narwal/pkg/config"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -17,60 +16,43 @@ const (
 )
 
 type Server struct {
-	log    *log.Logger
-	config *config.Server
-
-	s3     *awssdk.BucketClient
-	pgPool *pgxpool.Pool
-
-	eg *errgroup.Group // for background tasks
+	s3           *awssdk.BucketClient
+	pgPool       *pgxpool.Pool
+	uploadEvents *sqs.S3EventQueue
 }
 
 func NewServer(cfg *config.Server) (*Server, error) {
-	// create an errgroup for background tasks
-	// constrain the max number of tasks
-	eg := &errgroup.Group{}
-	eg.SetLimit(runtime.NumCPU())
-
-	srv := &Server{
-		log:    log.WithPrefix("server"),
-		config: cfg,
-		eg:     eg,
-	}
+	srv := &Server{}
 
 	var err error
 
 	ctx, cancel := context.WithTimeout(context.Background(), dbConnectTimeout)
 	defer cancel()
 
-	// connect to postgres and migrate the database
+	// Connect to postgres and migrate the database
 	if srv.pgPool, err = cfg.Postgres.Connect(ctx, true); err != nil {
 		//nolint:wrapcheck
 		return nil, err
 	}
 
-	// create s3 client
+	// Create s3 client
 	if srv.s3, err = awssdk.NewS3Client(ctx, &cfg.AWS, &cfg.S3); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+	}
+
+	// Create SQS subscription for upload events
+	sqsClient, err := sqs.NewClient(ctx, &cfg.AWS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SQS client: %w", err)
+	}
+
+	if srv.uploadEvents, err = sqs.NewS3EventQueue(ctx, sqsClient, &cfg.SQS); err != nil {
+		return nil, fmt.Errorf("failed to create client for S3 upload event queue: %w", err)
 	}
 
 	return srv, nil
 }
 
-func (s *Server) Start(_ context.Context) error {
-	s.log.Info("started")
-
-	return nil
-}
-
-// Stop gracefully stops the server.
-func (s *Server) Stop(ctx context.Context) error {
-	// wait for background tasks to finish
-	if err := s.eg.Wait(); err != nil {
-		s.log.Error("failure occurred waiting for background tasks", "err", err)
-	}
-
-	s.log.Info("stopped")
-
-	return nil
+func (s *Server) Run(ctx context.Context) error {
+	return s.listenToS3(ctx)
 }

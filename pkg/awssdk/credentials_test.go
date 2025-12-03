@@ -19,7 +19,7 @@ func TestNewCredentials_DirectCredentials(t *testing.T) {
 		SessionToken:    "test-session-token",
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), cfg)
+	creds, err := awssdk.LoadCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -109,7 +109,7 @@ aws_secret_access_key = profile-secret-key
 				Profile: tt.profile,
 			}
 
-			creds, err := awssdk.NewCredentials(t.Context(), cfg)
+			creds, err := awssdk.LoadCredentials(t.Context(), cfg)
 			if err != nil {
 				t.Fatalf("Expected no error, got: %v", err)
 			}
@@ -164,7 +164,7 @@ aws_secret_access_key = file-secret-key
 		File:            credentialsFile,
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), cfg)
+	creds, err := awssdk.LoadCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestNewCredentials_CredentialsFileErrors(t *testing.T) {
 				Profile: tt.profile,
 			}
 
-			_, err := awssdk.NewCredentials(t.Context(), cfg)
+			_, err := awssdk.LoadCredentials(t.Context(), cfg)
 
 			if tt.expectError {
 				if err == nil {
@@ -292,7 +292,7 @@ aws_secret_access_key = file-secret-key
 		File: credentialsFile,
 	}
 
-	creds, err := awssdk.NewCredentials(t.Context(), cfg)
+	creds, err := awssdk.LoadCredentials(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestNewCredentials_NoCredentialsFile_FallsBackToAWSCLI(t *testing.T) {
 		Profile: "nonexistent-profile", // This should fail with AWS CLI
 	}
 
-	_, err := awssdk.NewCredentials(t.Context(), cfg)
+	_, err := awssdk.LoadCredentials(t.Context(), cfg)
 	// Should get an error from AWS CLI since the profile doesn't exist
 	if err == nil {
 		t.Error("Expected error when using nonexistent AWS CLI profile, got none")

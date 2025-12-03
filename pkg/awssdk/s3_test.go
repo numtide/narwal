@@ -48,7 +48,7 @@ func TestNewS3Client_Validation(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "neither region nor endpoint specified - should auto-detect",
+			name: "neither region nor endpoint specified - requires region",
 			awsCfg: &config.AWS{
 				Credentials: config.CredentialsConfig{
 					AccessKeyID:     "test-key",
@@ -58,23 +58,8 @@ func TestNewS3Client_Validation(t *testing.T) {
 			s3Cfg: &config.S3{
 				Bucket: "test-bucket",
 			},
-			wantError: true, // Will fail because test credentials can't access real AWS
-			errorMsg:  "failed to detect bucket region",
-		},
-		{
-			name: "empty bucket name",
-			awsCfg: &config.AWS{
-				Region: "us-west-2",
-				Credentials: config.CredentialsConfig{
-					AccessKeyID:     "test-key",
-					SecretAccessKey: "test-secret",
-				},
-			},
-			s3Cfg: &config.S3{
-				Bucket: "",
-			},
 			wantError: true,
-			errorMsg:  "bucket name is required",
+			errorMsg:  "region is required",
 		},
 		{
 			name: "invalid credentials file",

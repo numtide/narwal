@@ -56,6 +56,11 @@ upload_event_queue = ""
 # ENV $NARWAL_SQS_DELETE_EVENT_QUEUE
 delete_event_queue = ""
 
+# Long polling timeout for SQS ReceiveMessage calls
+# Valid range: 0-20 seconds. Default: 20s (recommended for cost efficiency)
+# ENV $NARWAL_SQS_LONG_POLLING_TIMEOUT
+long_polling_timeout = "20s"
+
 [postgres]
 # PostgreSQL connection URL (required)
 # Example: "postgres://user:pass@localhost:5432/narwal?sslmode=disable"

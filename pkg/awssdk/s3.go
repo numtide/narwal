@@ -2,17 +2,12 @@ package awssdk
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/numtide/narwal/pkg/config"
@@ -21,174 +16,35 @@ import (
 // BucketClient is a bucket-bound S3 client that provides operations
 // for a specific bucket without requiring the bucket name in each method call.
 type BucketClient struct {
-	bucket   string
-	client   *s3.Client
-	uploader *manager.Uploader
+	bucket string
+	client *s3.Client
 }
 
 // NewS3Client creates a new bucket-bound S3 client from config objects.
 func NewS3Client(ctx context.Context, awsCfg *config.AWS, s3Cfg *config.S3) (*BucketClient, error) {
-	// Validate basic requirements
-	if s3Cfg.Bucket == "" {
-		return nil, errors.New("bucket name is required")
-	}
-
-	// Create AWS credentials
-	creds, err := NewCredentials(ctx, awsCfg.Credentials)
+	// Load AWS SDK config
+	sdkCfg, err := LoadSDKConfig(ctx, awsCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS credentials: %w", err)
-	}
-
-	var (
-		region   string
-		useSSL   bool
-		endpoint string
-	)
-
-	//nolint:nestif
-	if awsCfg.Endpoint != "" {
-		// Custom endpoint mode (LocalStack, MinIO, etc.)
-		endpoint = awsCfg.Endpoint
-		useSSL = awsCfg.UseSSL
-
-		region = awsCfg.Region
-		if region == "" {
-			region = "us-east-1" // Default region for custom endpoints
-		}
-	} else {
-		// AWS S3 mode - determine region
-		useSSL = true
-		region = awsCfg.Region
-
-		// If region is not specified, try to detect it automatically
-		if region == "" {
-			detectedRegion, err := DetectBucketRegion(ctx, s3Cfg.Bucket, creds)
-			if err != nil {
-				return nil, fmt.Errorf("failed to detect bucket region for %s: %w", s3Cfg.Bucket, err)
-			}
-
-			region = detectedRegion
-		}
-	}
-
-	// Create custom HTTP client with high connection limits for concurrency
-	httpClient := &http.Client{
-		Transport: createHTTPTransport(useSSL),
-	}
-
-	// Load AWS config
-	sdkCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithCredentialsProvider(creds),
-		awsconfig.WithRegion(region),
-		awsconfig.WithHTTPClient(httpClient),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, err
 	}
 
 	// Build S3 client options
 	var s3Opts []func(*s3.Options)
 
-	if endpoint != "" {
-		// Custom endpoint - use path style and set base endpoint
-		scheme := "http"
-		if useSSL {
-			scheme = "https"
-		}
-
+	// Use path-style URLs for localstack/minio if a custom endpoint is configured
+	if awsCfg.Endpoint != "" {
 		s3Opts = append(s3Opts, func(o *s3.Options) {
-			o.BaseEndpoint = aws.String(fmt.Sprintf("%s://%s", scheme, endpoint))
-			o.UsePathStyle = true // Required for LocalStack/MinIO
+			o.UsePathStyle = true
 		})
 	}
 
-	client := s3.NewFromConfig(sdkCfg, s3Opts...)
-
-	// Create the uploader for streaming uploads
-	uploader := manager.NewUploader(client)
+	// Create the S3 client
+	client := s3.NewFromConfig(*sdkCfg, s3Opts...)
 
 	return &BucketClient{
-		client:   client,
-		uploader: uploader,
-		bucket:   s3Cfg.Bucket,
+		client: client,
+		bucket: s3Cfg.Bucket,
 	}, nil
-}
-
-// createHTTPTransport creates an HTTP transport optimized for S3 operations.
-func createHTTPTransport(useSSL bool) *http.Transport {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   2048, // High limit for concurrent narinfo downloads
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	if useSSL {
-		transport.TLSClientConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-	}
-
-	return transport
-}
-
-// GetObject retrieves an object from the bucket.
-func (bc *BucketClient) GetObject(
-	ctx context.Context,
-	key string,
-) (*s3.GetObjectOutput, error) {
-	output, err := bc.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bc.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get object %s: %w", key, err)
-	}
-
-	return output, nil
-}
-
-// PutObject uploads an object to the bucket.
-// Uses the S3 Upload Manager to handle streaming uploads (unseekable readers).
-func (bc *BucketClient) PutObject(
-	ctx context.Context,
-	key string,
-	reader io.Reader,
-	objectSize int64,
-	contentType string,
-	contentEncoding string,
-) (*manager.UploadOutput, error) {
-	input := &s3.PutObjectInput{
-		Bucket: aws.String(bc.bucket),
-		Key:    aws.String(key),
-		Body:   reader,
-	}
-
-	if objectSize >= 0 {
-		input.ContentLength = aws.Int64(objectSize)
-	}
-
-	if contentType != "" {
-		input.ContentType = aws.String(contentType)
-	}
-
-	if contentEncoding != "" {
-		input.ContentEncoding = aws.String(contentEncoding)
-	}
-
-	output, err := bc.uploader.Upload(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload object %s: %w", key, err)
-	}
-
-	return output, nil
 }
 
 // StatObject gets metadata of an object in the bucket (HeadObject).
@@ -353,10 +209,10 @@ func DetectBucketRegion(ctx context.Context, bucketName string, creds aws.Creden
 	}
 
 	// Create a temporary S3 client to detect bucket region
-	// Use us-east-1 as the default region for the lookup
+	// Use defaultRegion for the lookup
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithCredentialsProvider(creds),
-		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithRegion(defaultRegion),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS config: %w", err)
@@ -374,7 +230,7 @@ func DetectBucketRegion(ctx context.Context, bucketName string, creds aws.Creden
 	// AWS returns empty/nil LocationConstraint for us-east-1
 	region := string(output.LocationConstraint)
 	if region == "" {
-		return "us-east-1", nil
+		return defaultRegion, nil
 	}
 
 	// Handle legacy "EU" region constraint which maps to eu-west-1

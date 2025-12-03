@@ -21,7 +21,7 @@ type awsCredentials struct {
 }
 
 //nolint:ireturn // AWS SDK uses CredentialsProvider interface
-func NewCredentials(ctx context.Context, cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
+func LoadCredentials(ctx context.Context, cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
 	// If direct credentials are provided, use them
 	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
 		return credentials.NewStaticCredentialsProvider(

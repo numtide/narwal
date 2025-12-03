@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/numtide/narwal/pkg/config"
@@ -24,7 +23,7 @@ func runCmd() *cobra.Command {
 	fs := cmd.Flags()
 	config.SetAWSFlags(fs)
 	config.SetS3Flags(fs)
-	config.SetHttpFlags(fs)
+	config.SetSQSFlags(fs)
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true
@@ -54,26 +53,9 @@ func runE(cmd *cobra.Command, _ []string) error {
 
 	ctx := cmd.Context()
 
-	if err = srv.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
+	if err = srv.Run(ctx); err != nil {
+		return fmt.Errorf("server failure: %w", err)
 	}
-
-	// monitor context for cancellation (from SIGINT/SIGTERM handled in main)
-	go func() {
-		<-ctx.Done()
-		log.Info("shutdown signal received")
-
-		// stop the server, waiting up to 30 seconds for it to complete
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
-
-		//nolint:contextcheck
-		if err := srv.Stop(shutdownCtx); err != nil {
-			log.Error("error during server shutdown", "error", err)
-		} else {
-			log.Info("server shutdown completed")
-		}
-	}()
 
 	// block until the app context has completed
 	<-ctx.Done()
