@@ -108,11 +108,21 @@ func TestConfig_Validate(t *testing.T) {
 			err: "s3 bucket name is required",
 		},
 		{
+			name: "valid SQS only",
+			cfg: config.Config{
+				SQS: &config.SQS{
+					UploadEventQueue: "upload-queue",
+					DeleteEventQueue: "delete-queue",
+				},
+			},
+		},
+		{
 			name: "multiple valid configs",
 			cfg: config.Config{
 				Badger:   &config.Badger{Path: "./db"},
 				AWS:      &config.AWS{Region: "us-east-1"},
 				S3:       &config.S3{Bucket: "bucket"},
+				SQS:      &config.SQS{UploadEventQueue: "queue"},
 				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
 				HTTP:     &config.HTTP{Host: "127.0.0.1", Port: 8080},
 			},
@@ -151,6 +161,8 @@ func TestConfig_FromViper(t *testing.T) {
 		v := viper.New()
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
+		v.Set("sqs.upload_event_queue", "upload-queue")
+		v.Set("sqs.delete_event_queue", "delete-queue")
 		v.Set("aws.region", "us-west-2")
 		v.Set("postgres.url", "postgres://user:pass@localhost:5432/db")
 		v.Set("http.host", "0.0.0.0")
@@ -167,6 +179,10 @@ func TestConfig_FromViper(t *testing.T) {
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "test-bucket", cfg.S3.Bucket)
+
+		require.NotNil(t, cfg.SQS)
+		require.Equal(t, "upload-queue", cfg.SQS.UploadEventQueue)
+		require.Equal(t, "delete-queue", cfg.SQS.DeleteEventQueue)
 
 		require.NotNil(t, cfg.AWS)
 		require.Equal(t, "us-west-2", cfg.AWS.Region)
@@ -333,6 +349,10 @@ path = "/toml/badger/path"
 [s3]
 bucket = "toml-bucket"
 
+[sqs]
+upload_event_queue = "toml-upload-queue"
+delete_event_queue = "toml-delete-queue"
+
 [aws]
 region = "us-east-1"
 use_ssl = true
@@ -376,6 +396,10 @@ force_nar_info_download = true
 
 	require.NotNil(t, cfg.S3)
 	require.Equal(t, "toml-bucket", cfg.S3.Bucket)
+
+	require.NotNil(t, cfg.SQS)
+	require.Equal(t, "toml-upload-queue", cfg.SQS.UploadEventQueue)
+	require.Equal(t, "toml-delete-queue", cfg.SQS.DeleteEventQueue)
 
 	require.NotNil(t, cfg.AWS)
 	require.Equal(t, "us-east-1", cfg.AWS.Region)

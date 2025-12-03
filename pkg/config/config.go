@@ -70,6 +70,7 @@ type Config struct {
 	Postgres  *Postgres  `mapstructure:"postgres"`
 	AWS       *AWS       `mapstructure:"aws"`
 	S3        *S3        `mapstructure:"s3"`
+	SQS       *SQS       `mapstructure:"sqs"`
 }
 
 type validator = func(*Config) error
