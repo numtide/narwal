@@ -208,13 +208,14 @@ func importManifestFile(
 
 	// Create an error group for concurrent imports
 	eg, egCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(8) // todo how to size this?
+	// We have up to 128 partitions to play with so there's opportunity for a lot of concurrency
+	eg.SetLimit(32)
 
 	// Batch objects by object_type for partition-aware imports in Postgres
 	batches := make(map[db.ObjectType][]objectWithMetadata)
 
-	// Import objects in batches of 10240
-	const batchSize = 10240 // todo how to size this?
+	// Import objects in batches of 25000
+	const batchSize = 25000
 
 	// A helper function to flush a batch of objects to Postgres once the batch size is reached
 	flushBatch := func(objectType db.ObjectType, batch []objectWithMetadata) {
@@ -332,7 +333,12 @@ func importBatch(
 		_ = tx.Rollback(ctx)
 	}()
 
-	// Collect the object hashes and paths for the COPY statement
+	// Disable synchronous commit for this transaction to reduce WAL pressure
+	if _, err = tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return 0, fmt.Errorf("failed to set synchronous_commit: %w", err)
+	}
+
+	// Collect the object hashes and paths for the DELETE statement
 	hashes := make([]string, len(batch))
 	paths := make([]string, len(batch))
 
