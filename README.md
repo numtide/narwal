@@ -1,6 +1,6 @@
 # Narwal
 
-The [S3] bucket behind https://cache.nixos.org contains more than 1 billion files requiring more than 600 TB of storage.
+The [S3] bucket behind https://cache.nixos.org contains more than __1 billion files__ requiring more than __600 TB__ of storage.
 This project is yet another attempt at garbage collecting that behemoth.
 
 To achieve this, we are looking to build the simplest solution possible.
