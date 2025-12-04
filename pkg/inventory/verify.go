@@ -125,6 +125,7 @@ LOOP:
 			ml.Infof("reading manifest file: %s", file.Key)
 
 			start := time.Now()
+
 			fileStats, err := readManifestFile(ctx, cfg, db, &file)
 			if err != nil {
 				return fmt.Errorf("failed to read manifest file %s: %w", file.Key, err)

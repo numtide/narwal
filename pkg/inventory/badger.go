@@ -28,19 +28,19 @@ type badgerLogger struct {
 	logger *log.Logger
 }
 
-func (l *badgerLogger) Errorf(format string, args ...interface{}) {
+func (l *badgerLogger) Errorf(format string, args ...any) {
 	l.logger.Errorf(format, args...)
 }
 
-func (l *badgerLogger) Warningf(format string, args ...interface{}) {
+func (l *badgerLogger) Warningf(format string, args ...any) {
 	l.logger.Warnf(format, args...)
 }
 
-func (l *badgerLogger) Infof(format string, args ...interface{}) {
+func (l *badgerLogger) Infof(format string, args ...any) {
 	l.logger.Infof(format, args...)
 }
 
-func (l *badgerLogger) Debugf(format string, args ...interface{}) {
+func (l *badgerLogger) Debugf(format string, args ...any) {
 	l.logger.Debugf(format, args...)
 }
 

@@ -57,6 +57,8 @@ func TestInventory_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.inventory.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -94,12 +96,14 @@ func TestInventory_FromViper(t *testing.T) {
 
 	t.Run("from viper set", func(t *testing.T) {
 		t.Parallel()
+
 		v := viper.New()
 		v.Set("inventory.bucket_prefix", "custom/prefix")
 		v.Set("inventory.force_nar_info_download", true)
 		v.Set("inventory.delete_invalid_nar_infos", true)
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Inventory)
@@ -109,6 +113,8 @@ func TestInventory_FromViper(t *testing.T) {
 	})
 
 	t.Run("from flags", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetInventoryFlags(fs)
@@ -120,6 +126,7 @@ func TestInventory_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Inventory)
@@ -128,6 +135,8 @@ func TestInventory_FromViper(t *testing.T) {
 	})
 
 	t.Run("flag overrides default", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetInventoryFlags(fs)
@@ -137,6 +146,7 @@ func TestInventory_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Inventory)
@@ -154,6 +164,7 @@ func TestInventory_EnvOverride(t *testing.T) {
 	t.Setenv("NARWAL_INVENTORY_DELETE_INVALID_NAR_INFOS", "true")
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Inventory)

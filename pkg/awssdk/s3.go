@@ -4,163 +4,190 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
-)
-
-const (
-	defaultS3Endpoint = "s3.amazonaws.com"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 // BucketClient is a bucket-bound S3 client that provides operations
 // for a specific bucket without requiring the bucket name in each method call.
 type BucketClient struct {
-	client *minio.Client
 	bucket string
+	client *s3.Client
 }
 
-// BucketConfig holds configuration for creating a BucketClient.
-type BucketConfig struct {
-	// S3 bucket name (required)
-	Bucket string
-
-	// S3 endpoint configuration (use either AWS region OR custom endpoint, not both)
-	Region string
-
-	// MinIO-specific options (for custom endpoints)
-	Endpoint string // use this OR Region, not both
-	UseSSL   bool   // defaults to true for AWS, configurable for custom endpoints
-}
-
-// NewBucketClient creates a new bucket-bound S3 client.
-func NewBucketClient(
-	ctx context.Context,
-	config BucketConfig,
-	creds *credentials.Credentials,
-) (*BucketClient, error) {
-	// Validate basic requirements
-	if config.Bucket == "" {
-		return nil, errors.New("bucket name is required")
-	}
-
-	if creds == nil {
-		return nil, errors.New("credentials are required")
-	}
-
-	// Validate configuration: cannot specify both Region and Endpoint
-	if config.Region != "" && config.Endpoint != "" {
-		return nil, errors.New("cannot specify both Region and Endpoint - " +
-			"use Region for AWS S3 or Endpoint for custom S3-compatible services")
-	}
-
-	var (
-		endpoint string
-		useSSL   bool
-		region   string
-	)
-
-	//nolint:nestif
-	if config.Endpoint != "" {
-		// Custom endpoint mode (MinIO, etc.)
-		endpoint = config.Endpoint
-		useSSL = config.UseSSL
-		region = config.Region // can be empty for custom endpoints
-	} else {
-		// AWS S3 mode - determine region and construct endpoint
-		useSSL = true
-		region = config.Region
-
-		// If region is not specified, try to detect it automatically
-		if region == "" {
-			detectedRegion, err := DetectBucketRegion(ctx, config.Bucket, creds)
-			if err != nil {
-				return nil, fmt.Errorf("failed to detect bucket region for %s: %w", config.Bucket, err)
-			}
-
-			region = detectedRegion
-		}
-
-		// Construct AWS S3 endpoint
-		endpoint = defaultS3Endpoint
-		if region != "us-east-1" {
-			endpoint = fmt.Sprintf("s3.%s.amazonaws.com", region)
-		}
-	}
-
-	transport, err := minio.DefaultTransport(useSSL)
+// NewS3Client creates a new bucket-bound S3 client from config objects.
+func NewS3Client(ctx context.Context, awsCfg *config.AWS, s3Cfg *config.S3) (*BucketClient, error) {
+	// Load AWS SDK config
+	sdkCfg, err := LoadSDKConfig(ctx, awsCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create transport: %w", err)
+		return nil, err
 	}
 
-	// increase the number of idle connections to 128 to improve downloading of narinfos
-	transport.MaxIdleConnsPerHost = 2048
+	// Build S3 client options
+	var s3Opts []func(*s3.Options)
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transport: %w", err)
+	// Use path-style URLs for localstack/minio if a custom endpoint is configured
+	if awsCfg.Endpoint != "" {
+		s3Opts = append(s3Opts, func(o *s3.Options) {
+			o.UsePathStyle = true
+		})
 	}
 
-	client, err := minio.New(endpoint, &minio.Options{
-		Creds:     creds,
-		Secure:    useSSL,
-		Region:    region,
-		Transport: transport,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
-	}
+	// Create the S3 client
+	client := s3.NewFromConfig(*sdkCfg, s3Opts...)
 
 	return &BucketClient{
 		client: client,
-		bucket: config.Bucket,
+		bucket: s3Cfg.Bucket,
 	}, nil
 }
 
-// GetObject retrieves an object from the bucket.
-func (bc *BucketClient) GetObject(
-	ctx context.Context,
-	key string,
-	opts minio.GetObjectOptions,
-) (*minio.Object, error) {
-	return bc.client.GetObject(ctx, bc.bucket, key, opts) //nolint:wrapcheck
-}
-
-// PutObject uploads an object to the bucket.
-func (bc *BucketClient) PutObject(
-	ctx context.Context,
-	key string,
-	reader io.Reader,
-	objectSize int64,
-	opts minio.PutObjectOptions,
-) (minio.UploadInfo, error) {
-	return bc.client.PutObject(ctx, bc.bucket, key, reader, objectSize, opts) //nolint:wrapcheck
-}
-
-// StatObject gets metadata of an object in the bucket.
+// StatObject gets metadata of an object in the bucket (HeadObject).
 func (bc *BucketClient) StatObject(
 	ctx context.Context,
 	key string,
-	opts minio.StatObjectOptions,
-) (minio.ObjectInfo, error) {
-	return bc.client.StatObject(ctx, bc.bucket, key, opts) //nolint:wrapcheck
+) (*s3.HeadObjectOutput, error) {
+	output, err := bc.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bc.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat object %s: %w", key, err)
+	}
+
+	return output, nil
 }
 
 // RemoveObject removes an object from the bucket.
 func (bc *BucketClient) RemoveObject(
 	ctx context.Context,
 	key string,
-	opts minio.RemoveObjectOptions,
 ) error {
-	return bc.client.RemoveObject(ctx, bc.bucket, key, opts) //nolint:wrapcheck
+	_, err := bc.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bc.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object %s: %w", key, err)
+	}
+
+	return nil
 }
 
-// ListObjects lists objects in the bucket.
+// RemoveObjects removes multiple objects from the bucket in a single call.
+// Returns a map of failed keys to their errors, or nil if all succeeded.
+func (bc *BucketClient) RemoveObjects(
+	ctx context.Context,
+	keys []string,
+) (map[string]error, error) {
+	if len(keys) == 0 {
+		return nil, nil //nolint:nilnil // intentional: no keys means no errors
+	}
+
+	// AWS limit is 1000 objects per DeleteObjects call
+	const maxBatchSize = 1000
+
+	failures := make(map[string]error)
+
+	for i := 0; i < len(keys); i += maxBatchSize {
+		end := min(i+maxBatchSize, len(keys))
+
+		batch := keys[i:end]
+
+		objects := make([]types.ObjectIdentifier, len(batch))
+
+		for j, key := range batch {
+			objects[j] = types.ObjectIdentifier{Key: aws.String(key)}
+		}
+
+		output, err := bc.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(bc.bucket),
+			Delete: &types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(false),
+			},
+		})
+		if err != nil {
+			// All deletions in this batch failed
+			for _, key := range batch {
+				failures[key] = err
+			}
+
+			continue
+		}
+
+		// Record individual failures
+		for _, e := range output.Errors {
+			failures[aws.ToString(e.Key)] = fmt.Errorf("%s: %s", aws.ToString(e.Code), aws.ToString(e.Message))
+		}
+	}
+
+	if len(failures) > 0 {
+		return failures, nil
+	}
+
+	return nil, nil //nolint:nilnil // intentional: all deletions succeeded
+}
+
+// ListObjectsOutput represents an object returned from listing.
+type ListObjectsOutput struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+	ETag         string
+	Err          error
+}
+
+// ListObjects lists objects in the bucket with the given prefix.
+// Returns a channel that yields objects one at a time.
 func (bc *BucketClient) ListObjects(
 	ctx context.Context,
-	opts minio.ListObjectsOptions,
-) <-chan minio.ObjectInfo {
-	return bc.client.ListObjects(ctx, bc.bucket, opts)
+	prefix string,
+	recursive bool,
+) <-chan ListObjectsOutput {
+	ch := make(chan ListObjectsOutput)
+
+	go func() {
+		defer close(ch)
+
+		input := &s3.ListObjectsV2Input{
+			Bucket: aws.String(bc.bucket),
+		}
+
+		if prefix != "" {
+			input.Prefix = aws.String(prefix)
+		}
+
+		if !recursive {
+			input.Delimiter = aws.String("/")
+		}
+
+		paginator := s3.NewListObjectsV2Paginator(bc.client, input)
+
+		for paginator.HasMorePages() {
+			output, err := paginator.NextPage(ctx)
+			if err != nil {
+				ch <- ListObjectsOutput{Err: err}
+				return
+			}
+
+			for _, obj := range output.Contents {
+				ch <- ListObjectsOutput{
+					Key:          aws.ToString(obj.Key),
+					Size:         aws.ToInt64(obj.Size),
+					LastModified: aws.ToTime(obj.LastModified),
+					ETag:         aws.ToString(obj.ETag),
+				}
+			}
+		}
+	}()
+
+	return ch
 }
 
 // BucketName returns the name of the bucket this client is bound to.
@@ -168,38 +195,42 @@ func (bc *BucketClient) BucketName() string {
 	return bc.bucket
 }
 
-// UnderlyingClient returns the underlying minio.Client for advanced operations.
-func (bc *BucketClient) UnderlyingClient() *minio.Client {
+// UnderlyingClient returns the underlying s3.Client for advanced operations.
+func (bc *BucketClient) UnderlyingClient() *s3.Client {
 	return bc.client
 }
 
-// DetectBucketRegion detects the AWS region of a bucket using MinIO client.
+// DetectBucketRegion detects the AWS region of a bucket.
 // This function can be called before creating an S3 client to automatically
 // determine the appropriate region.
-func DetectBucketRegion(ctx context.Context, bucketName string, creds *credentials.Credentials) (string, error) {
+func DetectBucketRegion(ctx context.Context, bucketName string, creds aws.CredentialsProvider) (string, error) {
 	if creds == nil {
 		return "", errors.New("credentials are required for bucket region detection")
 	}
 
-	// Create a temporary MinIO client to detect bucket region
-	// Use empty region to avoid biasing the result
-	tempClient, err := minio.New(defaultS3Endpoint, &minio.Options{
-		Creds:  creds,
-		Secure: true,
-		Region: "", // Use empty region to get unbiased result
-	})
+	// Create a temporary S3 client to detect bucket region
+	// Use defaultRegion for the lookup
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithCredentialsProvider(creds),
+		awsconfig.WithRegion(defaultRegion),
+	)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temporary S3 client: %w", err)
+		return "", fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	region, err := tempClient.GetBucketLocation(ctx, bucketName)
+	client := s3.NewFromConfig(awsCfg)
+
+	output, err := client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
+		Bucket: aws.String(bucketName),
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to get bucket location for %s: %w", bucketName, err)
 	}
 
-	// AWS returns empty string for us-east-1
+	// AWS returns empty/nil LocationConstraint for us-east-1
+	region := string(output.LocationConstraint)
 	if region == "" {
-		return "us-east-1", nil
+		return defaultRegion, nil
 	}
 
 	// Handle legacy "EU" region constraint which maps to eu-west-1
@@ -208,4 +239,16 @@ func DetectBucketRegion(ctx context.Context, bucketName string, creds *credentia
 	}
 
 	return region, nil
+}
+
+// CreateBucket creates a new S3 bucket (primarily for testing).
+func (bc *BucketClient) CreateBucket(ctx context.Context) error {
+	_, err := bc.client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(bc.bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create bucket %s: %w", bc.bucket, err)
+	}
+
+	return nil
 }

@@ -42,16 +42,28 @@ var (
 			return c.Postgres.Validate()
 		},
 		func(c *Config) error {
-			if c.S3 == nil {
+			if c.AWS == nil {
 				return nil
 			}
-			return c.S3.Validate()
+			return c.AWS.Validate()
 		},
 		func(c *Config) error {
 			if c.Inventory == nil {
 				return nil
 			}
 			return c.Inventory.Validate()
+		},
+		func(c *Config) error {
+			if c.S3 == nil {
+				return nil
+			}
+			return c.S3.Validate()
+		},
+		func(c *Config) error {
+			if c.SQS == nil {
+				return nil
+			}
+			return c.SQS.Validate()
 		},
 	}
 )
@@ -62,7 +74,9 @@ type Config struct {
 	GC        *GC        `mapstructure:"gc"`
 	HTTP      *HTTP      `mapstructure:"http"`
 	Postgres  *Postgres  `mapstructure:"postgres"`
+	AWS       *AWS       `mapstructure:"aws"`
 	S3        *S3        `mapstructure:"s3"`
+	SQS       *SQS       `mapstructure:"sqs"`
 }
 
 type validator = func(*Config) error
@@ -120,7 +134,7 @@ func FromViper(v *viper.Viper, cfg any) error {
 
 // BindEnvVars walks the config struct and binds each field to an environment variable.
 // This allows single-underscore env vars like NARWAL_S3_USE_SSL instead of double-underscore.
-func BindEnvVars(v *viper.Viper, prefix string, cfg interface{}) {
+func BindEnvVars(v *viper.Viper, prefix string, cfg any) {
 	bindEnvVarsRecursive(v, prefix, "", reflect.TypeOf(cfg))
 }
 

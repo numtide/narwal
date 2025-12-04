@@ -1,4 +1,4 @@
-package store
+package server
 
 import (
 	"errors"
@@ -13,8 +13,8 @@ var (
 	compressionRegex = regexp.MustCompile(`(\.(br|bz2|compress|grzip|gzip|lrzip|lz4|lzip|lzma|lzop|xz|zstd))?$`)
 )
 
-// PathAnalysis contains the results of analyzing a file path.
-type PathAnalysis struct {
+// pathAnalysis contains the results of analysing a file path.
+type pathAnalysis struct {
 	ObjectType  db.ObjectType
 	Compression db.CompressionType
 }
@@ -37,7 +37,7 @@ func compressionExtension(path string) string {
 	return ""
 }
 
-func AnalyzePath(path string) (*PathAnalysis, error) {
+func examinePath(path string) (*pathAnalysis, error) {
 	if path == "" {
 		return nil, errors.New("path is empty")
 	}
@@ -45,7 +45,7 @@ func AnalyzePath(path string) (*PathAnalysis, error) {
 	typeExt := typeExtension(path)
 	compressionExt := compressionExtension(path)
 
-	result := &PathAnalysis{
+	result := &pathAnalysis{
 		Compression: db.CompressionTypeNone,
 	}
 
@@ -74,8 +74,8 @@ func AnalyzePath(path string) (*PathAnalysis, error) {
 	return result, nil
 }
 
-// HashFromPath extracts the hash from a path given the object type.
-func HashFromPath(path string, objectType db.ObjectType) (string, error) {
+// hashFromPath extracts the hash from a path given the object type.
+func hashFromPath(path string, objectType db.ObjectType) (string, error) {
 	// hash can be 32, 40 or 52 characters depending on the object type
 	// it can also be located in different parts of the string
 	var hash string

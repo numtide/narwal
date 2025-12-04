@@ -16,6 +16,7 @@ import (
 // fuseFile represents a Badger-backed file in the FUSE filesystem.
 type fuseFile struct {
 	fs.Inode
+
 	db  *badger.DB
 	key []byte
 }
@@ -116,6 +117,7 @@ func (fh *fuseFileHandle) Read(ctx context.Context, dest []byte, off int64) (fus
 // FileSystem implements a FUSE filesystem for the Badger database.
 type FileSystem struct {
 	fs.Inode
+
 	db *badger.DB
 }
 

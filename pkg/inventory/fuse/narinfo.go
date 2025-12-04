@@ -42,6 +42,7 @@ func (m *narinfoStream) Close() {
 
 type narinfoDir struct {
 	fs.Inode
+
 	db     *badger.DB
 	prefix string
 }
@@ -110,6 +111,7 @@ func (d *narinfoDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 
 type narinfosDir struct {
 	fs.Inode
+
 	db       *badger.DB
 	prefixes []fuse.DirEntry
 }

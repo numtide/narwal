@@ -36,6 +36,12 @@ func TestConfig_Validate(t *testing.T) {
 			err: "badger db path is required",
 		},
 		{
+			name: "valid AWS only",
+			cfg: config.Config{
+				AWS: &config.AWS{Region: "us-east-1"},
+			},
+		},
+		{
 			name: "valid S3 only",
 			cfg: config.Config{
 				S3: &config.S3{Bucket: "bucket"},
@@ -84,6 +90,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid GC only",
 			cfg: config.Config{
 				GC: &config.GC{
+					AWS:      config.AWS{Region: "us-east-1"},
 					S3:       config.S3{Bucket: "bucket"},
 					Postgres: config.Postgres{URL: "postgres://localhost/db"},
 				},
@@ -93,6 +100,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "invalid GC - missing bucket",
 			cfg: config.Config{
 				GC: &config.GC{
+					AWS:      config.AWS{},
 					S3:       config.S3{},
 					Postgres: config.Postgres{URL: "postgres://localhost/db"},
 				},
@@ -100,10 +108,21 @@ func TestConfig_Validate(t *testing.T) {
 			err: "s3 bucket name is required",
 		},
 		{
+			name: "valid SQS only",
+			cfg: config.Config{
+				SQS: &config.SQS{
+					UploadEventQueue: "upload-queue",
+					DeleteEventQueue: "delete-queue",
+				},
+			},
+		},
+		{
 			name: "multiple valid configs",
 			cfg: config.Config{
 				Badger:   &config.Badger{Path: "./db"},
+				AWS:      &config.AWS{Region: "us-east-1"},
 				S3:       &config.S3{Bucket: "bucket"},
+				SQS:      &config.SQS{UploadEventQueue: "queue"},
 				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
 				HTTP:     &config.HTTP{Host: "127.0.0.1", Port: 8080},
 			},
@@ -120,6 +139,8 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.cfg.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -135,16 +156,21 @@ func TestConfig_FromViper(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unmarshals complete config", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
-		v.Set("s3.region", "us-west-2")
+		v.Set("sqs.upload_event_queue", "upload-queue")
+		v.Set("sqs.delete_event_queue", "delete-queue")
+		v.Set("aws.region", "us-west-2")
 		v.Set("postgres.url", "postgres://user:pass@localhost:5432/db")
 		v.Set("http.host", "0.0.0.0")
 		v.Set("http.port", 9000)
 		v.Set("inventory.bucket_prefix", "nix-cache/")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -153,7 +179,13 @@ func TestConfig_FromViper(t *testing.T) {
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "test-bucket", cfg.S3.Bucket)
-		require.Equal(t, "us-west-2", cfg.S3.Region)
+
+		require.NotNil(t, cfg.SQS)
+		require.Equal(t, "upload-queue", cfg.SQS.UploadEventQueue)
+		require.Equal(t, "delete-queue", cfg.SQS.DeleteEventQueue)
+
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "us-west-2", cfg.AWS.Region)
 
 		require.NotNil(t, cfg.Postgres)
 		require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.Postgres.URL)
@@ -167,23 +199,27 @@ func TestConfig_FromViper(t *testing.T) {
 	})
 
 	t.Run("handles nested credentials", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
-		v.Set("s3.bucket", "test-bucket")
-		v.Set("s3.credentials.access_key_id", "AKIATEST")
-		v.Set("s3.credentials.secret_access_key", "secret")
-		v.Set("s3.credentials.profile", "production")
+		v.Set("aws.credentials.access_key_id", "AKIATEST")
+		v.Set("aws.credentials.secret_access_key", "secret")
+		v.Set("aws.credentials.profile", "production")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
-		require.NotNil(t, cfg.S3)
-		require.Equal(t, "AKIATEST", cfg.S3.Credentials.AccessKeyID)
-		require.Equal(t, "secret", cfg.S3.Credentials.SecretAccessKey)
-		require.Equal(t, "production", cfg.S3.Credentials.Profile)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "AKIATEST", cfg.AWS.Credentials.AccessKeyID)
+		require.Equal(t, "secret", cfg.AWS.Credentials.SecretAccessKey)
+		require.Equal(t, "production", cfg.AWS.Credentials.Profile)
 	})
 
 	t.Run("handles basic auth nested config", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		v.Set("http.host", "127.0.0.1")
 		v.Set("http.port", 8080)
@@ -192,6 +228,7 @@ func TestConfig_FromViper(t *testing.T) {
 		v.Set("http.basic_auth.password", "secret")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -211,6 +248,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_POSTGRES_URL", "postgres://env/db")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -226,17 +264,19 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		config.BindEnvVars(v, "NARWAL", config.Config{})
 
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
-		t.Setenv("NARWAL_S3_CREDENTIALS_ACCESS_KEY_ID", "ENV_KEY_ID")
-		t.Setenv("NARWAL_S3_CREDENTIALS_SECRET_ACCESS_KEY", "ENV_SECRET")
+		t.Setenv("NARWAL_AWS_CREDENTIALS_ACCESS_KEY_ID", "ENV_KEY_ID")
+		t.Setenv("NARWAL_AWS_CREDENTIALS_SECRET_ACCESS_KEY", "ENV_SECRET")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "env-bucket", cfg.S3.Bucket)
-		require.Equal(t, "ENV_KEY_ID", cfg.S3.Credentials.AccessKeyID)
-		require.Equal(t, "ENV_SECRET", cfg.S3.Credentials.SecretAccessKey)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "ENV_KEY_ID", cfg.AWS.Credentials.AccessKeyID)
+		require.Equal(t, "ENV_SECRET", cfg.AWS.Credentials.SecretAccessKey)
 	})
 
 	t.Run("binds HTTP basic auth fields", func(t *testing.T) {
@@ -250,6 +290,7 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		t.Setenv("NARWAL_HTTP_BASIC_AUTH_PASSWORD", "envpass")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
@@ -267,15 +308,17 @@ func TestConfig_BindEnvVars(t *testing.T) {
 
 		// Set env vars without any v.Set() calls
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
-		t.Setenv("NARWAL_S3_REGION", "env-region")
+		t.Setenv("NARWAL_AWS_REGION", "env-region")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "env-bucket", cfg.S3.Bucket)
-		require.Equal(t, "env-region", cfg.S3.Region)
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "env-region", cfg.AWS.Region)
 	})
 }
 
@@ -283,6 +326,8 @@ func TestConfig_ConfigureViper(t *testing.T) {
 	t.Parallel()
 
 	t.Run("configures viper with correct settings", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		err := config.ConfigureViper(v)
 		require.NoError(t, err)
@@ -303,10 +348,16 @@ path = "/toml/badger/path"
 
 [s3]
 bucket = "toml-bucket"
+
+[sqs]
+upload_event_queue = "toml-upload-queue"
+delete_event_queue = "toml-delete-queue"
+
+[aws]
 region = "us-east-1"
 use_ssl = true
 
-[s3.credentials]
+[aws.credentials]
 access_key_id = "TOML_KEY"
 secret_access_key = "TOML_SECRET"
 
@@ -336,6 +387,7 @@ force_nar_info_download = true
 	require.NoError(t, v.ReadInConfig())
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 
@@ -344,10 +396,16 @@ force_nar_info_download = true
 
 	require.NotNil(t, cfg.S3)
 	require.Equal(t, "toml-bucket", cfg.S3.Bucket)
-	require.Equal(t, "us-east-1", cfg.S3.Region)
-	require.True(t, cfg.S3.UseSSL)
-	require.Equal(t, "TOML_KEY", cfg.S3.Credentials.AccessKeyID)
-	require.Equal(t, "TOML_SECRET", cfg.S3.Credentials.SecretAccessKey)
+
+	require.NotNil(t, cfg.SQS)
+	require.Equal(t, "toml-upload-queue", cfg.SQS.UploadEventQueue)
+	require.Equal(t, "toml-delete-queue", cfg.SQS.DeleteEventQueue)
+
+	require.NotNil(t, cfg.AWS)
+	require.Equal(t, "us-east-1", cfg.AWS.Region)
+	require.True(t, cfg.AWS.UseSSL)
+	require.Equal(t, "TOML_KEY", cfg.AWS.Credentials.AccessKeyID)
+	require.Equal(t, "TOML_SECRET", cfg.AWS.Credentials.SecretAccessKey)
 
 	require.NotNil(t, cfg.Postgres)
 	require.Equal(t, "postgres://toml:toml@localhost:5432/tomldb", cfg.Postgres.URL)
@@ -372,6 +430,8 @@ func TestConfig_Precedence(t *testing.T) {
 		tomlContent := `
 [s3]
 bucket = "toml-bucket"
+
+[aws]
 region = "toml-region"
 `
 
@@ -391,12 +451,14 @@ region = "toml-region"
 		t.Setenv("NARWAL_S3_BUCKET", "env-bucket")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 
 		require.NotNil(t, cfg.S3)
-		require.Equal(t, "env-bucket", cfg.S3.Bucket)  // env wins over toml
-		require.Equal(t, "toml-region", cfg.S3.Region) // toml value (no override)
+		require.Equal(t, "env-bucket", cfg.S3.Bucket) // env wins over toml
+		require.NotNil(t, cfg.AWS)
+		require.Equal(t, "toml-region", cfg.AWS.Region) // toml value (no override)
 	})
 
 	t.Run("viper set has highest precedence", func(t *testing.T) {
@@ -427,6 +489,7 @@ bucket = "toml-bucket"
 		v.Set("s3.bucket", "set-bucket")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 

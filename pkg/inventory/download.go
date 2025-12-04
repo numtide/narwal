@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dustin/go-humanize"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/parquet-go/parquet-go"
 	"golang.org/x/sync/errgroup"
@@ -38,6 +39,11 @@ func NewDownloader(cfg *config.Config) (*Downloader, error) {
 	// check we have badger config
 	if cfg.Badger == nil {
 		return nil, errors.New("badger config is required")
+	}
+
+	// check we have aws config
+	if cfg.AWS == nil {
+		return nil, errors.New("aws config is required")
 	}
 
 	// check we have s3 config
@@ -68,7 +74,7 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 	}()
 
 	// create a prefixed s3 client
-	s3, err := d.cfg.S3.Connect(ctx)
+	s3, err := awssdk.NewS3Client(ctx, d.cfg.AWS, d.cfg.S3)
 	if err != nil {
 		//nolint:wrapcheck
 		return err
@@ -192,12 +198,8 @@ LOOP:
 			break LOOP
 
 		default:
-
 			// work out the new batch slice within objs
-			end := i + d.batchSize
-			if end > len(objs) {
-				end = len(objs)
-			}
+			end := min(i+d.batchSize, len(objs))
 
 			batch := objs[i:end]
 			if len(batch) == 0 {

@@ -34,6 +34,8 @@ func TestPostgres_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.postgres.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -61,10 +63,12 @@ func TestPostgres_FromViper(t *testing.T) {
 
 	t.Run("from viper set", func(t *testing.T) {
 		t.Parallel()
+
 		v := viper.New()
 		v.Set("postgres.url", "postgres://test:test@localhost:5432/testdb")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Postgres)
@@ -72,6 +76,8 @@ func TestPostgres_FromViper(t *testing.T) {
 	})
 
 	t.Run("from flags", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetPostgresFlags(fs)
@@ -80,6 +86,7 @@ func TestPostgres_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Postgres)
@@ -87,6 +94,8 @@ func TestPostgres_FromViper(t *testing.T) {
 	})
 
 	t.Run("flag overrides default", func(t *testing.T) {
+		t.Parallel()
+
 		v := viper.New()
 		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 		config.SetPostgresFlags(fs)
@@ -94,6 +103,7 @@ func TestPostgres_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Postgres)
@@ -108,6 +118,7 @@ func TestPostgres_EnvOverride(t *testing.T) {
 	t.Setenv("NARWAL_POSTGRES_URL", "postgres://env:env@localhost:5432/envdb")
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Postgres)

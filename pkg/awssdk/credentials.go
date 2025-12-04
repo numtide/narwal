@@ -8,49 +8,40 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/go-ini/ini"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/numtide/narwal/pkg/config"
 )
 
-type CredentialsConfig struct {
-	// Direct credentials (highest priority)
-	AccessKeyID     string
-	SecretAccessKey string
-	SessionToken    string
-
-	// AWS credentials file (second priority)
-	File string
-
-	// AWS CLI profile (fallback)
-	Profile string
-}
-
-type AWSCredentials struct {
+type awsCredentials struct {
 	AccessKeyId     string `json:"AccessKeyId"`
 	SecretAccessKey string `json:"SecretAccessKey"`
 	SessionToken    string `json:"SessionToken"`
 }
 
-func NewCredentials(ctx context.Context, config CredentialsConfig) (*credentials.Credentials, error) {
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func LoadCredentials(ctx context.Context, cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
 	// If direct credentials are provided, use them
-	if config.AccessKeyID != "" && config.SecretAccessKey != "" {
-		return credentials.NewStaticV4(
-			config.AccessKeyID,
-			config.SecretAccessKey,
-			config.SessionToken,
+	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+		return credentials.NewStaticCredentialsProvider(
+			cfg.AccessKeyID,
+			cfg.SecretAccessKey,
+			cfg.SessionToken,
 		), nil
 	}
 
 	// Try to load from credentials file if specified
-	if config.File != "" {
-		return loadFromCredentialsFile(config)
+	if cfg.File != "" {
+		return loadFromCredentialsFile(cfg)
 	}
 
 	// Fallback to AWS CLI export credentials
-	return exportCredentials(ctx, config.Profile)
+	return exportCredentials(ctx, cfg.Profile)
 }
 
-func exportCredentials(ctx context.Context, profile string) (*credentials.Credentials, error) {
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func exportCredentials(ctx context.Context, profile string) (aws.CredentialsProvider, error) {
 	args := []string{"configure", "export-credentials", "--format", "process"}
 	if profile != "" {
 		args = append(args, "--profile", profile)
@@ -69,12 +60,12 @@ func exportCredentials(ctx context.Context, profile string) (*credentials.Creden
 		return nil, fmt.Errorf("export credentials failed: %w", err)
 	}
 
-	var creds AWSCredentials
+	var creds awsCredentials
 	if err := json.Unmarshal(output, &creds); err != nil {
 		return nil, fmt.Errorf("parse credentials failed: %w (output: %s)", err, string(output))
 	}
 
-	return credentials.NewStaticV4(
+	return credentials.NewStaticCredentialsProvider(
 		creds.AccessKeyId,
 		creds.SecretAccessKey,
 		creds.SessionToken,
@@ -82,27 +73,29 @@ func exportCredentials(ctx context.Context, profile string) (*credentials.Creden
 }
 
 // loadFromCredentialsFile loads AWS credentials from a specified credentials file.
-func loadFromCredentialsFile(config CredentialsConfig) (*credentials.Credentials, error) {
+//
+//nolint:ireturn // AWS SDK uses CredentialsProvider interface
+func loadFromCredentialsFile(cfg config.CredentialsConfig) (aws.CredentialsProvider, error) {
 	// Only load from file if explicitly specified
-	if config.File == "" {
+	if cfg.File == "" {
 		return nil, errors.New("no credentials file specified")
 	}
 
 	// Determine profile name
-	profile := config.Profile
+	profile := cfg.Profile
 	if profile == "" {
 		profile = "default"
 	}
 
 	// Load credentials from credentials file
-	accessKeyID, secretAccessKey, sessionToken, err := loadCredentialsFromFile(config.File, profile)
+	accessKeyID, secretAccessKey, sessionToken, err := loadCredentialsFromFile(cfg.File, profile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load credentials from file: %w", err)
 	}
 
 	// If we have the required credentials, return them
 	if accessKeyID != "" && secretAccessKey != "" {
-		return credentials.NewStaticV4(accessKeyID, secretAccessKey, sessionToken), nil
+		return credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken), nil
 	}
 
 	return nil, errors.New("no valid credentials found in credentials file")

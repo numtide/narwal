@@ -51,6 +51,7 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 				if err := os.MkdirAll(mountpoint, 0o750); err != nil {
 					return fmt.Errorf("failed to create mountpoint: %w", err)
 				}
+
 				log.Info("created mountpoint", "path", mountpoint)
 			}
 
@@ -71,12 +72,14 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 			<-sigChan
 
 			log.Info("unmounting filesystem...")
+
 			err = server.Unmount()
 			if err != nil {
 				return fmt.Errorf("failed to unmount: %w", err)
 			}
 
 			log.Info("filesystem unmounted successfully")
+
 			return nil
 		},
 	}

@@ -1,9 +1,8 @@
-package store_test
+//nolint:testpackage
+package server
 
 import (
 	"testing"
-
-	"github.com/numtide/narwal/pkg/store"
 
 	"github.com/numtide/narwal/pkg/db"
 )
@@ -168,7 +167,7 @@ func TestAnalyzePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, err := store.AnalyzePath(tt.path)
+			result, err := examinePath(tt.path)
 
 			if tt.expectError {
 				if err == nil {
@@ -198,7 +197,7 @@ func TestAnalyzePath(t *testing.T) {
 
 			// Extract hash from path and verify it matches the expected hash
 			if !tt.expectError && tt.expectedHash != "" {
-				hash, err := store.HashFromPath(tt.path, result.ObjectType)
+				hash, err := hashFromPath(tt.path, result.ObjectType)
 				if err != nil {
 					t.Errorf("Failed to extract hash from path %s: %v", tt.path, err)
 				} else if hash != tt.expectedHash {
@@ -220,7 +219,7 @@ func TestAnalyzePathCompressionTypes(t *testing.T) {
 
 			path := "12345678901234567890123456789012.narinfo." + comp
 
-			result, err := store.AnalyzePath(path)
+			result, err := examinePath(path)
 			if err != nil {
 				t.Errorf("Unexpected error for compression %s: %v", comp, err)
 				return

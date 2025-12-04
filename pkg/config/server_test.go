@@ -18,6 +18,7 @@ func TestServer_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			server: config.Server{
+				AWS: config.AWS{},
 				S3: config.S3{
 					Bucket: "my-bucket",
 				},
@@ -33,7 +34,8 @@ func TestServer_Validate(t *testing.T) {
 		{
 			name: "missing S3 bucket",
 			server: config.Server{
-				S3: config.S3{},
+				AWS: config.AWS{},
+				S3:  config.S3{},
 				HTTP: config.HTTP{
 					Host: "127.0.0.1",
 					Port: 8080,
@@ -47,6 +49,7 @@ func TestServer_Validate(t *testing.T) {
 		{
 			name: "missing HTTP host",
 			server: config.Server{
+				AWS: config.AWS{},
 				S3: config.S3{
 					Bucket: "my-bucket",
 				},
@@ -62,6 +65,7 @@ func TestServer_Validate(t *testing.T) {
 		{
 			name: "missing HTTP port",
 			server: config.Server{
+				AWS: config.AWS{},
 				S3: config.S3{
 					Bucket: "my-bucket",
 				},
@@ -77,6 +81,7 @@ func TestServer_Validate(t *testing.T) {
 		{
 			name: "missing postgres URL",
 			server: config.Server{
+				AWS: config.AWS{},
 				S3: config.S3{
 					Bucket: "my-bucket",
 				},
@@ -97,6 +102,8 @@ func TestServer_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.server.Validate()
 			if tt.err != "" {
 				require.ErrorIs(t, err, config.ErrInvalidConfig)
@@ -111,13 +118,16 @@ func TestServer_Validate(t *testing.T) {
 func TestServer_ValidateNestedConfigs(t *testing.T) {
 	t.Parallel()
 
-	t.Run("S3 validation propagates", func(t *testing.T) {
+	t.Run("AWS validation propagates", func(t *testing.T) {
 		t.Parallel()
+
 		server := config.Server{
-			S3: config.S3{
-				Bucket:   "bucket",
+			AWS: config.AWS{
 				Region:   "us-east-1",
 				Endpoint: "http://localhost:9000", // conflict
+			},
+			S3: config.S3{
+				Bucket: "bucket",
 			},
 			HTTP: config.HTTP{
 				Host: "127.0.0.1",
@@ -135,7 +145,10 @@ func TestServer_ValidateNestedConfigs(t *testing.T) {
 	})
 
 	t.Run("HTTP validation propagates", func(t *testing.T) {
+		t.Parallel()
+
 		server := config.Server{
+			AWS: config.AWS{},
 			S3: config.S3{
 				Bucket: "bucket",
 			},
@@ -154,7 +167,10 @@ func TestServer_ValidateNestedConfigs(t *testing.T) {
 	})
 
 	t.Run("Postgres validation propagates", func(t *testing.T) {
+		t.Parallel()
+
 		server := config.Server{
+			AWS: config.AWS{},
 			S3: config.S3{
 				Bucket: "bucket",
 			},

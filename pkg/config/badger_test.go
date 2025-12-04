@@ -68,6 +68,7 @@ func TestBadger_FromViper(t *testing.T) {
 		v.Set("badger.path", "/custom/path")
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Badger)
@@ -85,6 +86,7 @@ func TestBadger_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Badger)
@@ -102,6 +104,7 @@ func TestBadger_FromViper(t *testing.T) {
 		require.NoError(t, v.BindPFlags(fs))
 
 		var cfg config.Config
+
 		err := config.FromViper(v, &cfg)
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Badger)
@@ -116,6 +119,7 @@ func TestBadger_EnvOverride(t *testing.T) {
 	t.Setenv("NARWAL_BADGER_PATH", "/env/path")
 
 	var cfg config.Config
+
 	err := config.FromViper(v, &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Badger)
