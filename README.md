@@ -26,7 +26,6 @@ We want as many eyes as possible on this before we pull the trigger.
 
 ## Progress
 
-- [x] Setup a Postgres DB.
 - [ ] Index the current state of the S3 bucket by leaning on the [S3 Inventory Service] (In Progress).
 - [ ] Index new uploads to the S3 bucket via [S3 Notification Events] over [SQS] (In Progress).
 - [ ] Develop GC strategies with the indexed and real-time data available in Postgres (In Progress).
