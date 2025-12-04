@@ -36,6 +36,8 @@ let
                 port = $PGPORT
                 listen_addresses = '$PGLISTEN'
                 unix_socket_directories = '$PGHOST'
+
+                max_wal_size = 4GB  # increase from 1GB to improve import performance
         EOF
 
             echo "CREATE DATABASE ''${PGUSER:-$(id -nu)};" | postgres --single -E postgres
