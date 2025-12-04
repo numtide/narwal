@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/awssdk/sqs"
@@ -55,4 +56,9 @@ func NewServer(cfg *config.Server) (*Server, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	return s.listenToS3(ctx)
+}
+
+// ImportManifestForTest exports importManifest for testing.
+func ImportManifestForTest(ctx context.Context, inventoryDB *badger.DB, pgPool *pgxpool.Pool, report string) error {
+	return importManifest(ctx, inventoryDB, pgPool, report)
 }

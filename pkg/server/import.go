@@ -208,14 +208,15 @@ func importManifestFile(
 
 	// Create an error group for concurrent imports
 	eg, egCtx := errgroup.WithContext(ctx)
-	// We have up to 128 partitions to play with so there's opportunity for a lot of concurrency
-	eg.SetLimit(32)
+	// We have up to 128 partitions to play with, so there's opportunity for a lot of concurrency
+	// Need to ensure max_locks_per_transaction = 256 in postgres
+	eg.SetLimit(16)
 
 	// Batch objects by object_type for partition-aware imports in Postgres
 	batches := make(map[db.ObjectType][]objectWithMetadata)
 
-	// Import objects in batches of 25000
-	const batchSize = 25000
+	// Import objects in batches of 10,000
+	const batchSize = 1000
 
 	// A helper function to flush a batch of objects to Postgres once the batch size is reached
 	flushBatch := func(objectType db.ObjectType, batch []objectWithMetadata) {

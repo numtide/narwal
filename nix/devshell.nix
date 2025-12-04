@@ -37,7 +37,8 @@ let
                 listen_addresses = '$PGLISTEN'
                 unix_socket_directories = '$PGHOST'
 
-                max_wal_size = 4GB  # increase from 1GB to improve import performance
+                max_wal_size = 4GB              # increase from 1GB to improve import performance
+                max_locks_per_transaction = 256 # increase from 64 as the object table has a lot of partitions
         EOF
 
             echo "CREATE DATABASE ''${PGUSER:-$(id -nu)};" | postgres --single -E postgres
