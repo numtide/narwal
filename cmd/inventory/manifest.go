@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/dustin/go-humanize"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,12 @@ func manifestCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
+
+			// create s3 client
+			s3, err := awssdk.NewS3Client(cmd.Context(), cfg.AWS, cfg.S3)
+			if err != nil {
+				return fmt.Errorf("failed to create s3 client: %w", err)
+			}
 
 			client := inventory.NewClient(s3, cfg.Inventory.BucketPrefix)
 

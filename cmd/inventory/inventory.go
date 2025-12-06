@@ -4,18 +4,13 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/log"
-	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 //nolint:gochecknoglobals
-var (
-	cfg *config.Config
-
-	s3 *awssdk.BucketClient
-)
+var cfg *config.Config
 
 func NewCmd() *cobra.Command {
 	// create the command
@@ -61,12 +56,6 @@ func preRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	log.Info("config loaded", "config_file", viper.ConfigFileUsed())
-
-	// create s3 client
-	if s3, err = awssdk.NewS3Client(cmd.Context(), cfg.AWS, cfg.S3); err != nil {
-		//nolint:wrapcheck
-		return err
-	}
 
 	return nil
 }
