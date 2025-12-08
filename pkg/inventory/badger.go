@@ -99,6 +99,14 @@ func PutManifest(tx *badger.Txn, key string, manifest *Manifest) error {
 	return nil
 }
 
+func DeleteManifest(tx *badger.Txn, key string) error {
+	if err := tx.Delete([]byte(BadgerPrefixManifest + key)); err != nil {
+		return fmt.Errorf("failed to delete manifest from db: %w", err)
+	}
+
+	return nil
+}
+
 func ListManifests(tx *badger.Txn) ([]string, error) {
 	prefix := []byte(BadgerPrefixManifest)
 
@@ -112,17 +120,13 @@ func ListManifests(tx *badger.Txn) ([]string, error) {
 
 	defer iter.Close()
 
-	iter.Seek(prefix)
-
 	var results []string
 
-	for iter.ValidForPrefix(prefix) {
+	for iter.Rewind(); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		name := string(item.Key()[len(prefix):])
 
 		results = append(results, name)
-
-		iter.Next()
 	}
 
 	return results, nil
@@ -167,6 +171,14 @@ func PutManifestFile(tx *badger.Txn, file *ManifestFile) error {
 	return nil
 }
 
+func DeleteManifestFile(tx *badger.Txn, file *ManifestFile) error {
+	if err := tx.Delete([]byte(BadgerPrefixFile + file.UUID())); err != nil {
+		return fmt.Errorf("failed to delete file from db: %w", err)
+	}
+
+	return nil
+}
+
 func ListManifestFiles(tx *badger.Txn) ([]string, error) {
 	prefix := []byte(BadgerPrefixFile)
 
@@ -180,17 +192,13 @@ func ListManifestFiles(tx *badger.Txn) ([]string, error) {
 
 	defer iter.Close()
 
-	iter.Seek(prefix)
-
 	var results []string
 
-	for iter.ValidForPrefix(prefix) {
+	for iter.Rewind(); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		name := string(item.Key()[len(prefix):])
 
 		results = append(results, name)
-
-		iter.Next()
 	}
 
 	return results, nil

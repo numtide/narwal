@@ -537,7 +537,7 @@ func (d *Downloader) ensureManifest(ctx context.Context, report string) (*Manife
 	log.Debugf("looking for manifest %s in local db", report)
 
 	manifest, err := GetManifest(tx, report)
-	if !errors.Is(err, badger.ErrKeyNotFound) && err != nil {
+	if !errors.Is(err, ErrKeyNotFound) && err != nil {
 		return nil, fmt.Errorf("failed to get manifest %s from local db: %w", report, err)
 	}
 
