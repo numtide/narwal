@@ -37,7 +37,8 @@ let
                 listen_addresses = '$PGLISTEN'
                 unix_socket_directories = '$PGHOST'
 
-                max_wal_size = 4GB  # increase from 1GB to improve import performance
+                max_wal_size = 10GB  # increase from 1GB to improve import performance
+                maintenance_work_mem = 2GB
         EOF
 
             echo "CREATE DATABASE ''${PGUSER:-$(id -nu)};" | postgres --single -E postgres

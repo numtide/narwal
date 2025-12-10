@@ -44,6 +44,13 @@ create table nar_info
     primary key (hash)
 );
 
+create table nar_info_references
+(
+    hash bytea not null,
+    "references" bytea[] not null default '{}',
+    primary key (hash)
+);
+
 create table gc_root
 (
     hash bytea primary key
@@ -112,6 +119,7 @@ drop index idx_object_type;
 
 drop table gc_plan;
 drop table gc_root;
+drop table nar_info_references;
 drop table nar_info;
 drop table object;
 
