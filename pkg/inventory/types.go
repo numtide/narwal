@@ -11,20 +11,24 @@ type Object struct {
 
 // NarInfoRecord represents a parsed .narinfo file for parquet export.
 type NarInfoRecord struct {
-	// Idx is the sequential index from BadgerDB iteration, used for ordering records.
-	// Not exported to parquet.
-	Idx int64 `parquet:"-"`
+	// Hash is the decoded store path hash (20 bytes).
+	// Decoded from the 32-char nixbase32 string in the store path.
+	Hash []byte `parquet:"hash"`
 
-	StorePath   string   `parquet:"store_path"`
-	URL         string   `parquet:"url"`
-	Compression string   `parquet:"compression,dict"`
-	FileHash    string   `parquet:"file_hash"`
-	FileSize    uint64   `parquet:"file_size"`
-	NarHash     string   `parquet:"nar_hash"`
-	NarSize     uint64   `parquet:"nar_size"`
-	References  []string `parquet:"references,list,dict"`
-	Deriver     string   `parquet:"deriver"`
-	System      string   `parquet:"system,optional,dict"`
-	CA          string   `parquet:"ca,optional,dict"`
-	Signatures  []string `parquet:"signatures,list"`
+	// Pname is the package name portion of the store path.
+	// e.g., "foo-1.0" from "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-foo-1.0"
+	Pname string `parquet:"pname,dict"`
+
+	URL             string   `parquet:"url"`
+	Compression     string   `parquet:"compression,dict"`
+	FileHash        string   `parquet:"file_hash"`
+	FileSize        uint64   `parquet:"file_size"`
+	NarHash         string   `parquet:"nar_hash"`
+	NarSize         uint64   `parquet:"nar_size"`
+	ReferenceHashes [][]byte `parquet:"reference_hashes,list,dict"`
+	ReferencePnames []string `parquet:"reference_pnames,list,dict"`
+	Deriver         string   `parquet:"deriver"`
+	System          string   `parquet:"system,optional,dict"`
+	CA              string   `parquet:"ca,optional,dict"`
+	Signatures      []string `parquet:"signatures,list"`
 }

@@ -11,15 +11,16 @@ import (
 
 func exportNarinfoCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "export-narinfos <output-dir>",
-		Short: "Export narinfo entries from badger database to parquet files",
-		Long: `Export all narinfo entries from the badger database to parquet files.
-A new parquet file is created when the current file reaches 512MB.
-Progress is logged every 10,000 records.`,
+		Use:   "export-narinfos <output-file>",
+		Short: "Export narinfo entries from badger database to a parquet file",
+		Long: `Export all narinfo entries from the badger database to a single parquet file.
+Uses ZSTD compression and includes a bloom filter on the hash column for fast lookups.
+Progress is logged every 100,000 records.
+Supports graceful cancellation with Ctrl+C.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			outputDir := args[0]
-			return inventory.ExportNarinfos(cmd.Context(), cfg, outputDir)
+			outputPath := args[0]
+			return inventory.ExportNarinfos(cmd.Context(), cfg, outputPath)
 		},
 	}
 
