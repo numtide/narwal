@@ -116,7 +116,7 @@ type GcPlan struct {
 }
 
 type GcRoot struct {
-	Hash      string           `json:"hash"`
+	Hash      []byte           `json:"hash"`
 	CreatedAt pgtype.Timestamp `json:"created_at"`
 }
 
@@ -128,7 +128,7 @@ type ImportedManifestFile struct {
 }
 
 type NarInfo struct {
-	Hash        string          `json:"hash"`
+	Hash        []byte          `json:"hash"`
 	Url         string          `json:"url"`
 	StorePath   string          `json:"store_path"`
 	Compression CompressionType `json:"compression"`
@@ -137,75 +137,54 @@ type NarInfo struct {
 	NarHash     string          `json:"nar_hash"`
 	NarSize     int64           `json:"nar_size"`
 	Deriver     string          `json:"deriver"`
-}
-
-type NarInfoReference struct {
-	Hash     string `json:"hash"`
-	RefersTo string `json:"refers_to"`
-}
-
-type NarInfoSignature struct {
-	Hash string `json:"hash"`
-	Name string `json:"name"`
-	Data string `json:"data"`
+	References  [][]byte        `json:"references"`
+	Signatures  []string        `json:"signatures"`
 }
 
 type Object struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }
 
 type ObjectDebug struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }
 
 type ObjectL struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }
 
 type ObjectLog struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }
 
 type ObjectNar struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }
 
 type ObjectNarinfo struct {
-	Hash            string           `json:"hash"`
-	ObjectType      ObjectType       `json:"object_type"`
-	CompressionType CompressionType  `json:"compression_type"`
-	Path            string           `json:"path"`
-	Size            int64            `json:"size"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	LastAccessedAt  pgtype.Timestamp `json:"last_accessed_at"`
+	Hash           []byte           `json:"hash"`
+	ObjectType     ObjectType       `json:"object_type"`
+	Path           string           `json:"path"`
+	Size           int64            `json:"size"`
+	LastModifiedAt pgtype.Timestamp `json:"last_modified_at"`
 }

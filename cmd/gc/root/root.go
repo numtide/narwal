@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -66,16 +67,21 @@ func postRunE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func extractNarHash(path string) (string, error) {
+func extractNarHash(path string) ([]byte, error) {
 	matches := storePathPattern.FindStringSubmatch(path)
 	if len(matches) != 3 {
-		return "", fmt.Errorf("could not extract nar hash: %s", path)
+		return nil, fmt.Errorf("could not extract nar hash: %s", path)
 	}
 
-	result := matches[1]
-	if result == "" {
-		result = matches[2]
+	hashStr := matches[1]
+	if hashStr == "" {
+		hashStr = matches[2]
 	}
 
-	return result, nil
+	hash, err := nixbase32.DecodeString(hashStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hash %s: %w", hashStr, err)
+	}
+
+	return hash, nil
 }

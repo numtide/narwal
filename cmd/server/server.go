@@ -28,6 +28,7 @@ func NewCmd() *cobra.Command {
 	// add subcommands
 	cmd.AddCommand(runCmd())
 	cmd.AddCommand(importCmd())
+	cmd.AddCommand(importNarinfosCmd())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

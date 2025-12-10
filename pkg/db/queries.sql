@@ -1,30 +1,24 @@
 -- name: HasObject :one
-with update_accessed as (
-    update object
-    set last_accessed_at = timezone('UTC', now())
-    where path = $1
-)
-select object_type, compression_type, size
+select object_type, size
 from object as o
 where o.path = $1;
 
 -- name: GetObjectByHash :one
-select object_type, compression_type, size
+select object_type, size
 from object as o
 where o.hash = $1;
 
 -- name: PutObject :exec
-insert into object (hash, object_type, compression_type, path, size, created_at)
-values ($1, $2, $3, $4, $5, timezone('UTC', now()))
+insert into object (hash, object_type, path, size, last_modified_at)
+values ($1, $2, $3, $4, timezone('UTC', now()))
 on conflict(object_type, hash, path) do update
-    set size       = excluded.size,
-        created_at = timezone('UTC', now());
-values ($1, $2, $3, $4, $5, timezone('UTC', now()));
+    set size             = excluded.size,
+        last_modified_at = timezone('UTC', now());
 
 -- name: PutNarInfo :exec
 insert
-into nar_info (hash, url, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+into nar_info (hash, url, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver, "references", "signatures")
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 on conflict (hash) do update
     set url = excluded.url,
         store_path  = excluded.store_path ,
@@ -33,23 +27,9 @@ on conflict (hash) do update
         file_size   = excluded.file_size,
         nar_hash    = excluded.nar_hash,
         nar_size    = excluded.nar_size,
-        deriver     = excluded.deriver;
-
--- name: DeleteNarInfoReferences :exec
-delete from nar_info_reference
-where hash = $1;
-
--- name: InsertNarInfoReferences :copyfrom
-insert into nar_info_reference (hash, refers_to)
-values ($1, $2);
-
--- name: DeleteNarInfoSignatures :exec
-delete from nar_info_signature
-where hash = $1;
-
--- name: InsertNarInfoSignatures :copyfrom
-insert into nar_info_signature (hash, name, data)
-values ($1, $2, $3);
+        deriver     = excluded.deriver,
+        "references" = excluded."references",
+        "signatures" = excluded."signatures";
 
 -- name: PutGCRoot :exec
 insert into gc_root (hash, created_at)
@@ -105,7 +85,7 @@ from object o
 inner join (
     select
         unnest($1::text[])::object_type as object_type,
-        unnest($2::varchar[]) as hash,
+        unnest($2::bytea[]) as hash,
         unnest($3::bigint[]) as size
 ) input on o.object_type = input.object_type
     and o.hash = input.hash

@@ -12,7 +12,7 @@ import (
 )
 
 type closureEntry struct {
-	Hash       string  `db:"hash"`
+	Hash       []byte  `db:"hash"`
 	ObjectType string  `db:"object_type"`
 	Path       string  `db:"path"`
 	NarUrl     *string `db:"nar_url"`
@@ -89,7 +89,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 
 	for closureIter.Next(ctx) {
 		entry := cursorValues[closureIter.ValueIndex()]
-		filter.Add([]byte(entry.Hash))
+		filter.Add(entry.Hash)
 	}
 
 	if closureIter.Error() != nil {
@@ -172,7 +172,7 @@ func createPlan(cmd *cobra.Command, _ []string) error {
 
 		objectCount++
 
-		if filter.Test([]byte(entry.Hash)) {
+		if filter.Test(entry.Hash) {
 			// we need to keep this one
 			continue
 		}

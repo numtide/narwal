@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
 
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/db"
 )
 
@@ -74,44 +76,72 @@ func examinePath(path string) (*pathAnalysis, error) {
 	return result, nil
 }
 
-// hashFromPath extracts the hash from a path given the object type.
-func hashFromPath(path string, objectType db.ObjectType) (string, error) {
+// hashFromPath extracts and decodes the hash from a path given the object type.
+// Returns decoded bytes: 32 bytes for nar (52-char nixbase32), 20 bytes for others.
+func hashFromPath(path string, objectType db.ObjectType) ([]byte, error) {
 	// hash can be 32, 40 or 52 characters depending on the object type
 	// it can also be located in different parts of the string
-	var hash string
+	var hashStr string
 
 	switch objectType {
 	case db.ObjectTypeNar:
-		// prefixed with '/nar' and a hash size of 52
+		// prefixed with 'nar/' and a hash size of 52 (nixbase32, decodes to 32 bytes)
 		if len(path) < 56 {
-			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
+			return nil, fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
 
-		hash = path[4:56]
+		hashStr = path[4:56]
+
+		hash, err := nixbase32.DecodeString(hashStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode nixbase32 hash %s: %w", hashStr, err)
+		}
+
+		return hash, nil
 	case db.ObjectTypeDebug:
-		// prefixed with 'debuginfo/' and a hash size of 40 with a .debug extension
+		// prefixed with 'debuginfo/' and a hash size of 40 (hex, decodes to 20 bytes)
 		// historically there are some entries with less characters and no .debug extension
-		// todo enforce this pattern better
-		if len(path) > 50 {
-			hash = path[10:50]
-		} else {
-			hash = path[10:]
+		if len(path) < 50 {
+			return nil, fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
+
+		hashStr = path[10:50]
+
+		hash, err := hex.DecodeString(hashStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode hex hash %s: %w", hashStr, err)
+		}
+
+		return hash, nil
 	case db.ObjectTypeLog:
-		// 'log/<hash>-<pname>.drv'
+		// 'log/<hash>-<pname>.drv' (32-char nixbase32, decodes to 20 bytes)
 		if len(path) < 36 {
-			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
+			return nil, fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
 
-		hash = path[4:36]
+		hashStr = path[4:36]
+
+		hash, err := nixbase32.DecodeString(hashStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode nixbase32 hash %s: %w", hashStr, err)
+		}
+
+		return hash, nil
 	case db.ObjectTypeNarinfo, db.ObjectTypeLs:
-		// all other hashes are at the beginning of the path and of size 32
+		// hashes at the beginning of the path, size 32 (nixbase32, decodes to 20 bytes)
 		if len(path) < 32 {
-			return "", fmt.Errorf("invalid %v path: %s", objectType, path)
+			return nil, fmt.Errorf("invalid %v path: %s", objectType, path)
 		}
 
-		hash = path[:32]
+		hashStr = path[:32]
+
+		hash, err := nixbase32.DecodeString(hashStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode nixbase32 hash %s: %w", hashStr, err)
+		}
+
+		return hash, nil
 	}
 
-	return hash, nil
+	return nil, fmt.Errorf("unknown object type: %v", objectType)
 }

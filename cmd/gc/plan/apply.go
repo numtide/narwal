@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/numtide/narwal/pkg/db"
-
 	ci "github.com/Eun/go-pgx-cursor-iterator/v2"
+	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
+	"github.com/numtide/narwal/pkg/db"
 	"github.com/spf13/cobra"
 )
 
@@ -186,11 +186,16 @@ func tryDelete(
 		}
 
 		// delete nar info entries
-		var narInfoHashes []string
+		var narInfoHashes [][]byte
 
 		for _, path := range removedPaths {
 			if strings.HasSuffix(path, ".narinfo") {
-				narInfoHashes = append(narInfoHashes, path[0:32])
+				hashBytes, decodeErr := nixbase32.DecodeString(path[0:32])
+				if decodeErr != nil {
+					return 0, fmt.Errorf("failed to decode narinfo hash %s: %w", path[0:32], decodeErr)
+				}
+
+				narInfoHashes = append(narInfoHashes, hashBytes)
 			}
 		}
 
