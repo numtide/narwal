@@ -51,7 +51,7 @@ type narinfoDir struct {
 func (d *narinfoDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	tx := d.db.NewTransaction(false)
 
-	prefix := []byte("narinfo:" + d.prefix)
+	prefix := []byte("o:" + d.prefix)
 
 	iter := tx.NewIterator(badger.IteratorOptions{
 		Prefix:         prefix,

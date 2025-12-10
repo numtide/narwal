@@ -27,8 +27,4 @@ type NarInfoRecord struct {
 	System      string   `parquet:"system,optional,dict"`
 	CA          string   `parquet:"ca,optional,dict"`
 	Signatures  []string `parquet:"signatures,list"`
-
-	// last_modified_at is a unix timestamp in millis which has been truncated to the beginning of the week in which
-	// the object was last modified.
-	LastModifiedAt int64 `parquet:"last_modified_at"`
 }

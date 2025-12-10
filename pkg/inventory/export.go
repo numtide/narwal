@@ -184,12 +184,6 @@ func parseNarinfos(
 
 			record.Idx = raw.idx
 
-			record.LastModifiedAt, _, err = ReadObjectKey(raw.key)
-			if err != nil {
-				log.Debugf("failed to read object key %s: %s", raw.key, err)
-				continue
-			}
-
 			recordChan <- record
 		}
 	}

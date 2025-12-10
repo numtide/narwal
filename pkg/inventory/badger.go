@@ -1,11 +1,9 @@
 package inventory
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
@@ -213,7 +211,7 @@ func HasFileNarInfosBeenDownloaded(tx *badger.Txn, file ManifestFile) (bool, err
 		return false, fmt.Errorf("failed to get file item from db: %w", err)
 	}
 
-	return item.UserMeta() == 1, nil
+	return item.UserMeta() == 2, nil
 }
 
 func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
@@ -231,7 +229,7 @@ func MarkManifestFileAsDownloaded(tx *badger.Txn, file *ManifestFile) error {
 		return fmt.Errorf("failed to copy file value from db: %w", err)
 	}
 
-	entry := badger.NewEntry(item.Key(), val).WithMeta(byte(1))
+	entry := badger.NewEntry(item.Key(), val).WithMeta(byte(2))
 	if err = tx.SetEntry(entry); err != nil {
 		return fmt.Errorf("failed to mark file as downloaded in db: %w", err)
 	}
@@ -252,23 +250,12 @@ func HasNarInfo(tx *badger.Txn, obj *Object) (bool, error) {
 	return true, nil
 }
 
-func ReadObjectKey(buf []byte) (int64, string, error) {
-	buf = buf[len(BadgerPrefixObject):]
-
-	if len(buf) < 9 {
-		return 0, "", fmt.Errorf("key is too short: %d", len(buf))
-	}
-
-	return DecodeTimestamp(buf[:8]), string(buf[8:]), nil
+func ReadObjectKey(buf []byte) string {
+	return string(buf[len(BadgerPrefixObject):])
 }
 
 func ObjectKey(obj *Object) []byte {
-	ts := TruncateToWeek(obj.LastModifiedDate)
-
-	key := append([]byte(BadgerPrefixObject), EncodeTimestamp(ts)...)
-	key = append(key, obj.Key...)
-
-	return key
+	return append([]byte(BadgerPrefixObject), obj.Key...)
 }
 
 func NewObjectEntry(obj *Object, buf []byte) *badger.Entry {
@@ -276,37 +263,4 @@ func NewObjectEntry(obj *Object, buf []byte) *badger.Entry {
 		Key:   ObjectKey(obj),
 		Value: buf,
 	}
-}
-
-func TruncateToWeek(msEpoch int64) int64 {
-	t := time.UnixMilli(msEpoch).UTC()
-
-	// Calculate days since Monday
-	weekday := int(t.Weekday())
-	if weekday == 0 { // Sunday
-		weekday = 7
-	}
-
-	daysSinceMonday := weekday - 1
-
-	// Truncate to start of day, then subtract days to get to Monday
-	truncated := t.Truncate(24*time.Hour).AddDate(0, 0, -daysSinceMonday)
-
-	return truncated.UnixMilli()
-}
-
-func EncodeTimestamp(ms int64) []byte {
-	if ms < 0 {
-		// should never happen
-		panic("timestamp cannot be negative")
-	}
-
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(ms))
-
-	return buf
-}
-
-func DecodeTimestamp(buf []byte) int64 {
-	return int64(binary.BigEndian.Uint64(buf)) //nolint:gosec
 }

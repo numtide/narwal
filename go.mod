@@ -25,6 +25,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.18
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/dgraph-io/badger/v4 v4.8.0
+	github.com/dgraph-io/ristretto v0.1.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-ini/ini v1.67.0
 	github.com/hanwen/go-fuse/v2 v2.9.0
@@ -68,6 +69,7 @@ require (
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
 	github.com/google/flatbuffers v25.9.23+incompatible // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -88,7 +90,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
