@@ -37,7 +37,13 @@ let
                 listen_addresses = '$PGLISTEN'
                 unix_socket_directories = '$PGHOST'
 
+                # these settings are to speed up local dev and should not be used in production
+
+                wal_level = minimal
+                max_wal_senders = 0
+                archive_mode = off
                 max_wal_size = 10GB  # increase from 1GB to improve import performance
+                checkpoint_timeout = 30min
                 maintenance_work_mem = 2GB
         EOF
 

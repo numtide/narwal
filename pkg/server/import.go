@@ -404,10 +404,9 @@ func importBatch(
 
 // Narinfo import constants.
 const (
-	narinfoImportBatchSize     = 5000
+	narinfoImportBatchSize     = 10_000
 	narinfoProgressInterval    = 50_000
 	narinfoImportStreamWorkers = 16
-	narinfoNumPartitions       = 128 // Must match nar_info table partitioning
 )
 
 // normalizeCompression maps narinfo compression names to database enum values.
@@ -445,14 +444,12 @@ type narinfoRecord struct {
 }
 
 // narinfoImportHandler handles batch processing for narinfo import.
-// Records are batched by partition to improve write locality.
 // Database writes are asynchronous using errgroup for concurrency.
 type narinfoImportHandler struct {
 	pgPool *pgxpool.Pool
 	stats  *narinfoImportStats
-	// batches holds records grouped by partition number (0-127)
-	batches [narinfoNumPartitions][]narinfoRecord
-	mu      sync.Mutex
+	batch  []narinfoRecord
+	mu     sync.Mutex
 	// eg handles async database writes
 	eg *errgroup.Group
 }
@@ -495,11 +492,25 @@ func ImportNarinfos(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("failed to truncate nar_info: %w", err)
 	}
 
+	// Disable autovacuum during import for better performance
+	log.Info("disabling autovacuum on nar_info")
+
+	if _, err = pgPool.Exec(ctx, "ALTER TABLE nar_info SET (autovacuum_enabled = false)"); err != nil {
+		return fmt.Errorf("failed to disable autovacuum: %w", err)
+	}
+
 	// Run the import
 	stats := &narinfoImportStats{}
 
 	if err = importNarinfosFromBadger(ctx, inventoryDB, pgPool, stats); err != nil {
 		return fmt.Errorf("failed to import narinfos: %w", err)
+	}
+
+	// Re-enable autovacuum after import
+	log.Info("re-enabling autovacuum on nar_info")
+
+	if _, err = pgPool.Exec(ctx, "ALTER TABLE nar_info SET (autovacuum_enabled = true)"); err != nil {
+		return fmt.Errorf("failed to re-enable autovacuum: %w", err)
 	}
 
 	// Log final statistics
@@ -563,27 +574,14 @@ func importNarinfosFromBadger(
 		return fmt.Errorf("async batch write failed: %w", err)
 	}
 
-	// Flush any remaining records in all partitions
-	if err := handler.flushAllBatches(ctx); err != nil {
-		return fmt.Errorf("failed to flush final batches: %w", err)
+	// Flush any remaining records
+	if len(handler.batch) > 0 {
+		if err := handler.flushBatch(ctx, handler.batch); err != nil {
+			return fmt.Errorf("failed to flush final batch: %w", err)
+		}
 	}
 
 	return nil
-}
-
-// hashPartition computes the PostgreSQL hash partition number for a hash string.
-// This must match PostgreSQL's hash partitioning: hash(hash) % 128.
-func hashPartition(hash []byte) int {
-	// PostgreSQL uses a specific hash function for hash partitioning.
-	// We use a simple hash that approximates partition distribution.
-	// The actual partition is determined by PostgreSQL, but grouping by
-	// any consistent hash of the key improves locality.
-	var h uint32
-	for i := range hash {
-		h = h*31 + uint32(hash[i])
-	}
-
-	return int(h % narinfoNumPartitions)
 }
 
 // handleBatch processes a batch of KV pairs from the Badger stream.
@@ -603,26 +601,19 @@ func (h *narinfoImportHandler) handleBatch(ctx context.Context, buf *z.Buffer) e
 		return nil
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.batch = append(h.batch, records...)
 
-	// Add records to their respective partition batches
-	for _, record := range records {
-		partition := hashPartition(record.hash)
-		h.batches[partition] = append(h.batches[partition], record)
+	// Submit async flush if batch is full
+	if len(h.batch) >= narinfoImportBatchSize {
+		// Copy batch for async processing to avoid data race
+		batchCopy := make([]narinfoRecord, len(h.batch))
+		copy(batchCopy, h.batch)
+		h.batch = h.batch[:0]
 
-		// Submit async flush if this partition's batch is full
-		if len(h.batches[partition]) >= narinfoImportBatchSize {
-			// Copy batch for async processing to avoid data race
-			batchCopy := make([]narinfoRecord, len(h.batches[partition]))
-			copy(batchCopy, h.batches[partition])
-			h.batches[partition] = h.batches[partition][:0]
-
-			// Submit async flush
-			h.eg.Go(func() error {
-				return h.flushBatch(ctx, batchCopy)
-			})
-		}
+		// Submit async flush
+		h.eg.Go(func() error {
+			return h.flushBatch(ctx, batchCopy)
+		})
 	}
 
 	return nil
@@ -705,28 +696,6 @@ func (h *narinfoImportHandler) parseRecords(kvList []*pb.KV) []narinfoRecord {
 	}
 
 	return records
-}
-
-// flushAllBatches flushes all remaining partition batches to PostgreSQL synchronously.
-// Called after errgroup.Wait() to flush any partial batches.
-func (h *narinfoImportHandler) flushAllBatches(ctx context.Context) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for partition := range narinfoNumPartitions {
-		if len(h.batches[partition]) > 0 {
-			// Copy and flush synchronously for final batches
-			batchCopy := make([]narinfoRecord, len(h.batches[partition]))
-			copy(batchCopy, h.batches[partition])
-			h.batches[partition] = h.batches[partition][:0]
-
-			if err := h.flushBatch(ctx, batchCopy); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 // flushBatch writes a batch of records to PostgreSQL using COPY protocol.
