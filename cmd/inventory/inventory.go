@@ -36,6 +36,7 @@ func NewCmd() *cobra.Command {
 	cmd.AddCommand(fuseCmd())
 	cmd.AddCommand(exportNarinfoCmd())
 	cmd.AddCommand(pruneCmd())
+	cmd.AddCommand(mergeCmd())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true
