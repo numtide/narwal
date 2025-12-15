@@ -7,6 +7,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,11 @@ func manifestCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
+
+			cfg, err := loadConfig(cmd, args)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
 			// create s3 client
 			s3, err := awssdk.NewS3Client(cmd.Context(), cfg.AWS, cfg.S3)
@@ -49,8 +55,14 @@ func manifestCmd() *cobra.Command {
 		},
 	}
 
-	// Add command-specific flags
 	fs := cmd.Flags()
+
+	config.SetAWSFlags(fs)
+	config.SetS3Flags(fs)
+	config.SetInventoryFlags(fs)
+	config.SetBadgerFlags(fs)
+
+	// Add command-specific flags
 	fs.BoolVar(&showStats, "stats", false, "Show only statistics summary")
 	fs.StringVar(&outputFormat, "format", "table", "Output format: table, json")
 

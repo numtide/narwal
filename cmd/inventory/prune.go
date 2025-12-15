@@ -10,7 +10,6 @@ import (
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func pruneCmd() *cobra.Command {
@@ -47,6 +46,11 @@ Example:
 
 			log.Infof("keeping %d reports: %v", len(keepReports), keepReports)
 
+			cfg, err := loadConfig(cmd, args)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
 			result, err := inventory.Prune(cfg.Badger, keepReports)
 			if err != nil {
 				return fmt.Errorf("failed to prune: %w", err)
@@ -66,11 +70,6 @@ Example:
 	}
 
 	config.SetBadgerFlags(cmd.Flags())
-
-	// bind our command's flags to viper
-	if err := viper.BindPFlags(cmd.Flags()); err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
-	}
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/log"
+	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/numtide/narwal/pkg/inventory/fuse"
 	"github.com/spf13/cobra"
@@ -27,6 +28,11 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mountpoint := args[0]
+
+			cfg, err := loadConfig(cmd, args)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
 			// Ensure Badger config is initialized
 			if cfg.Badger == nil {
@@ -83,6 +89,8 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 			return nil
 		},
 	}
+
+	config.SetBadgerFlags(cmd.Flags())
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

@@ -6,17 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
+	"runtime/debug"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/dgraph-io/badger/v4/pb"
-	"github.com/dgraph-io/ristretto/v2/z"
 	"github.com/dustin/go-humanize"
-	"github.com/nix-community/go-nix/pkg/narinfo"
-	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
@@ -26,38 +23,56 @@ const (
 	// progressInterval defines how often to log progress (every N records).
 	progressInterval = 50_000
 
-	// maxRowsPerRowGroup limits memory by flushing to disk periodically.
-	// With 250M records, this creates ~250 row groups.
-	maxRowsPerRowGroup = 500_000
+	// maxRowsPerRowGroup controls row group size for dictionary encoding efficiency.
+	//
+	// Typically, we would want 500k or 1 million rows per row group to reduce the memory overhead and improve lookup
+	// speed. However, in our case we are also trying to maximise the dictionary encoding efficiency for the references
+	// column to reduce the size of the exported file. Experimentally, this number was found as a good compromise.
+	maxRowsPerRowGroup = 30_000_000
 
-	// numStreamWorkers defines the number of concurrent stream workers.
-	numStreamWorkers = 16
+	// iteratorBatchSize is the number of records to fetch before parallel parsing.
+	iteratorBatchSize = 10_000
+
+	// parseWorkerCount is the number of parsing goroutines.
+	parseWorkerCount = 16
+
+	// prefetchSize is the badger iterator prefetch buffer size.
+	prefetchSize = 128
 )
 
-// storePathRegex matches /nix/store/<32-char-hash>-<name>.
-var storePathRegex = regexp.MustCompile(`^/nix/store/([a-z0-9]{32})-(.+)$`)
-
-// parseStorePath extracts hash (as decoded bytes) and pname from a Nix store path.
-func parseStorePath(storePath string) ([]byte, string, error) {
-	matches := storePathRegex.FindStringSubmatch(storePath)
-	if len(matches) != 3 {
-		return nil, "", fmt.Errorf("invalid store path: %s", storePath)
-	}
-
-	// Decode the nixbase32 hash to bytes (32 chars -> 20 bytes)
-	hash, err := nixbase32.DecodeString(matches[1])
-	if err != nil {
-		return nil, "", fmt.Errorf("decode hash: %w", err)
-	}
-
-	return hash, matches[2], nil
-}
-
-// exportStats tracks global export statistics.
+// exportStats tracks global export statistics and timing.
 type exportStats struct {
 	processed     atomic.Int64
 	exported      atomic.Int64
 	failedToParse atomic.Int64
+
+	// Timing stats (nanoseconds)
+	parseTime atomic.Int64
+	writeTime atomic.Int64
+}
+
+// kvPair holds a copied key-value pair from the iterator.
+type kvPair struct {
+	key   []byte
+	value []byte
+}
+
+// parseResult holds the result of parsing a narinfo with its original index.
+type parseResult struct {
+	index  int
+	record NarInfoRecord
+	err    error
+}
+
+// iteratorExporter handles ordered export using badger iterator.
+type iteratorExporter struct {
+	db     *badger.DB
+	writer *parquet.GenericWriter[NarInfoRecord]
+	stats  *exportStats
+
+	// Memory management
+	rowsInGroup   int64
+	rowGroupCount int
 }
 
 // ExportNarinfos exports all narinfo entries from the badger database to a single parquet file.
@@ -70,6 +85,7 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputPath string) 
 		return errors.New("badger config is required")
 	}
 
+	// Open the db and ensure it is closed at the end
 	db, err := OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
@@ -81,6 +97,7 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputPath string) 
 		}
 	}()
 
+	// Export the narinfos
 	if err = exportNarinfosFromDB(ctx, db, outputPath); err != nil {
 		return fmt.Errorf("failed to export narinfos: %w", err)
 	}
@@ -90,170 +107,23 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputPath string) 
 	return nil
 }
 
-// createParquetWriter creates a parquet writer with ZSTD compression and bloom filter on hash column.
+// createParquetWriter creates a parquet writer with ZSTD compression.
+// Bloom filters are disabled to save space (~0.34 GB); use ClickHouse for indexed lookups.
 func createParquetWriter(file *os.File) *parquet.GenericWriter[NarInfoRecord] {
 	return parquet.NewGenericWriter[NarInfoRecord](file,
-		// Use ZSTD compression for smaller file size
+		// Use ZSTD compression to reduce the overall file size
 		parquet.Compression(&zstd.Codec{
 			Level: zstd.SpeedBetterCompression,
 		}),
-		// Enable bloom filter on hash column for fast lookups
-		parquet.BloomFilters(
-			parquet.SplitBlockFilter(10, "hash"),
-		),
-		// Limit memory usage: flush to disk every 1M records
+		// Large row groups improve dictionary encoding efficiency for references.
+		// The references column contains many repeated hashes (common dependencies),
+		// and larger row groups allow better deduplication within the dictionary.
 		parquet.MaxRowsPerRowGroup(maxRowsPerRowGroup),
 	)
 }
 
-// parseNarinfo parses a narinfo from badger value.
-func parseNarinfo(val []byte) (*narinfo.NarInfo, error) {
-	info, err := narinfo.Parse(bytes.NewReader(val))
-	if err != nil {
-		return nil, fmt.Errorf("parse narinfo: %w", err)
-	}
-
-	return info, nil
-}
-
-// convertToRecord converts a NarInfo to a NarInfoRecord.
-func convertToRecord(info *narinfo.NarInfo) (NarInfoRecord, error) {
-	hash, pname, err := parseStorePath(info.StorePath)
-	if err != nil {
-		return NarInfoRecord{}, err
-	}
-
-	signatures := make([]string, 0, len(info.Signatures))
-	for _, sig := range info.Signatures {
-		signatures = append(signatures, sig.String())
-	}
-
-	// Parse references - extract hash and pname from each (format: hash32chars-pname)
-	referenceHashes := make([][]byte, 0, len(info.References))
-	referencePnames := make([]string, 0, len(info.References))
-
-	for _, ref := range info.References {
-		if len(ref) < 34 { // 32 chars hash + "-" + at least 1 char pname
-			continue // skip invalid references
-		}
-
-		hashBytes, err := nixbase32.DecodeString(ref[:32])
-		if err != nil {
-			continue // skip references with invalid hashes
-		}
-
-		referenceHashes = append(referenceHashes, hashBytes)
-		referencePnames = append(referencePnames, ref[33:]) // skip "hash-"
-	}
-
-	record := NarInfoRecord{
-		Hash:            hash,
-		Pname:           pname,
-		URL:             info.URL,
-		Compression:     info.Compression,
-		FileSize:        info.FileSize,
-		NarSize:         info.NarSize,
-		ReferenceHashes: referenceHashes,
-		ReferencePnames: referencePnames,
-		Deriver:         info.Deriver,
-		System:          info.System,
-		CA:              info.CA,
-		Signatures:      signatures,
-	}
-
-	if info.FileHash != nil {
-		record.FileHash = info.FileHash.String()
-	}
-
-	if info.NarHash != nil {
-		record.NarHash = info.NarHash.String()
-	}
-
-	return record, nil
-}
-
-// streamHandler handles the Send callback for the badger stream.
-type streamHandler struct {
-	writer *parquet.GenericWriter[NarInfoRecord]
-	stats  *exportStats
-}
-
-// handleBatch processes a batch of KV pairs from the stream.
-func (h *streamHandler) handleBatch(ctx context.Context, buf *z.Buffer) error {
-	// Check if context is cancelled before processing
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("context cancelled: %w", err)
-	}
-
-	list, err := badger.BufferToKVList(buf)
-	if err != nil {
-		return fmt.Errorf("buffer to KV list: %w", err)
-	}
-
-	records := h.parseRecords(list.GetKv())
-
-	if len(records) == 0 {
-		return nil
-	}
-
-	// Check again before writing in case context was cancelled during processing
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("context cancelled: %w", err)
-	}
-
-	if _, err := h.writer.Write(records); err != nil {
-		return fmt.Errorf("write records: %w", err)
-	}
-
-	h.logProgress(int64(len(records)))
-
-	return nil
-}
-
-// parseRecords converts KV pairs to NarInfoRecords.
-func (h *streamHandler) parseRecords(kvList []*pb.KV) []NarInfoRecord {
-	records := make([]NarInfoRecord, 0, len(kvList))
-
-	for _, kv := range kvList {
-		if kv.GetStreamDone() {
-			continue
-		}
-
-		h.stats.processed.Add(1)
-
-		info, err := parseNarinfo(kv.GetValue())
-		if err != nil {
-			log.Debugf("failed to parse narinfo %s: %s", kv.GetKey(), err)
-			h.stats.failedToParse.Add(1)
-
-			continue
-		}
-
-		record, err := convertToRecord(info)
-		if err != nil {
-			log.Debugf("failed to convert narinfo %s: %s", kv.GetKey(), err)
-			h.stats.failedToParse.Add(1)
-
-			continue
-		}
-
-		records = append(records, record)
-	}
-
-	return records
-}
-
-// logProgress logs export progress every progressInterval records.
-func (h *streamHandler) logProgress(count int64) {
-	exported := h.stats.exported.Add(count)
-	prev := exported - count
-
-	if exported/progressInterval != prev/progressInterval {
-		log.Infof("exported %s narinfos", humanize.Comma(exported))
-	}
-}
-
-// exportNarinfosFromDB exports narinfos using Badger's Stream API for better performance.
+// exportNarinfosFromDB exports narinfos using Badger's Iterator API for ordered output.
+// Records are exported in lexicographic order by key (hash order).
 func exportNarinfosFromDB(
 	ctx context.Context,
 	db *badger.DB,
@@ -261,6 +131,7 @@ func exportNarinfosFromDB(
 ) error {
 	stats := &exportStats{}
 
+	// Create the output file and close and ensure it is closed at the end
 	file, err := os.Create(outputPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("create output file: %w", err)
@@ -272,36 +143,253 @@ func exportNarinfosFromDB(
 		}
 	}()
 
+	// Create the parquet writer
 	writer := createParquetWriter(file)
 
-	defer func() {
-		if closeErr := writer.Close(); closeErr != nil {
-			log.Errorf("failed to close parquet writer: %s", closeErr)
-		}
-	}()
-
-	handler := &streamHandler{writer: writer, stats: stats}
-
-	stream := db.NewStream()
-	stream.NumGo = numStreamWorkers
-	stream.Prefix = []byte(BadgerPrefixObject)
-	stream.LogPrefix = "narinfo-export"
-	stream.ChooseKey = func(item *badger.Item) bool {
-		return bytes.HasSuffix(item.Key(), []byte(".narinfo"))
-	}
-	stream.Send = func(buf *z.Buffer) error {
-		return handler.handleBatch(ctx, buf)
+	// Create an exporter instance and export the narinfos
+	exporter := &iteratorExporter{
+		db:     db,
+		writer: writer,
+		stats:  stats,
 	}
 
-	if err := stream.Orchestrate(ctx); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("stream orchestration: %w", err)
-		}
+	exportErr := exporter.export(ctx)
 
+	if errors.Is(exportErr, context.Canceled) {
 		log.Info("export cancelled, finishing up...")
+	} else if exportErr != nil {
+		return fmt.Errorf("export: %w", exportErr)
+	}
+
+	// Explicitly close the writer before logging stats to ensure parquet footer is written.
+	// This is important for graceful cancellation - we want valid output even if interrupted.
+	// Note: parquet-go can panic during Close() if cancelled mid-write due to internal buffer
+	// state issues. We recover from this to allow graceful shutdown.
+	if closeErr := closeParquetWriter(writer); closeErr != nil {
+		log.Warnf("failed to close parquet writer cleanly: %s", closeErr)
+		// Don't return error - the partial file may still be valid
 	}
 
 	logExportStats(stats, file)
+
+	return nil
+}
+
+// export iterates through narinfos in key order and exports them.
+func (e *iteratorExporter) export(ctx context.Context) error {
+	prefix := []byte(BadgerPrefixObject)
+	suffix := []byte(".narinfo")
+
+	err := e.db.View(func(txn *badger.Txn) error {
+		opts := badger.IteratorOptions{
+			Prefix:         prefix,
+			PrefetchValues: true, // Need values for parsing
+			PrefetchSize:   prefetchSize,
+			Reverse:        false, // Forward = lexicographic order
+			AllVersions:    false,
+		}
+
+		iter := txn.NewIterator(opts)
+		defer iter.Close()
+
+		batch := make([]kvPair, 0, iteratorBatchSize)
+
+		for iter.Rewind(); iter.Valid(); iter.Next() {
+			// Check cancellation periodically
+			if len(batch)%1000 == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("context cancelled: %w", err)
+				}
+			}
+
+			item := iter.Item()
+
+			// Filter for .narinfo files
+			if !bytes.HasSuffix(item.Key(), suffix) {
+				continue
+			}
+
+			// Copy key and value (iterator reuses buffers)
+			pair := kvPair{
+				key: item.KeyCopy(nil),
+			}
+
+			var err error
+
+			pair.value, err = item.ValueCopy(nil)
+			if err != nil {
+				log.Debugf("failed to get value for %s: %s", item.Key(), err)
+				continue
+			}
+
+			batch = append(batch, pair)
+
+			// Process batch when full
+			if len(batch) >= iteratorBatchSize {
+				if err := e.processBatch(ctx, batch); err != nil {
+					return err
+				}
+
+				batch = batch[:0] // Reset slice, reuse capacity
+			}
+		}
+
+		// Process remaining records
+		if len(batch) > 0 {
+			if err := e.processBatch(ctx, batch); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("badger view: %w", err)
+	}
+
+	return nil
+}
+
+// processBatch parses a batch of KV pairs in parallel and writes them in order.
+func (e *iteratorExporter) processBatch(ctx context.Context, batch []kvPair) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// Recover from parquet-go panics during write.
+	// This can happen when cancelled mid-flush due to a bug in parquet-go's
+	// chunkMemoryBuffer.WriteTo which doesn't check for empty data slice.
+	var panicErr error
+
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr = fmt.Errorf("parquet write panic (likely cancelled mid-flush): %v", r)
+		}
+	}()
+
+	e.stats.processed.Add(int64(len(batch)))
+
+	// Create channels for work distribution and result collection
+	workCh := make(chan int, len(batch))
+	resultCh := make(chan parseResult, len(batch))
+
+	// Start worker pool
+	var wg sync.WaitGroup
+
+	for range parseWorkerCount {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for idx := range workCh {
+				parseStart := time.Now()
+				record, err := parseNarinfoToRecord(batch[idx].value)
+
+				e.stats.parseTime.Add(time.Since(parseStart).Nanoseconds())
+
+				resultCh <- parseResult{
+					index:  idx,
+					record: record,
+					err:    err,
+				}
+			}
+		}()
+	}
+
+	// Send work
+	for i := range batch {
+		workCh <- i
+	}
+
+	close(workCh)
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Collect results into ordered slice
+	results := make([]parseResult, len(batch))
+	for result := range resultCh {
+		results[result.index] = result
+	}
+
+	// Build ordered records slice
+	records := make([]NarInfoRecord, 0, len(batch))
+
+	for i, result := range results {
+		if result.err != nil {
+			log.Debugf("failed to parse narinfo %s: %s", batch[i].key, result.err)
+			e.stats.failedToParse.Add(1)
+
+			continue
+		}
+
+		records = append(records, result.record)
+	}
+
+	if len(records) == 0 {
+		return panicErr
+	}
+
+	// Check context before writing
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled: %w", err)
+	}
+
+	// Write to parquet (sequential, preserves order)
+	writeStart := time.Now()
+
+	if _, err := e.writer.Write(records); err != nil {
+		return fmt.Errorf("write records: %w", err)
+	}
+
+	e.stats.writeTime.Add(time.Since(writeStart).Nanoseconds())
+
+	// Progress and memory management
+	e.logProgress(int64(len(records)))
+	e.handleRowGroupFlush(int64(len(records)))
+
+	return panicErr
+}
+
+// logProgress logs export progress every progressInterval records.
+func (e *iteratorExporter) logProgress(count int64) {
+	exported := e.stats.exported.Add(count)
+	prev := exported - count
+
+	if exported/progressInterval != prev/progressInterval {
+		log.Infof("exported %s narinfos", humanize.Comma(exported))
+	}
+}
+
+// handleRowGroupFlush detects row group flush and releases memory.
+func (e *iteratorExporter) handleRowGroupFlush(count int64) {
+	e.rowsInGroup += count
+	if e.rowsInGroup >= maxRowsPerRowGroup {
+		e.rowGroupCount++
+		e.rowsInGroup = 0
+		// Force GC and return memory to OS after each row group flush
+		// to prevent unbounded memory growth with large row groups
+		debug.FreeOSMemory()
+		log.Infof("row group %d flushed, released memory to OS", e.rowGroupCount)
+	}
+}
+
+// closeParquetWriter closes the parquet writer, recovering from any panics.
+// parquet-go can panic during Close() if cancelled mid-write due to internal buffer issues.
+func closeParquetWriter(writer *parquet.GenericWriter[NarInfoRecord]) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("parquet writer panic during close: %v", r)
+		}
+	}()
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close parquet writer: %w", err)
+	}
 
 	return nil
 }
@@ -315,5 +403,21 @@ func logExportStats(stats *exportStats, file *os.File) {
 
 	if stat, err := file.Stat(); err == nil {
 		log.Infof("Output file size: %s", humanize.Bytes(uint64(stat.Size()))) //nolint:gosec
+	}
+
+	// Log timing breakdown
+	parseNs := stats.parseTime.Load()
+	writeNs := stats.writeTime.Load()
+	totalNs := parseNs + writeNs
+
+	if totalNs > 0 {
+		log.Infof("=== TIMING BREAKDOWN ===")
+		log.Infof("Parse narinfo:  %v (%.1f%%)",
+			time.Duration(parseNs),
+			float64(parseNs)/float64(totalNs)*100)
+		log.Infof("Write parquet:  %v (%.1f%%)",
+			time.Duration(writeNs),
+			float64(writeNs)/float64(totalNs)*100)
+		log.Infof("Total measured: %v", time.Duration(totalNs))
 	}
 }

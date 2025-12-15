@@ -6,7 +6,6 @@ import (
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func downloadCmd() *cobra.Command {
@@ -16,6 +15,11 @@ func downloadCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
+
+			cfg, err := loadConfig(cmd, args)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
 			dl, err := inventory.NewDownloader(cfg)
 			if err != nil {
@@ -30,12 +34,12 @@ func downloadCmd() *cobra.Command {
 		},
 	}
 
-	config.SetBadgerFlags(cmd.Flags())
+	fs := cmd.Flags()
 
-	// bind our command's flags to viper
-	if err := viper.BindPFlags(cmd.Flags()); err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to bind flags to viper: %w", err))
-	}
+	config.SetAWSFlags(fs)
+	config.SetS3Flags(fs)
+	config.SetInventoryFlags(fs)
+	config.SetBadgerFlags(fs)
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true

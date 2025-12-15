@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/numtide/narwal/pkg/inventory/fuse"
 	"github.com/spf13/cobra"
@@ -33,6 +34,11 @@ Requires 'nix' to be available in PATH to run DuckDB.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manifestName := args[0]
 			outputFile := args[1]
+
+			cfg, err := loadConfig(cmd, args)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
 			// Ensure Badger config is initialized
 			if cfg.Badger == nil {
@@ -126,6 +132,8 @@ COPY (
 			return nil
 		},
 	}
+
+	config.SetBadgerFlags(cmd.Flags())
 
 	cmd.Flags().StringVar(&orderBy, "order-by", "key", "Column to order results by")
 	cmd.Flags().StringVar(&memoryLimit, "memory-limit", "24GB", "DuckDB memory limit")

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -449,7 +448,6 @@ type narinfoImportHandler struct {
 	pgPool *pgxpool.Pool
 	stats  *narinfoImportStats
 	batch  []narinfoRecord
-	mu     sync.Mutex
 	// eg handles async database writes
 	eg *errgroup.Group
 }

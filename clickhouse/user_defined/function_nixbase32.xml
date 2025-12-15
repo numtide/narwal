@@ -1,0 +1,15 @@
+<functions>
+    <function>
+        <type>executable_pool</type>
+        <name>nixbase32_hex</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+            <name>hex_hash</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>nixbase32</command>
+        <execute_direct>1</execute_direct>
+        <pool_size>4</pool_size>
+    </function>
+</functions>
