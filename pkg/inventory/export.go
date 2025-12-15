@@ -70,7 +70,7 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputPath string) 
 		return errors.New("badger config is required")
 	}
 
-	db, err := OpenDB(cfg.Badger)
+	db, err := OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}

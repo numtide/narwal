@@ -57,7 +57,7 @@ func Import(ctx context.Context, cfg *config.Config, report string) error {
 		return errors.New("badger config is required")
 	}
 
-	inventoryDB, err := inventory.OpenDB(cfg.Badger)
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open inventoryDB: %w", err)
 	}
@@ -466,7 +466,7 @@ func ImportNarinfos(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// Open the inventory database
-	inventoryDB, err := inventory.OpenDB(cfg.Badger)
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open inventory db: %w", err)
 	}
@@ -848,7 +848,7 @@ func ImportNarinfoReferences(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// Open the inventory database
-	inventoryDB, err := inventory.OpenDB(cfg.Badger)
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open inventory db: %w", err)
 	}

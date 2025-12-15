@@ -34,7 +34,7 @@ Files are mounted read-only. Press Ctrl+C to unmount.`,
 			}
 
 			// Open the Badger database
-			db, err := inventory.OpenDB(cfg.Badger)
+			db, err := inventory.OpenDB(cfg.Badger, true)
 			if err != nil {
 				return fmt.Errorf("failed to open database: %w", err)
 			}

@@ -63,7 +63,7 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 	var err error
 
 	// open the db
-	if d.db, err = OpenDB(d.cfg.Badger); err != nil {
+	if d.db, err = OpenDB(d.cfg.Badger, false); err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}
 

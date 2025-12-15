@@ -38,7 +38,7 @@ func Verify(ctx context.Context, cfg *config.Config, report string) error {
 	}
 
 	// open the db
-	db, err := OpenDB(cfg.Badger)
+	db, err := OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}

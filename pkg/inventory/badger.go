@@ -42,12 +42,15 @@ func (l *badgerLogger) Debugf(format string, args ...any) {
 	l.logger.Debugf(format, args...)
 }
 
-func OpenDB(cfg *config.Badger) (*badger.DB, error) {
+// OpenDB initializes and opens a Badger database with the provided configuration and options.
+// readOnly allows multiple readers of the database at the same time, provided there is no process with a write lock.
+func OpenDB(cfg *config.Badger, readOnly bool) (*badger.DB, error) {
 	logger := &badgerLogger{
 		logger: log.WithPrefix("badger"),
 	}
 	opts := badger.DefaultOptions(cfg.Path).
 		WithLogger(logger).
+		WithReadOnly(readOnly).
 		WithCompression(options.ZSTD).
 		WithBlockCacheSize(1024 << 20).
 		WithIndexCacheSize(1024 << 20)
