@@ -16,7 +16,7 @@ func setupTestDB(t *testing.T) (*badger.DB, *config.Badger) {
 	tmpDir := t.TempDir()
 	cfg := &config.Badger{Path: tmpDir}
 
-	db, err := inventory.OpenDB(cfg)
+	db, err := inventory.OpenDB(cfg, false)
 	require.NoError(t, err)
 
 	return db, cfg
@@ -88,7 +88,7 @@ func TestPrune_RemovesUnlistedManifests(t *testing.T) {
 	require.Equal(t, 2, result.FilesDeleted) // manifest2 had 2 files
 
 	// Reopen DB and verify state
-	db, err = inventory.OpenDB(cfg)
+	db, err = inventory.OpenDB(cfg, false)
 	require.NoError(t, err)
 
 	defer func() {
@@ -213,7 +213,7 @@ func TestPrune_HandlesNonExistentKeepIDs(t *testing.T) {
 	require.Equal(t, 0, result.FilesDeleted)
 
 	// Verify manifest still exists
-	db, err = inventory.OpenDB(cfg)
+	db, err = inventory.OpenDB(cfg, false)
 	require.NoError(t, err)
 
 	defer func() {

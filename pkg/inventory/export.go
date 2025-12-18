@@ -6,8 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,61 +14,79 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dustin/go-humanize"
-	"github.com/nix-community/go-nix/pkg/narinfo"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/parquet-go/parquet-go"
-	"golang.org/x/sync/errgroup"
+	"github.com/parquet-go/parquet-go/compress/zstd"
 )
 
 const (
-	// recordsPerFile defines the maximum records per parquet file.
-	recordsPerFile = 1_000_000
+	// progressInterval defines how often to log progress (every N records).
+	progressInterval = 50_000
 
-	// recordBatchSize defines how many records to accumulate before writing.
-	recordBatchSize = 50_000
+	// maxRowsPerRowGroup controls row group size for dictionary encoding efficiency.
+	//
+	// Typically, we would want 500k or 1 million rows per row group to reduce the memory overhead and improve lookup
+	// speed. However, in our case we are also trying to maximise the dictionary encoding efficiency for the references
+	// column to reduce the size of the exported file. Experimentally, this number was found as a good compromise.
+	maxRowsPerRowGroup = 30_000_000
 
-	// progressInterval defines how often to log progress.
-	progressInterval = 100_000
+	// iteratorBatchSize is the number of records to fetch before parallel parsing.
+	iteratorBatchSize = 10_000
 
-	// numParsers defines the number of concurrent parsing workers.
-	numParsers = 16
+	// parseWorkerCount is the number of parsing goroutines.
+	parseWorkerCount = 16
 
-	// rawChannelSize defines the buffer size for raw data channel.
-	rawChannelSize = 1000
-
-	// recordChannelSize defines the buffer size for parsed records channel.
-	recordChannelSize = 1000
+	// prefetchSize is the badger iterator prefetch buffer size.
+	prefetchSize = 128
 )
 
-// narinfoBytes represents raw narinfo data from the database.
-type rawNarinfo struct {
-	idx   int64
-	key   []byte
-	value []byte
-}
-
-// exportStats tracks global export statistics.
+// exportStats tracks global export statistics and timing.
 type exportStats struct {
 	processed     atomic.Int64
 	exported      atomic.Int64
 	failedToParse atomic.Int64
+
+	// Timing stats (nanoseconds)
+	parseTime atomic.Int64
+	writeTime atomic.Int64
 }
 
-// ExportNarinfos exports all narinfo entries from the badger database to parquet files.
-func ExportNarinfos(ctx context.Context, cfg *config.Config, outputDir string) error {
+// kvPair holds a copied key-value pair from the iterator.
+type kvPair struct {
+	key   []byte
+	value []byte
+}
+
+// parseResult holds the result of parsing a narinfo with its original index.
+type parseResult struct {
+	index  int
+	record NarInfoRecord
+	err    error
+}
+
+// iteratorExporter handles ordered export using badger iterator.
+type iteratorExporter struct {
+	db     *badger.DB
+	writer *parquet.GenericWriter[NarInfoRecord]
+	stats  *exportStats
+
+	// Memory management
+	rowsInGroup   int64
+	rowGroupCount int
+}
+
+// ExportNarinfos exports all narinfo entries from the badger database to a single parquet file.
+func ExportNarinfos(ctx context.Context, cfg *config.Config, outputPath string) error {
 	start := time.Now()
 
-	log.Infof("exporting narinfos to directory: %s", outputDir)
+	log.Infof("exporting narinfos to: %s", outputPath)
 
 	if cfg.Badger == nil {
 		return errors.New("badger config is required")
 	}
 
-	if err := os.MkdirAll(outputDir, 0o750); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	db, err := OpenDB(cfg.Badger)
+	// Open the db and ensure it is closed at the end
+	db, err := OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}
@@ -80,7 +97,8 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputDir string) e
 		}
 	}()
 
-	if err = exportNarinfosFromDB(ctx, db, outputDir); err != nil {
+	// Export the narinfos
+	if err = exportNarinfosFromDB(ctx, db, outputPath); err != nil {
 		return fmt.Errorf("failed to export narinfos: %w", err)
 	}
 
@@ -89,444 +107,317 @@ func ExportNarinfos(ctx context.Context, cfg *config.Config, outputDir string) e
 	return nil
 }
 
-// readNarinfos reads raw narinfos from BadgerDB.
-func readNarinfos(
+// createParquetWriter creates a parquet writer with ZSTD compression.
+// Bloom filters are disabled to save space (~0.34 GB); use ClickHouse for indexed lookups.
+func createParquetWriter(file *os.File) *parquet.GenericWriter[NarInfoRecord] {
+	return parquet.NewGenericWriter[NarInfoRecord](file,
+		// Use ZSTD compression to reduce the overall file size
+		parquet.Compression(&zstd.Codec{
+			Level: zstd.SpeedBetterCompression,
+		}),
+		// Large row groups improve dictionary encoding efficiency for references.
+		// The references column contains many repeated hashes (common dependencies),
+		// and larger row groups allow better deduplication within the dictionary.
+		parquet.MaxRowsPerRowGroup(maxRowsPerRowGroup),
+	)
+}
+
+// exportNarinfosFromDB exports narinfos using Badger's Iterator API for ordered output.
+// Records are exported in lexicographic order by key (hash order).
+func exportNarinfosFromDB(
 	ctx context.Context,
 	db *badger.DB,
-	rawChan chan<- rawNarinfo,
-	stats *exportStats,
+	outputPath string,
 ) error {
-	// close the raw data channel when we're done
-	defer close(rawChan)
+	stats := &exportStats{}
 
-	// create a new read-only transaction
-	tx := db.NewTransaction(false)
-	defer tx.Discard()
-
-	// create an object iterator
-	prefix := []byte(BadgerPrefixObject)
-	iter := tx.NewIterator(badger.IteratorOptions{
-		Prefix:         prefix,
-		PrefetchSize:   rawChannelSize * 10,
-		PrefetchValues: true,
-	})
-
-	defer iter.Close()
-
-	var idx int64
-
-	for iter.Rewind(); iter.ValidForPrefix(prefix); iter.Next() {
-		select {
-		case <-ctx.Done():
-			// exit early if context is cancelled
-			return nil
-		default:
-			item := iter.Item()
-
-			// increment the total count of processed objects
-			stats.processed.Add(1)
-
-			// skip anything that isn't a narinfo
-			// we shouldn't be storing anything other than narinfo, but we do this check anyway for completeness
-			if !bytes.HasSuffix(item.Key(), []byte(".narinfo")) {
-				iter.Next()
-				continue
-			}
-
-			// copy the value to a new slice
-			val, err := item.ValueCopy(nil)
-			if err != nil {
-				return fmt.Errorf("failed to read value for %s: %w", item.Key(), err)
-			}
-
-			// add to the channel for parsing
-			rawChan <- rawNarinfo{
-				idx:   idx,
-				key:   item.Key(),
-				value: val,
-			}
-
-			idx++
-		}
-	}
-
-	return nil
-}
-
-// parseNarinfos parses raw narinfo data into records.
-func parseNarinfos(
-	ctx context.Context,
-	rawChan <-chan rawNarinfo,
-	recordChan chan<- NarInfoRecord,
-	stats *exportStats,
-) {
-	for {
-		select {
-		case <-ctx.Done():
-			// exit early if context is cancelled
-			return
-		case raw, ok := <-rawChan:
-			if !ok {
-				return // Channel closed, we're done
-			}
-
-			// parse the narinfo
-			info, err := parseNarinfo(raw.value)
-			if err != nil {
-				log.Debugf("failed to parse narinfo %s: %s", raw.key, err)
-				stats.failedToParse.Add(1)
-
-				continue
-			}
-
-			// add to the channel for writing
-			record := convertToRecord(info)
-
-			record.Idx = raw.idx
-
-			record.LastModifiedAt, _, err = ReadObjectKey(raw.key)
-			if err != nil {
-				log.Debugf("failed to read object key %s: %s", raw.key, err)
-				continue
-			}
-
-			recordChan <- record
-		}
-	}
-}
-
-// writeNarinfosToParquet batches and writes records to parquet files.
-func writeNarinfosToParquet(
-	ctx context.Context,
-	recordChan <-chan NarInfoRecord,
-	outputDir string,
-	stats *exportStats,
-) error {
-	writer, err := newPipelineWriter(outputDir)
+	// Create the output file and close and ensure it is closed at the end
+	file, err := os.Create(outputPath) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("failed to create writer: %w", err)
+		return fmt.Errorf("create output file: %w", err)
 	}
 
 	defer func() {
-		if err := writer.close(); err != nil {
-			log.Errorf("failed to close writer: %s", err)
+		if closeErr := file.Close(); closeErr != nil {
+			log.Errorf("failed to close output file: %s", closeErr)
 		}
 	}()
 
-	batch := make([]NarInfoRecord, 0, recordBatchSize)
+	// Create the parquet writer
+	writer := createParquetWriter(file)
 
-	writeBatch := func() error {
-		// write the batch
-		if err := writer.writeBatch(batch); err != nil {
-			return fmt.Errorf("failed to write batch: %w", err)
-		}
-
-		// update stats
-		exported := stats.exported.Add(int64(len(batch)))
-
-		// Log progress
-		if exported%progressInterval == 0 {
-			log.Infof("exported %s narinfos (file #%d, %s records in current file)",
-				humanize.Comma(exported),
-				writer.fileNum,
-				humanize.Comma(writer.recordsInFile),
-			)
-		}
-
-		// reset the batch
-		batch = batch[:0]
-
-		return nil
+	// Create an exporter instance and export the narinfos
+	exporter := &iteratorExporter{
+		db:     db,
+		writer: writer,
+		stats:  stats,
 	}
 
-	tryRotateFile := func() error {
-		// check if we need to rotate files and abort early if not
-		if writer.recordsInFile < recordsPerFile {
-			return nil
-		}
+	exportErr := exporter.export(ctx)
 
-		// rotate files
-		log.Infof("record limit reached (%s records), rotating to new file",
-			humanize.Comma(writer.recordsInFile))
-
-		if err = writer.newFile(); err != nil {
-			return fmt.Errorf("failed to rotate file: %w", err)
-		}
-
-		return nil
+	if errors.Is(exportErr, context.Canceled) {
+		log.Info("export cancelled, finishing up...")
+	} else if exportErr != nil {
+		return fmt.Errorf("export: %w", exportErr)
 	}
 
-LOOP:
-	for {
-		select {
-		case <-ctx.Done():
-			break LOOP
-
-		case record, ok := <-recordChan:
-			if !ok {
-				// Channel closed, write any remaining records
-				break LOOP
-			}
-
-			batch = append(batch, record)
-
-			// write batch when it reaches the target size
-			if len(batch) < recordBatchSize {
-				continue LOOP
-			}
-
-			if err = writeBatch(); err != nil {
-				return fmt.Errorf("failed to write batch: %w", err)
-			}
-
-			if err = tryRotateFile(); err != nil {
-				return fmt.Errorf("failed to rotate file: %w", err)
-			}
-		}
+	// Explicitly close the writer before logging stats to ensure parquet footer is written.
+	// This is important for graceful cancellation - we want valid output even if interrupted.
+	// Note: parquet-go can panic during Close() if cancelled mid-write due to internal buffer
+	// state issues. We recover from this to allow graceful shutdown.
+	if closeErr := closeParquetWriter(writer); closeErr != nil {
+		log.Warnf("failed to close parquet writer cleanly: %s", closeErr)
+		// Don't return error - the partial file may still be valid
 	}
 
-	// flush any remaining records
-	if err = writeBatch(); err != nil {
-		return fmt.Errorf("failed to write batch: %w", err)
-	}
+	logExportStats(stats, file)
 
 	return nil
 }
 
-// pipelineWriter manages writing records to parquet files.
-type pipelineWriter struct {
-	outputDir     string
-	file          *os.File
-	fileNum       int
-	writer        *parquet.GenericWriter[NarInfoRecord]
-	recordsInFile int64
-	totalExported int64
-}
+// export iterates through narinfos in key order and exports them.
+func (e *iteratorExporter) export(ctx context.Context) error {
+	prefix := []byte(BadgerPrefixObject)
+	suffix := []byte(".narinfo")
 
-// newPipelineWriter creates a new pipeline writer.
-func newPipelineWriter(outputDir string) (*pipelineWriter, error) {
-	w := &pipelineWriter{
-		outputDir: outputDir,
-		fileNum:   1,
-	}
+	err := e.db.View(func(txn *badger.Txn) error {
+		opts := badger.IteratorOptions{
+			Prefix:         prefix,
+			PrefetchValues: true, // Need values for parsing
+			PrefetchSize:   prefetchSize,
+			Reverse:        false, // Forward = lexicographic order
+			AllVersions:    false,
+		}
 
-	if err := w.createFile(); err != nil {
-		return nil, err
-	}
+		iter := txn.NewIterator(opts)
+		defer iter.Close()
 
-	return w, nil
-}
+		batch := make([]kvPair, 0, iteratorBatchSize)
 
-// createFile creates a new parquet file.
-func (w *pipelineWriter) createFile() error {
-	filename := fmt.Sprintf("narinfos_%04d.parquet", w.fileNum)
-	filePath := filepath.Join(w.outputDir, filename)
+		for iter.Rewind(); iter.Valid(); iter.Next() {
+			// Check cancellation periodically
+			if len(batch)%1000 == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("context cancelled: %w", err)
+				}
+			}
 
-	log.Infof("creating new parquet file: %s", filename)
+			item := iter.Item()
 
-	file, err := os.Create(filePath) //nolint:gosec
+			// Filter for .narinfo files
+			if !bytes.HasSuffix(item.Key(), suffix) {
+				continue
+			}
+
+			// Copy key and value (iterator reuses buffers)
+			pair := kvPair{
+				key: item.KeyCopy(nil),
+			}
+
+			var err error
+
+			pair.value, err = item.ValueCopy(nil)
+			if err != nil {
+				log.Debugf("failed to get value for %s: %s", item.Key(), err)
+				continue
+			}
+
+			batch = append(batch, pair)
+
+			// Process batch when full
+			if len(batch) >= iteratorBatchSize {
+				if err := e.processBatch(ctx, batch); err != nil {
+					return err
+				}
+
+				batch = batch[:0] // Reset slice, reuse capacity
+			}
+		}
+
+		// Process remaining records
+		if len(batch) > 0 {
+			if err := e.processBatch(ctx, batch); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
-	}
-
-	w.file = file
-	w.writer = parquet.NewGenericWriter[NarInfoRecord](file)
-
-	return nil
-}
-
-// newFile rotates to a new file.
-func (w *pipelineWriter) newFile() error {
-	if err := w.closeCurrentFile(); err != nil {
-		return err
-	}
-
-	w.fileNum++
-	w.recordsInFile = 0
-
-	return w.createFile()
-}
-
-// closeCurrentFile closes the current writer and file.
-func (w *pipelineWriter) closeCurrentFile() error {
-	if w.writer != nil {
-		if err := w.writer.Close(); err != nil {
-			return fmt.Errorf("failed to close parquet writer: %w", err)
-		}
-
-		w.writer = nil
-	}
-
-	if w.file != nil {
-		if err := w.file.Close(); err != nil {
-			return fmt.Errorf("failed to close output file: %w", err)
-		}
-
-		w.file = nil
+		return fmt.Errorf("badger view: %w", err)
 	}
 
 	return nil
 }
 
-// writeBatch writes a batch of records to the current file.
-func (w *pipelineWriter) writeBatch(batch []NarInfoRecord) error {
+// processBatch parses a batch of KV pairs in parallel and writes them in order.
+func (e *iteratorExporter) processBatch(ctx context.Context, batch []kvPair) error {
 	if len(batch) == 0 {
 		return nil
 	}
 
-	// Sort the batch by Idx to ensure records are written in order
-	sort.Slice(batch, func(i, j int) bool {
-		return batch[i].Idx < batch[j].Idx
-	})
+	// Recover from parquet-go panics during write.
+	// This can happen when cancelled mid-flush due to a bug in parquet-go's
+	// chunkMemoryBuffer.WriteTo which doesn't check for empty data slice.
+	var panicErr error
 
-	if _, err := w.writer.Write(batch); err != nil {
-		return fmt.Errorf("failed to write batch: %w", err)
-	}
-
-	w.recordsInFile += int64(len(batch))
-	w.totalExported += int64(len(batch))
-
-	return nil
-}
-
-// close closes the writer and logs summary.
-func (w *pipelineWriter) close() error {
-	if err := w.closeCurrentFile(); err != nil {
-		return err
-	}
-
-	w.logSummary()
-
-	return nil
-}
-
-// logSummary logs the final export summary.
-func (w *pipelineWriter) logSummary() {
-	// calculate total size of all parquet files
-	var totalSize int64
-
-	for i := 1; i <= w.fileNum; i++ {
-		filename := fmt.Sprintf("narinfos_%04d.parquet", i)
-		filePath := filepath.Join(w.outputDir, filename)
-
-		if stat, err := os.Stat(filePath); err == nil {
-			totalSize += stat.Size()
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr = fmt.Errorf("parquet write panic (likely cancelled mid-flush): %v", r)
 		}
+	}()
+
+	e.stats.processed.Add(int64(len(batch)))
+
+	// Create channels for work distribution and result collection
+	workCh := make(chan int, len(batch))
+	resultCh := make(chan parseResult, len(batch))
+
+	// Start worker pool
+	var wg sync.WaitGroup
+
+	for range parseWorkerCount {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for idx := range workCh {
+				parseStart := time.Now()
+				record, err := parseNarinfoToRecord(batch[idx].value)
+
+				e.stats.parseTime.Add(time.Since(parseStart).Nanoseconds())
+
+				resultCh <- parseResult{
+					index:  idx,
+					record: record,
+					err:    err,
+				}
+			}
+		}()
 	}
 
-	log.Infof(
-		"writer summary: %d file(s), %s total records, total size: %s",
-		w.fileNum,
-		humanize.Comma(w.totalExported),
-		humanize.Bytes(uint64(totalSize)), //nolint:gosec
-	)
+	// Send work
+	for i := range batch {
+		workCh <- i
+	}
+
+	close(workCh)
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Collect results into ordered slice
+	results := make([]parseResult, len(batch))
+	for result := range resultCh {
+		results[result.index] = result
+	}
+
+	// Build ordered records slice
+	records := make([]NarInfoRecord, 0, len(batch))
+
+	for i, result := range results {
+		if result.err != nil {
+			log.Debugf("failed to parse narinfo %s: %s", batch[i].key, result.err)
+			e.stats.failedToParse.Add(1)
+
+			continue
+		}
+
+		records = append(records, result.record)
+	}
+
+	if len(records) == 0 {
+		return panicErr
+	}
+
+	// Check context before writing
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled: %w", err)
+	}
+
+	// Write to parquet (sequential, preserves order)
+	writeStart := time.Now()
+
+	if _, err := e.writer.Write(records); err != nil {
+		return fmt.Errorf("write records: %w", err)
+	}
+
+	e.stats.writeTime.Add(time.Since(writeStart).Nanoseconds())
+
+	// Progress and memory management
+	e.logProgress(int64(len(records)))
+	e.handleRowGroupFlush(int64(len(records)))
+
+	return panicErr
 }
 
-// parseNarinfo parses a narinfo from badger value.
-func parseNarinfo(val []byte) (*narinfo.NarInfo, error) {
-	info, err := narinfo.Parse(bytes.NewReader(val))
-	if err != nil {
-		return nil, fmt.Errorf("parse narinfo: %w", err)
-	}
+// logProgress logs export progress every progressInterval records.
+func (e *iteratorExporter) logProgress(count int64) {
+	exported := e.stats.exported.Add(count)
+	prev := exported - count
 
-	return info, nil
+	if exported/progressInterval != prev/progressInterval {
+		log.Infof("exported %s narinfos", humanize.Comma(exported))
+	}
 }
 
-// convertToRecord converts a NarInfo to a NarInfoRecord.
-func convertToRecord(info *narinfo.NarInfo) NarInfoRecord {
-	signatures := make([]string, 0, len(info.Signatures))
-	for _, sig := range info.Signatures {
-		signatures = append(signatures, sig.String())
+// handleRowGroupFlush detects row group flush and releases memory.
+func (e *iteratorExporter) handleRowGroupFlush(count int64) {
+	e.rowsInGroup += count
+	if e.rowsInGroup >= maxRowsPerRowGroup {
+		e.rowGroupCount++
+		e.rowsInGroup = 0
+		// Force GC and return memory to OS after each row group flush
+		// to prevent unbounded memory growth with large row groups
+		debug.FreeOSMemory()
+		log.Infof("row group %d flushed, released memory to OS", e.rowGroupCount)
 	}
-
-	record := NarInfoRecord{
-		StorePath:   info.StorePath,
-		URL:         info.URL,
-		Compression: info.Compression,
-		FileSize:    info.FileSize,
-		NarSize:     info.NarSize,
-		References:  info.References,
-		Deriver:     info.Deriver,
-		System:      info.System,
-		CA:          info.CA,
-		Signatures:  signatures,
-	}
-
-	if info.FileHash != nil {
-		record.FileHash = info.FileHash.String()
-	}
-
-	if info.NarHash != nil {
-		record.NarHash = info.NarHash.String()
-	}
-
-	return record
 }
 
-// exportNarinfosFromDB orchestrates the pipeline export process.
-func exportNarinfosFromDB(
-	ctx context.Context,
-	db *badger.DB,
-	outputDir string,
-) error {
-	// create a global stats tracker
-	stats := &exportStats{}
+// closeParquetWriter closes the parquet writer, recovering from any panics.
+// parquet-go can panic during Close() if cancelled mid-write due to internal buffer issues.
+func closeParquetWriter(writer *parquet.GenericWriter[NarInfoRecord]) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("parquet writer panic during close: %v", r)
+		}
+	}()
 
-	// create channels for the pipeline
-	rawDataChan := make(chan rawNarinfo, rawChannelSize)
-	recordChan := make(chan NarInfoRecord, recordChannelSize)
-
-	// create errgroup for managing goroutines
-	eg, ctx := errgroup.WithContext(ctx)
-
-	// stage 1: read narinfos from the db
-	eg.Go(func() error {
-		return readNarinfos(ctx, db, rawDataChan, stats)
-	})
-
-	// stage 2: parse narinfos concurrently
-	parserWg := sync.WaitGroup{}
-	parserWg.Add(numParsers)
-
-	for range numParsers {
-		eg.Go(func() error {
-			defer parserWg.Done()
-
-			parseNarinfos(ctx, rawDataChan, recordChan, stats)
-
-			return nil
-		})
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close parquet writer: %w", err)
 	}
 
-	// close recordChan when all parsers are done
-	eg.Go(func() error {
-		parserWg.Wait()
-		close(recordChan)
+	return nil
+}
 
-		return nil
-	})
-
-	// stage 3: write records to parquet files
-	eg.Go(func() error {
-		return writeNarinfosToParquet(ctx, recordChan, outputDir, stats)
-	})
-
-	// wait for everything to finish
-	if err := eg.Wait(); err != nil {
-		return fmt.Errorf("pipeline failed: %w", err)
-	}
-
-	// log final statistics
+// logExportStats logs the final export statistics.
+func logExportStats(stats *exportStats, file *os.File) {
 	log.Infof("=== FINAL EXPORT STATISTICS ===")
 	log.Infof("Total objects processed: %s", humanize.Comma(stats.processed.Load()))
 	log.Infof("Total narinfos exported: %s", humanize.Comma(stats.exported.Load()))
+	log.Infof("Total parse failures: %s", humanize.Comma(stats.failedToParse.Load()))
 
-	parseFailures := stats.failedToParse.Load()
-	log.Infof("Total parse failures: %s", humanize.Comma(parseFailures))
-
-	if parseFailures > 0 {
-		return fmt.Errorf("there were %d parse failures", parseFailures)
+	if stat, err := file.Stat(); err == nil {
+		log.Infof("Output file size: %s", humanize.Bytes(uint64(stat.Size()))) //nolint:gosec
 	}
 
-	return nil
+	// Log timing breakdown
+	parseNs := stats.parseTime.Load()
+	writeNs := stats.writeTime.Load()
+	totalNs := parseNs + writeNs
+
+	if totalNs > 0 {
+		log.Infof("=== TIMING BREAKDOWN ===")
+		log.Infof("Parse narinfo:  %v (%.1f%%)",
+			time.Duration(parseNs),
+			float64(parseNs)/float64(totalNs)*100)
+		log.Infof("Write parquet:  %v (%.1f%%)",
+			time.Duration(writeNs),
+			float64(writeNs)/float64(totalNs)*100)
+		log.Infof("Total measured: %v", time.Duration(totalNs))
+	}
 }

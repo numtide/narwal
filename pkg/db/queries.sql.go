@@ -15,7 +15,7 @@ from object o
 inner join (
     select
         unnest($1::text[])::object_type as object_type,
-        unnest($2::varchar[]) as hash,
+        unnest($2::bytea[]) as hash,
         unnest($3::bigint[]) as size
 ) input on o.object_type = input.object_type
     and o.hash = input.hash
@@ -24,12 +24,12 @@ inner join (
 
 type CheckObjectsExistByTypeHashSizeParams struct {
 	Column1 []string `json:"column_1"`
-	Column2 []string `json:"column_2"`
+	Column2 [][]byte `json:"column_2"`
 	Column3 []int64  `json:"column_3"`
 }
 
 type CheckObjectsExistByTypeHashSizeRow struct {
-	Hash       string     `json:"hash"`
+	Hash       []byte     `json:"hash"`
 	ObjectType ObjectType `json:"object_type"`
 	Size       int64      `json:"size"`
 	Path       string     `json:"path"`
@@ -81,31 +81,11 @@ with deleted as (
 ) select count(*) from deleted
 `
 
-func (q *Queries) DeleteGCRoot(ctx context.Context, hash string) (int64, error) {
+func (q *Queries) DeleteGCRoot(ctx context.Context, hash []byte) (int64, error) {
 	row := q.db.QueryRow(ctx, deleteGCRoot, hash)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const deleteNarInfoReferences = `-- name: DeleteNarInfoReferences :exec
-delete from nar_info_reference
-where hash = $1
-`
-
-func (q *Queries) DeleteNarInfoReferences(ctx context.Context, hash string) error {
-	_, err := q.db.Exec(ctx, deleteNarInfoReferences, hash)
-	return err
-}
-
-const deleteNarInfoSignatures = `-- name: DeleteNarInfoSignatures :exec
-delete from nar_info_signature
-where hash = $1
-`
-
-func (q *Queries) DeleteNarInfoSignatures(ctx context.Context, hash string) error {
-	_, err := q.db.Exec(ctx, deleteNarInfoSignatures, hash)
-	return err
 }
 
 const getGCPlan = `-- name: GetGCPlan :one
@@ -120,45 +100,38 @@ func (q *Queries) GetGCPlan(ctx context.Context, id int32) (GcPlan, error) {
 }
 
 const getObjectByHash = `-- name: GetObjectByHash :one
-select object_type, compression_type, size
+select object_type, size
 from object as o
 where o.hash = $1
 `
 
 type GetObjectByHashRow struct {
-	ObjectType      ObjectType      `json:"object_type"`
-	CompressionType CompressionType `json:"compression_type"`
-	Size            int64           `json:"size"`
+	ObjectType ObjectType `json:"object_type"`
+	Size       int64      `json:"size"`
 }
 
-func (q *Queries) GetObjectByHash(ctx context.Context, hash string) (GetObjectByHashRow, error) {
+func (q *Queries) GetObjectByHash(ctx context.Context, hash []byte) (GetObjectByHashRow, error) {
 	row := q.db.QueryRow(ctx, getObjectByHash, hash)
 	var i GetObjectByHashRow
-	err := row.Scan(&i.ObjectType, &i.CompressionType, &i.Size)
+	err := row.Scan(&i.ObjectType, &i.Size)
 	return i, err
 }
 
 const hasObject = `-- name: HasObject :one
-with update_accessed as (
-    update object
-    set last_accessed_at = timezone('UTC', now())
-    where path = $1
-)
-select object_type, compression_type, size
+select object_type, size
 from object as o
 where o.path = $1
 `
 
 type HasObjectRow struct {
-	ObjectType      ObjectType      `json:"object_type"`
-	CompressionType CompressionType `json:"compression_type"`
-	Size            int64           `json:"size"`
+	ObjectType ObjectType `json:"object_type"`
+	Size       int64      `json:"size"`
 }
 
 func (q *Queries) HasObject(ctx context.Context, path string) (HasObjectRow, error) {
 	row := q.db.QueryRow(ctx, hasObject, path)
 	var i HasObjectRow
-	err := row.Scan(&i.ObjectType, &i.CompressionType, &i.Size)
+	err := row.Scan(&i.ObjectType, &i.Size)
 	return i, err
 }
 
@@ -173,17 +146,6 @@ func (q *Queries) InsertGCPlan(ctx context.Context) (int32, error) {
 	var id int32
 	err := row.Scan(&id)
 	return id, err
-}
-
-type InsertNarInfoReferencesParams struct {
-	Hash     string `json:"hash"`
-	RefersTo string `json:"refers_to"`
-}
-
-type InsertNarInfoSignaturesParams struct {
-	Hash string `json:"hash"`
-	Name string `json:"name"`
-	Data string `json:"data"`
 }
 
 const isManifestFileImported = `-- name: IsManifestFileImported :one
@@ -225,15 +187,15 @@ const listGCRoots = `-- name: ListGCRoots :many
 select hash from gc_root
 `
 
-func (q *Queries) ListGCRoots(ctx context.Context) ([]string, error) {
+func (q *Queries) ListGCRoots(ctx context.Context) ([][]byte, error) {
 	rows, err := q.db.Query(ctx, listGCRoots)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items [][]byte
 	for rows.Next() {
-		var hash string
+		var hash []byte
 		if err := rows.Scan(&hash); err != nil {
 			return nil, err
 		}
@@ -316,15 +278,15 @@ values ($1, timezone('UTC', now()))
 on conflict(hash) do nothing
 `
 
-func (q *Queries) PutGCRoot(ctx context.Context, hash string) error {
+func (q *Queries) PutGCRoot(ctx context.Context, hash []byte) error {
 	_, err := q.db.Exec(ctx, putGCRoot, hash)
 	return err
 }
 
 const putNarInfo = `-- name: PutNarInfo :exec
 insert
-into nar_info (hash, url, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+into nar_info (hash, url, store_path, compression, file_hash, file_size, nar_hash, nar_size, deriver, "references", "signatures")
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 on conflict (hash) do update
     set url = excluded.url,
         store_path  = excluded.store_path ,
@@ -333,11 +295,13 @@ on conflict (hash) do update
         file_size   = excluded.file_size,
         nar_hash    = excluded.nar_hash,
         nar_size    = excluded.nar_size,
-        deriver     = excluded.deriver
+        deriver     = excluded.deriver,
+        "references" = excluded."references",
+        "signatures" = excluded."signatures"
 `
 
 type PutNarInfoParams struct {
-	Hash        string          `json:"hash"`
+	Hash        []byte          `json:"hash"`
 	Url         string          `json:"url"`
 	StorePath   string          `json:"store_path"`
 	Compression CompressionType `json:"compression"`
@@ -346,6 +310,8 @@ type PutNarInfoParams struct {
 	NarHash     string          `json:"nar_hash"`
 	NarSize     int64           `json:"nar_size"`
 	Deriver     string          `json:"deriver"`
+	References  [][]byte        `json:"references"`
+	Signatures  []string        `json:"signatures"`
 }
 
 func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
@@ -359,31 +325,31 @@ func (q *Queries) PutNarInfo(ctx context.Context, arg PutNarInfoParams) error {
 		arg.NarHash,
 		arg.NarSize,
 		arg.Deriver,
+		arg.References,
+		arg.Signatures,
 	)
 	return err
 }
 
 const putObject = `-- name: PutObject :exec
-insert into object (hash, object_type, compression_type, path, size, created_at)
-values ($1, $2, $3, $4, $5, timezone('UTC', now()))
+insert into object (hash, object_type, path, size, last_modified_at)
+values ($1, $2, $3, $4, timezone('UTC', now()))
 on conflict(object_type, hash, path) do update
-    set size       = excluded.size,
-        created_at = timezone('UTC', now())
+    set size             = excluded.size,
+        last_modified_at = timezone('UTC', now())
 `
 
 type PutObjectParams struct {
-	Hash            string          `json:"hash"`
-	ObjectType      ObjectType      `json:"object_type"`
-	CompressionType CompressionType `json:"compression_type"`
-	Path            string          `json:"path"`
-	Size            int64           `json:"size"`
+	Hash       []byte     `json:"hash"`
+	ObjectType ObjectType `json:"object_type"`
+	Path       string     `json:"path"`
+	Size       int64      `json:"size"`
 }
 
 func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
 	_, err := q.db.Exec(ctx, putObject,
 		arg.Hash,
 		arg.ObjectType,
-		arg.CompressionType,
 		arg.Path,
 		arg.Size,
 	)

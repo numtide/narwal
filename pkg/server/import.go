@@ -3,17 +3,23 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v4/pb"
+	"github.com/dgraph-io/ristretto/v2/z"
 	"github.com/dustin/go-humanize"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nix-community/go-nix/pkg/narinfo"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/db"
 	"github.com/numtide/narwal/pkg/inventory"
@@ -50,7 +56,7 @@ func Import(ctx context.Context, cfg *config.Config, report string) error {
 		return errors.New("badger config is required")
 	}
 
-	inventoryDB, err := inventory.OpenDB(cfg.Badger)
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
 	if err != nil {
 		return fmt.Errorf("failed to open inventoryDB: %w", err)
 	}
@@ -232,51 +238,59 @@ func importManifestFile(
 		})
 	}
 
-	// Before importing we analyse the path of each object to determine its object_type
-	for _, obj := range objects {
-		if shouldIgnorePath(obj.Key) {
-			continue
-		}
+	// TODO: Object import is commented out while focusing on narinfo import
+	// // Before importing we analyse the path of each object to determine its object_type
+	// for _, obj := range objects {
+	// 	if shouldIgnorePath(obj.Key) {
+	// 		continue
+	// 	}
+	//
+	// 	// Analyse the path
+	// 	analysis, err := examinePath(obj.Key)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to analyze path '%s': %w", obj.Key, err)
+	// 	}
+	//
+	// 	hash, err := hashFromPath(obj.Key, analysis.ObjectType)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to get hash from path %s: %w", obj.Key, err)
+	// 	}
+	//
+	// 	// Append to the correct batch
+	// 	batches[analysis.ObjectType] = append(batches[analysis.ObjectType], objectWithMetadata{
+	// 		obj:         obj,
+	// 		hash:        hash,
+	// 		compression: string(analysis.Compression),
+	// 	})
+	//
+	// 	// Continue to the next object if the batch isn't full
+	// 	if len(batches[analysis.ObjectType]) < batchSize {
+	// 		continue
+	// 	}
+	//
+	// 	// Otherwise, flush the batch and clear it
+	// 	flushBatch(analysis.ObjectType, batches[analysis.ObjectType])
+	// 	delete(batches, analysis.ObjectType)
+	// }
+	//
+	// // Flush any remaining partial batches
+	// for objectType, batch := range batches {
+	// 	if len(batch) > 0 {
+	// 		flushBatch(objectType, batch)
+	// 	}
+	// }
+	//
+	// // Wait for all pending import jobs to complete
+	// if err = eg.Wait(); err != nil {
+	// 	return fmt.Errorf("failed to import objects: %w", err)
+	// }
 
-		// Analyse the path
-		analysis, err := examinePath(obj.Key)
-		if err != nil {
-			return fmt.Errorf("failed to analyze path '%s': %w", obj.Key, err)
-		}
-
-		hash, err := hashFromPath(obj.Key, analysis.ObjectType)
-		if err != nil {
-			return fmt.Errorf("failed to get hash from path %s: %w", obj.Key, err)
-		}
-
-		// Append to the correct batch
-		batches[analysis.ObjectType] = append(batches[analysis.ObjectType], objectWithMetadata{
-			obj:         obj,
-			hash:        hash,
-			compression: string(analysis.Compression),
-		})
-
-		// Continue to the next object if the batch isn't full
-		if len(batches[analysis.ObjectType]) < batchSize {
-			continue
-		}
-
-		// Otherwise, flush the batch and clear it
-		flushBatch(analysis.ObjectType, batches[analysis.ObjectType])
-		delete(batches, analysis.ObjectType)
-	}
-
-	// Flush any remaining partial batches
-	for objectType, batch := range batches {
-		if len(batch) > 0 {
-			flushBatch(objectType, batch)
-		}
-	}
-
-	// Wait for all pending import jobs to complete
-	if err = eg.Wait(); err != nil {
-		return fmt.Errorf("failed to import objects: %w", err)
-	}
+	// TODO: Add narinfo import here
+	_ = objects
+	_ = batches
+	_ = batchSize
+	_ = flushBatch
+	_ = eg
 
 	// Calculate the import duration and rate
 	duration := time.Since(startedAt)
@@ -385,4 +399,702 @@ func importBatch(
 	}
 
 	return len(batch), nil
+}
+
+// Narinfo import constants.
+const (
+	narinfoImportBatchSize     = 10_000
+	narinfoProgressInterval    = 50_000
+	narinfoImportStreamWorkers = 16
+)
+
+// normalizeCompression maps narinfo compression names to database enum values.
+func normalizeCompression(compression string) string {
+	switch compression {
+	case "bzip2":
+		return "bz2"
+	case "":
+		return "none"
+	default:
+		return compression
+	}
+}
+
+// narinfoImportStats tracks import statistics.
+type narinfoImportStats struct {
+	processed atomic.Int64
+	imported  atomic.Int64
+	failed    atomic.Int64
+}
+
+// narinfoRecord holds a parsed narinfo ready for insertion.
+type narinfoRecord struct {
+	hash        []byte
+	url         string
+	storePath   string
+	compression string
+	fileHash    string
+	fileSize    int64
+	narHash     string
+	narSize     int64
+	deriver     string
+	references  [][]byte
+	signatures  []string
+}
+
+// narinfoImportHandler handles batch processing for narinfo import.
+// Database writes are asynchronous using errgroup for concurrency.
+type narinfoImportHandler struct {
+	pgPool *pgxpool.Pool
+	stats  *narinfoImportStats
+	batch  []narinfoRecord
+	// eg handles async database writes
+	eg *errgroup.Group
+}
+
+// ImportNarinfos imports all narinfos from the Badger inventory database into PostgreSQL.
+// It uses Badger's Stream API for efficient reading and PostgreSQL COPY for fast insertion.
+func ImportNarinfos(ctx context.Context, cfg *config.Config) error {
+	start := time.Now()
+
+	log.Info("starting narinfo import from badger to postgres")
+
+	if cfg.Badger == nil {
+		return errors.New("badger config is required")
+	}
+
+	// Open the inventory database
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
+	if err != nil {
+		return fmt.Errorf("failed to open inventory db: %w", err)
+	}
+
+	defer func() {
+		if closeErr := inventoryDB.Close(); closeErr != nil {
+			log.Errorf("failed to close inventory db: %s", closeErr)
+		}
+	}()
+
+	// Connect to PostgreSQL
+	pgPool, err := cfg.Postgres.Connect(ctx, true)
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+
+	defer pgPool.Close()
+
+	// Truncate nar_info table before import
+	log.Info("truncating nar_info table")
+
+	if _, err = pgPool.Exec(ctx, "TRUNCATE nar_info CASCADE"); err != nil {
+		return fmt.Errorf("failed to truncate nar_info: %w", err)
+	}
+
+	// Disable autovacuum during import for better performance
+	log.Info("disabling autovacuum on nar_info")
+
+	if _, err = pgPool.Exec(ctx, "ALTER TABLE nar_info SET (autovacuum_enabled = false)"); err != nil {
+		return fmt.Errorf("failed to disable autovacuum: %w", err)
+	}
+
+	// Run the import
+	stats := &narinfoImportStats{}
+
+	if err = importNarinfosFromBadger(ctx, inventoryDB, pgPool, stats); err != nil {
+		return fmt.Errorf("failed to import narinfos: %w", err)
+	}
+
+	// Re-enable autovacuum after import
+	log.Info("re-enabling autovacuum on nar_info")
+
+	if _, err = pgPool.Exec(ctx, "ALTER TABLE nar_info SET (autovacuum_enabled = true)"); err != nil {
+		return fmt.Errorf("failed to re-enable autovacuum: %w", err)
+	}
+
+	// Log final statistics
+	duration := time.Since(start)
+	rate := float64(stats.imported.Load()) / duration.Seconds()
+
+	log.Info("narinfo import complete",
+		"processed", humanize.Comma(stats.processed.Load()),
+		"imported", humanize.Comma(stats.imported.Load()),
+		"failed", humanize.Comma(stats.failed.Load()),
+		"duration", duration,
+		"rate", humanize.CommafWithDigits(rate, 0)+"/s",
+	)
+
+	return nil
+}
+
+// importNarinfosFromBadger streams narinfos from Badger and inserts them into PostgreSQL.
+func importNarinfosFromBadger(
+	ctx context.Context,
+	inventoryDB *badger.DB,
+	pgPool *pgxpool.Pool,
+	stats *narinfoImportStats,
+) error {
+	// Create errgroup for async database writes
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(32) // Limit concurrent DB writes to match connection pool
+
+	handler := &narinfoImportHandler{
+		pgPool: pgPool,
+		stats:  stats,
+		eg:     eg,
+	}
+
+	stream := inventoryDB.NewStream()
+	stream.NumGo = narinfoImportStreamWorkers
+	stream.Prefix = []byte(inventory.BadgerPrefixObject)
+	stream.LogPrefix = "narinfo-import"
+
+	// Only process .narinfo files
+	stream.ChooseKey = func(item *badger.Item) bool {
+		return bytes.HasSuffix(item.Key(), []byte(".narinfo"))
+	}
+
+	// Process batches of KV pairs
+	stream.Send = func(buf *z.Buffer) error {
+		return handler.handleBatch(egCtx, buf)
+	}
+
+	// Run the stream
+	if err := stream.Orchestrate(ctx); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("stream orchestration failed: %w", err)
+		}
+
+		log.Info("import cancelled, flushing remaining batch...")
+	}
+
+	// Wait for all async writes to complete
+	if err := handler.eg.Wait(); err != nil {
+		return fmt.Errorf("async batch write failed: %w", err)
+	}
+
+	// Flush any remaining records
+	if len(handler.batch) > 0 {
+		if err := handler.flushBatch(ctx, handler.batch); err != nil {
+			return fmt.Errorf("failed to flush final batch: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// handleBatch processes a batch of KV pairs from the Badger stream.
+func (h *narinfoImportHandler) handleBatch(ctx context.Context, buf *z.Buffer) error {
+	// Check for context cancellation or errgroup failure
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled: %w", err)
+	}
+
+	list, err := badger.BufferToKVList(buf)
+	if err != nil {
+		return fmt.Errorf("buffer to KV list: %w", err)
+	}
+
+	records := h.parseRecords(list.GetKv())
+	if len(records) == 0 {
+		return nil
+	}
+
+	h.batch = append(h.batch, records...)
+
+	// Submit async flush if batch is full
+	if len(h.batch) >= narinfoImportBatchSize {
+		// Copy batch for async processing to avoid data race
+		batchCopy := make([]narinfoRecord, len(h.batch))
+		copy(batchCopy, h.batch)
+		h.batch = h.batch[:0]
+
+		// Submit async flush
+		h.eg.Go(func() error {
+			return h.flushBatch(ctx, batchCopy)
+		})
+	}
+
+	return nil
+}
+
+// parseRecords converts KV pairs to narinfoRecords.
+func (h *narinfoImportHandler) parseRecords(kvList []*pb.KV) []narinfoRecord {
+	records := make([]narinfoRecord, 0, len(kvList))
+
+	for _, kv := range kvList {
+		if kv.GetStreamDone() {
+			continue
+		}
+
+		h.stats.processed.Add(1)
+
+		// Parse the narinfo
+		info, err := narinfo.Parse(bytes.NewReader(kv.GetValue()))
+		if err != nil {
+			log.Debugf("failed to parse narinfo %s: %s", kv.GetKey(), err)
+			h.stats.failed.Add(1)
+
+			continue
+		}
+
+		// Extract the hash from the key (format: "o:<hash>.narinfo")
+		key := string(kv.GetKey())
+		hashStr := key[len(inventory.BadgerPrefixObject) : len(key)-len(".narinfo")]
+
+		// Decode hash from nixbase32 string to bytes
+		hash, err := nixbase32.DecodeString(hashStr)
+		if err != nil {
+			log.Debugf("failed to decode hash %s: %s", hashStr, err)
+			h.stats.failed.Add(1)
+
+			continue
+		}
+
+		// Build references array (first 32 chars of each reference, decoded to bytes)
+		references := make([][]byte, 0, len(info.References))
+		for _, ref := range info.References {
+			if len(ref) >= 32 {
+				refBytes, err := nixbase32.DecodeString(ref[:32])
+				if err != nil {
+					log.Debugf("failed to decode reference hash %s: %s", ref[:32], err)
+					continue
+				}
+
+				references = append(references, refBytes)
+			}
+		}
+
+		// Build signatures array as "name:base64data" strings
+		signatures := make([]string, 0, len(info.Signatures))
+		for _, sig := range info.Signatures {
+			signatures = append(signatures, sig.Name+":"+base64.StdEncoding.EncodeToString(sig.Data))
+		}
+
+		record := narinfoRecord{
+			hash:        hash,
+			url:         info.URL,
+			storePath:   info.StorePath,
+			compression: normalizeCompression(info.Compression),
+			fileSize:    int64(min(info.FileSize, math.MaxInt64)), //nolint:gosec // capped at MaxInt64
+			narSize:     int64(min(info.NarSize, math.MaxInt64)),  //nolint:gosec // capped at MaxInt64
+			deriver:     info.Deriver,
+			references:  references,
+			signatures:  signatures,
+		}
+
+		if info.FileHash != nil {
+			record.fileHash = info.FileHash.String()
+		}
+
+		if info.NarHash != nil {
+			record.narHash = info.NarHash.String()
+		}
+
+		records = append(records, record)
+	}
+
+	return records
+}
+
+// flushBatch writes a batch of records to PostgreSQL using COPY protocol.
+// This function is safe to call concurrently from multiple goroutines.
+func (h *narinfoImportHandler) flushBatch(ctx context.Context, batch []narinfoRecord) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// Acquire a connection from the pool
+	conn, err := h.pgPool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire postgres connection: %w", err)
+	}
+
+	defer conn.Release()
+
+	// Begin a transaction
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	// Disable synchronous commit for better throughput
+	if _, err = tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return fmt.Errorf("failed to set synchronous_commit: %w", err)
+	}
+
+	// Use COPY for bulk insert
+	_, err = tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"nar_info"},
+		[]string{
+			"hash", "url", "store_path", "compression", "file_hash",
+			"file_size", "nar_hash", "nar_size", "deriver", "references", "signatures",
+		},
+		pgx.CopyFromSlice(len(batch), func(i int) ([]any, error) {
+			r := batch[i]
+
+			return []any{
+				r.hash,
+				r.url,
+				r.storePath,
+				r.compression,
+				r.fileHash,
+				r.fileSize,
+				r.narHash,
+				r.narSize,
+				r.deriver,
+				r.references,
+				r.signatures,
+			}, nil
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to copy narinfos: %w", err)
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Update stats and log progress
+	imported := h.stats.imported.Add(int64(len(batch)))
+	prev := imported - int64(len(batch))
+
+	if imported/narinfoProgressInterval != prev/narinfoProgressInterval {
+		log.Infof("imported %s narinfos", humanize.Comma(imported))
+	}
+
+	return nil
+}
+
+// narinfoRefRecord holds just the hash and references for the nar_info_references table.
+type narinfoRefRecord struct {
+	hash       []byte
+	references [][]byte
+}
+
+// parseReferencesOnly extracts only the References line from narinfo data.
+// This is much faster than full narinfo parsing when only references are needed.
+// Returns space-separated reference strings (each is "<hash>-<name>").
+func parseReferencesOnly(data []byte) []string {
+	const referencesPrefix = "References:"
+
+	// Scan line by line for "References:" prefix
+	for len(data) > 0 {
+		// Find end of line
+		lineEnd := bytes.IndexByte(data, '\n')
+
+		var line []byte
+
+		if lineEnd == -1 {
+			line = data
+			data = nil
+		} else {
+			line = data[:lineEnd]
+			data = data[lineEnd+1:]
+		}
+
+		// Check for References: prefix
+		if !bytes.HasPrefix(line, []byte(referencesPrefix)) {
+			continue
+		}
+
+		// Extract value after "References:"
+		value := bytes.TrimSpace(line[len(referencesPrefix):])
+		if len(value) == 0 {
+			return nil
+		}
+
+		// Split by spaces
+		parts := bytes.Fields(value)
+		refs := make([]string, len(parts))
+
+		for i, part := range parts {
+			refs[i] = string(part)
+		}
+
+		return refs
+	}
+
+	return nil
+}
+
+// narinfoRefImportHandler handles batch processing for narinfo references import.
+type narinfoRefImportHandler struct {
+	pgPool *pgxpool.Pool
+	stats  *narinfoImportStats
+	eg     *errgroup.Group
+
+	batch []narinfoRefRecord
+}
+
+// ImportNarinfoReferences imports narinfo hash and references from Badger into PostgreSQL.
+// This is a lighter-weight alternative to ImportNarinfos that only imports the hash
+// and references columns into the nar_info_references table.
+func ImportNarinfoReferences(ctx context.Context, cfg *config.Config) error {
+	start := time.Now()
+
+	log.Info("starting narinfo references import from badger to postgres")
+
+	if cfg.Badger == nil {
+		return errors.New("badger config is required")
+	}
+
+	// Open the inventory database
+	inventoryDB, err := inventory.OpenDB(cfg.Badger, true)
+	if err != nil {
+		return fmt.Errorf("failed to open inventory db: %w", err)
+	}
+
+	defer func() {
+		if closeErr := inventoryDB.Close(); closeErr != nil {
+			log.Errorf("failed to close inventory db: %s", closeErr)
+		}
+	}()
+
+	// Connect to PostgreSQL
+	pgPool, err := cfg.Postgres.Connect(ctx, true)
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+
+	defer pgPool.Close()
+
+	// Truncate nar_info_references table before import
+	log.Info("truncating nar_info_references table")
+
+	if _, err = pgPool.Exec(ctx, "TRUNCATE nar_info_references"); err != nil {
+		return fmt.Errorf("failed to truncate nar_info_references: %w", err)
+	}
+
+	// Set table to UNLOGGED to skip WAL during import
+	log.Info("setting nar_info_references to UNLOGGED")
+
+	if _, err = pgPool.Exec(ctx, "ALTER TABLE nar_info_references SET UNLOGGED"); err != nil {
+		return fmt.Errorf("failed to set table unlogged: %w", err)
+	}
+
+	// Run the import
+	stats := &narinfoImportStats{}
+
+	if err = importNarinfoRefsFromBadger(ctx, inventoryDB, pgPool, stats); err != nil {
+		return fmt.Errorf("failed to import narinfo references: %w", err)
+	}
+
+	// Log final statistics
+	duration := time.Since(start)
+	rate := float64(stats.imported.Load()) / duration.Seconds()
+
+	log.Info("narinfo references import complete",
+		"processed", humanize.Comma(stats.processed.Load()),
+		"imported", humanize.Comma(stats.imported.Load()),
+		"failed", humanize.Comma(stats.failed.Load()),
+		"duration", duration,
+		"rate", humanize.CommafWithDigits(rate, 0)+"/s",
+	)
+
+	return nil
+}
+
+// importNarinfoRefsFromBadger streams narinfos from Badger and inserts hash/references into PostgreSQL.
+func importNarinfoRefsFromBadger(
+	ctx context.Context,
+	inventoryDB *badger.DB,
+	pgPool *pgxpool.Pool,
+	stats *narinfoImportStats,
+) error {
+	// Create errgroup for async database writes
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(32)
+
+	handler := &narinfoRefImportHandler{
+		pgPool: pgPool,
+		stats:  stats,
+		eg:     eg,
+	}
+
+	stream := inventoryDB.NewStream()
+	stream.NumGo = narinfoImportStreamWorkers
+	stream.Prefix = []byte(inventory.BadgerPrefixObject)
+	stream.LogPrefix = "narinfo-ref-import"
+
+	// Only process .narinfo files
+	stream.ChooseKey = func(item *badger.Item) bool {
+		return bytes.HasSuffix(item.Key(), []byte(".narinfo"))
+	}
+
+	// Process batches of KV pairs
+	stream.Send = func(buf *z.Buffer) error {
+		return handler.handleBatch(egCtx, buf)
+	}
+
+	// Run the stream
+	if err := stream.Orchestrate(ctx); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("stream orchestration failed: %w", err)
+		}
+
+		log.Info("import cancelled")
+	}
+
+	// Schedule flush of final batch
+	if len(handler.batch) > 0 {
+		batchCopy := handler.batch
+		handler.eg.Go(func() error {
+			return handler.flushBatchRecords(egCtx, batchCopy)
+		})
+	}
+
+	// Wait for all async writes to complete
+	if err := handler.eg.Wait(); err != nil {
+		return fmt.Errorf("async batch write failed: %w", err)
+	}
+
+	return nil
+}
+
+// handleBatch processes a batch of KV pairs from the Badger stream.
+// Since stream.Send is called serially, no mutex is needed.
+func (h *narinfoRefImportHandler) handleBatch(ctx context.Context, buf *z.Buffer) error {
+	// Check for context cancellation or errgroup failure
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled: %w", err)
+	}
+
+	list, err := badger.BufferToKVList(buf)
+	if err != nil {
+		return fmt.Errorf("buffer to KV list: %w", err)
+	}
+
+	records := h.parseRecords(list.GetKv())
+	if len(records) == 0 {
+		return nil
+	}
+
+	h.batch = append(h.batch, records...)
+
+	if len(h.batch) < 50_000 {
+		return nil
+	}
+
+	// Submit batch directly for concurrent DB write
+	batchCopy := h.batch
+	h.eg.Go(func() error {
+		return h.flushBatchRecords(ctx, batchCopy)
+	})
+
+	// Create a new batch
+	h.batch = make([]narinfoRefRecord, 0, 50_000)
+
+	return nil
+}
+
+// parseRecords converts KV pairs to narinfoRefRecords.
+// Uses parseReferencesOnly for fast extraction of just the References line.
+func (h *narinfoRefImportHandler) parseRecords(kvList []*pb.KV) []narinfoRefRecord {
+	records := make([]narinfoRefRecord, 0, len(kvList))
+
+	for _, kv := range kvList {
+		if kv.GetStreamDone() {
+			continue
+		}
+
+		h.stats.processed.Add(1)
+
+		// Extract the hash from the key (format: "o:<hash>.narinfo")
+		key := kv.GetKey()
+		hashStr := string(key[len(inventory.BadgerPrefixObject) : len(key)-len(".narinfo")])
+
+		// Decode hash from nixbase32 string to bytes
+		hash, err := nixbase32.DecodeString(hashStr)
+		if err != nil {
+			log.Debugf("failed to decode hash %s: %s", hashStr, err)
+			h.stats.failed.Add(1)
+
+			continue
+		}
+
+		// Parse only the References line (much faster than full narinfo parsing)
+		refStrings := parseReferencesOnly(kv.GetValue())
+
+		// Build references array (first 32 chars of each reference, decoded to bytes)
+		references := make([][]byte, 0, len(refStrings))
+
+		for _, ref := range refStrings {
+			if len(ref) >= 32 {
+				refBytes, err := nixbase32.DecodeString(ref[:32])
+				if err != nil {
+					log.Debugf("failed to decode reference hash %s: %s", ref[:32], err)
+					continue
+				}
+
+				references = append(references, refBytes)
+			}
+		}
+
+		records = append(records, narinfoRefRecord{
+			hash:       hash,
+			references: references,
+		})
+	}
+
+	return records
+}
+
+// flushBatchRecords writes a batch of records to PostgreSQL using COPY protocol.
+func (h *narinfoRefImportHandler) flushBatchRecords(ctx context.Context, batch []narinfoRefRecord) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	conn, err := h.pgPool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire postgres connection: %w", err)
+	}
+
+	defer conn.Release()
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err = tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		return fmt.Errorf("failed to set synchronous_commit: %w", err)
+	}
+
+	_, err = tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"nar_info_references"},
+		[]string{"hash", "references"},
+		pgx.CopyFromSlice(len(batch), func(i int) ([]any, error) {
+			r := batch[i]
+			return []any{r.hash, r.references}, nil
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to copy narinfo references: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	imported := h.stats.imported.Add(int64(len(batch)))
+	prev := imported - int64(len(batch))
+
+	if imported/narinfoProgressInterval != prev/narinfoProgressInterval {
+		log.Infof("imported %s narinfo references", humanize.Comma(imported))
+	}
+
+	return nil
 }

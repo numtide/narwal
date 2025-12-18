@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/nix-community/go-nix/pkg/narinfo"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/awssdk/sqs"
 	"github.com/numtide/narwal/pkg/db"
 	"golang.org/x/sync/errgroup"
@@ -141,6 +142,12 @@ func (s *Server) processS3Message(ctx context.Context, msg *sqs.S3Message) error
 		case sqs.EventNameObjectCreatedPut,
 			sqs.EventNameObjectCreatedPost,
 			sqs.EventNameObjectCreatedCompleteMultipartUpload:
+			// Skip paths that should be ignored
+			if shouldIgnorePath(record.Key) {
+				log.Debug("ignoring path", "key", record.Key)
+				continue
+			}
+
 			// Determine object type and compression
 			analysis, err := examinePath(record.Key)
 			if err != nil {
@@ -155,11 +162,10 @@ func (s *Server) processS3Message(ctx context.Context, msg *sqs.S3Message) error
 
 			// Insert the object into the database
 			if err = queries.PutObject(ctx, db.PutObjectParams{
-				Hash:            hash,
-				ObjectType:      analysis.ObjectType,
-				CompressionType: analysis.Compression,
-				Path:            record.Key,
-				Size:            record.Size,
+				Hash:       hash,
+				ObjectType: analysis.ObjectType,
+				Path:       record.Key,
+				Size:       record.Size,
 			}); err != nil {
 				return fmt.Errorf("failed to put object in db: %w", err)
 			}
@@ -188,7 +194,7 @@ func (s *Server) processS3Message(ctx context.Context, msg *sqs.S3Message) error
 
 func (s *Server) importNarInfo(
 	ctx context.Context,
-	hash string,
+	hash []byte,
 	queries *db.Queries,
 	msg *sqs.S3Message,
 	record *sqs.S3Record,
@@ -221,6 +227,26 @@ func (s *Server) importNarInfo(
 
 	// todo check the hash provided matches the one parsed from the narinfo
 
+	// Extract and decode reference hashes (first 32 chars of each reference)
+	references := make([][]byte, 0, len(info.References))
+	for _, ref := range info.References {
+		if len(ref) >= 32 {
+			refBytes, err := nixbase32.DecodeString(ref[:32])
+			if err != nil {
+				log.Warn("failed to decode reference hash", "ref", ref[:32], "error", err)
+				continue
+			}
+
+			references = append(references, refBytes)
+		}
+	}
+
+	// Build signatures array as "name:base64data" strings
+	signatures := make([]string, len(info.Signatures))
+	for idx, sig := range info.Signatures {
+		signatures[idx] = sig.Name + ":" + base64.StdEncoding.EncodeToString(sig.Data)
+	}
+
 	err = queries.PutNarInfo(ctx, db.PutNarInfoParams{
 		Hash:        hash,
 		Url:         info.URL,
@@ -231,46 +257,13 @@ func (s *Server) importNarInfo(
 		FileSize: int64(info.FileSize),
 		NarHash:  info.NarHash.String(),
 		//nolint:gosec
-		NarSize: int64(info.NarSize),
-		Deriver: info.Deriver,
+		NarSize:    int64(info.NarSize),
+		Deriver:    info.Deriver,
+		References: references,
+		Signatures: signatures,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put narinfo in db: %w", err)
-	}
-
-	// Delete any existing signatures and insert them again
-	if err = queries.DeleteNarInfoSignatures(ctx, hash); err != nil {
-		return fmt.Errorf("failed to delete narinfo signatures: %w", err)
-	}
-
-	signatures := make([]db.InsertNarInfoSignaturesParams, len(info.Signatures))
-	for idx, sig := range info.Signatures {
-		signatures[idx] = db.InsertNarInfoSignaturesParams{
-			Hash: hash,
-			Name: sig.Name,
-			Data: base64.StdEncoding.EncodeToString(sig.Data),
-		}
-	}
-
-	if _, err = queries.InsertNarInfoSignatures(ctx, signatures); err != nil {
-		return fmt.Errorf("failed to insert narinfo signatures into db: %w", err)
-	}
-
-	// Delete any existing references and insert them again
-	if err = queries.DeleteNarInfoReferences(ctx, hash); err != nil {
-		return fmt.Errorf("failed to delete narinfo references: %w", err)
-	}
-
-	references := make([]db.InsertNarInfoReferencesParams, len(info.References))
-	for idx, ref := range info.References {
-		references[idx] = db.InsertNarInfoReferencesParams{
-			Hash:     hash,
-			RefersTo: ref[:32],
-		}
-	}
-
-	if _, err = queries.InsertNarInfoReferences(ctx, references); err != nil {
-		return fmt.Errorf("failed to insert narinfo references into db: %w", err)
 	}
 
 	log.Debug("finished importing narinfo", "bucket", record.BucketName, "key", record.Key)

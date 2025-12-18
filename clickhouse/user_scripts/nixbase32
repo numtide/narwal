@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# ClickHouse executable UDF for converting hex-encoded hashes to nixbase32.
+# Auto-detects hash algorithm based on input length:
+#   40 chars (20 bytes) = SHA1   -> 32 char output
+#   64 chars (32 bytes) = SHA256 -> 52 char output
+set -euo pipefail
+while IFS= read -r hex; do
+    hex="${hex,,}"
+    case ${#hex} in
+        40) nix hash convert --hash-algo sha1 --from base16 --to nix32 "$hex" ;;
+        64) nix hash convert --hash-algo sha256 --from base16 --to nix32 "$hex" ;;
+        *)  echo "ERROR:invalid_length:${#hex}" ;;
+    esac
+done

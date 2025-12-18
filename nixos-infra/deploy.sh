@@ -1,1 +1,0 @@
-./hosts/narwal-staging/deploy.sh

@@ -27,7 +27,7 @@ func Prune(cfg *config.Badger, keepReports []string) (*PruneResult, error) {
 		keepSet[r] = struct{}{}
 	}
 
-	db, err := OpenDB(cfg)
+	db, err := OpenDB(cfg, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
