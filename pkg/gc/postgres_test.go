@@ -16,7 +16,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5"
-	"github.com/numtide/narwal/pkg/hydra"
+	"github.com/numtide/narwal/pkg/queries"
 )
 
 //nolint:gochecknoglobals
@@ -99,7 +99,7 @@ func (s *postgresServer) NewHydraDB(tb testing.TB) string {
 
 	// Log all tables in the database
 	if debugPostgres {
-		queries := hydra.New(conn)
+		queries := queries.New(conn)
 
 		tableNames, err := queries.ListTables(ctx)
 		if err != nil {
@@ -169,7 +169,19 @@ func startPostgresServer(tb testing.TB) (*postgresServer, error) {
 		return nil, fmt.Errorf("failed to run initdb: %w", err)
 	}
 
-	args := []string{"-D", dbPath, "-k", tempDir, "-c", "listen_addresses="}
+	args := []string{
+		"-D", dbPath,
+		"-k", tempDir,
+		"-c", "listen_addresses=",
+		// Performance settings for tests (unsafe for production, fast for tests)
+		"-c", "fsync=off",
+		"-c", "synchronous_commit=off",
+		"-c", "full_page_writes=off",
+		"-c", "max_wal_size=2GB",
+		"-c", "checkpoint_timeout=1h",
+		"-c", "wal_level=minimal",
+		"-c", "max_wal_senders=0",
+	}
 
 	if debugPostgres {
 		args = append(args, "-c", "log_statement=all", "-c", "log_min_duration_statement=0")

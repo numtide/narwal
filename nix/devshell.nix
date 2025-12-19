@@ -51,6 +51,7 @@ perSystem.self.narwal.overrideAttrs (old: {
 
   nativeBuildInputs =
     old.nativeBuildInputs
+    ++ old.nativeCheckInputs
     ++ (with pkgs; [
       # go
       delve
@@ -63,7 +64,6 @@ perSystem.self.narwal.overrideAttrs (old: {
       nil
 
       # tooling
-      postgresql
       awscli2
       curl
       graphviz
@@ -75,7 +75,6 @@ perSystem.self.narwal.overrideAttrs (old: {
       sqlc
     ])
     ++ [
-
       clickhouse-local-wrapped
     ];
 
@@ -87,6 +86,6 @@ perSystem.self.narwal.overrideAttrs (old: {
 
     # sqlc has a bug when referring to absolute paths for schemas
     # this is a workaround for now
-    ln -sf ${inputs.hydra}/src/sql/hydra.sql "$PRJ_ROOT/pkg/hydra/hydra.sql"
+    ln -sf ${inputs.hydra}/src/sql/hydra.sql "$PRJ_ROOT/pkg/queries/hydra.sql"
   '';
 })

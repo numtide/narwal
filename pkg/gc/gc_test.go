@@ -1,11 +1,11 @@
 package gc_test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/numtide/narwal/pkg/gc/hydratest"
+	"github.com/numtide/narwal/pkg/queries"
 )
 
 //nolint:paralleltest // uses shared postgres server
@@ -15,16 +15,17 @@ func TestDB(t *testing.T) {
 
 	dbURL := pgServer.NewHydraDB(t)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	pool, err := pgx.Connect(ctx, dbURL)
+	pool, err := pgx.Connect(t.Context(), dbURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	qry := queries.New(pool)
+
+	hydratest.Generate(t, qry)
+
 	defer func() {
-		closeErr := pool.Close(ctx)
+		closeErr := pool.Close(t.Context())
 		if closeErr != nil {
 			t.Fatalf("failed to close database connection: %v", closeErr)
 		}

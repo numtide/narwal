@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.30.0
 
-package hydra
+package queries
 
 import (
 	"context"
@@ -15,6 +15,7 @@ type DBTX interface {
 	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
 	Query(context.Context, string, ...interface{}) (pgx.Rows, error)
 	QueryRow(context.Context, string, ...interface{}) pgx.Row
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
 }
 
 func New(db DBTX) *Queries {

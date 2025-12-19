@@ -4,6 +4,8 @@
   versionSuffix ? null,
   golangci-lint,
   buildGo124Module,
+  postgresql,
+  hydraSrc,
 }:
 let
   fs = lib.fileset;
@@ -35,8 +37,12 @@ buildGo124Module (final: {
 
   doInstallCheck = true;
 
+  # PostgreSQL is needed for running tests (embedded test server)
+  nativeCheckInputs = [ postgresql ];
+
   env = {
     CGO_ENABLED = 0;
+    HYDRA_SRC = "${hydraSrc}";
   };
 
   passthru.tests.golangci-lint = final.overrideAttrs (old: {

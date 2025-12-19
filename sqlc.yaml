@@ -1,11 +1,11 @@
 version: "2"
 sql:
     - engine: "postgresql"
-      queries: "pkg/hydra/queries.sql"
-      schema: "pkg/hydra/hydra.sql"
+      queries: "pkg/queries/queries.sql"
+      schema: "pkg/queries/hydra.sql"
       gen:
           go:
-              out: "pkg/hydra"
-              package: "hydra"
+              out: "pkg/queries"
+              package: "queries"
               sql_package: "pgx/v5"
               emit_json_tags: true
