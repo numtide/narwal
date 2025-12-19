@@ -1,11 +1,10 @@
 {
   pkgs,
+  inputs,
   perSystem,
   ...
 }:
 let
-
-  inherit (pkgs) lib;
 
   # Wrap clickhouse-local to use $PRJ_DATA_DIR/clickhouse with UDFs from project
   # Concatenate all SQL UDF files into a single init file at build time
@@ -42,55 +41,6 @@ let
         "$@"
     fi
   '';
-
-  postgres-init = pkgs.writeShellApplication {
-    name = "postgres-init";
-    runtimeInputs = [ pkgs.postgresql_17 ];
-    text =
-      let
-
-        initdb = {
-          args = [
-            "--locale=en_US.UTF-8"
-            "--encoding=UTF8"
-          ];
-          scripts = [
-            # create some databases on startup
-            "${./devshell/init.sql}"
-          ];
-        };
-
-      in
-      ''
-            [ -d "$PGDATA" ] && echo "Postgres data dir exists, exiting" && exit 0
-
-            mkdir -p "$PGDATA"
-
-            eval 'initdb --username="$PGUSER" --pwfile=<(printf "%s\n" "$PGPASS") ${lib.concatStringsSep " " initdb.args}'
-
-            cat >> "$PGDATA/postgresql.conf" <<EOF
-                port = $PGPORT
-                listen_addresses = '$PGLISTEN'
-                unix_socket_directories = '$PGHOST'
-
-                # these settings are to speed up local dev and should not be used in production
-
-                wal_level = minimal
-                max_wal_senders = 0
-                archive_mode = off
-                max_wal_size = 10GB  # increase from 1GB to improve import performance
-                checkpoint_timeout = 30min
-                maintenance_work_mem = 2GB
-        EOF
-
-            echo "CREATE DATABASE ''${PGUSER:-$(id -nu)};" | postgres --single -E postgres
-
-            # execute init scripts
-            ${lib.concatStringsSep "\n" (
-              map (script: "postgres --single -E postgres < ${script}") initdb.scripts
-            )}
-      '';
-  };
 in
 perSystem.self.narwal.overrideAttrs (old: {
   env = old.env // {
@@ -112,31 +62,31 @@ perSystem.self.narwal.overrideAttrs (old: {
       # LSPs
       nil
 
-      # local dev services
-      process-compose
-      postgresql_17
-      postgres-init
-      localstack
-      perSystem.self.awslocal
-
       # tooling
+      postgresql
       awscli2
       curl
-      goose # db migrations
       graphviz
       parquet-tools
       pqrs # parquet inspection
-      sqlc # type-safe queries
       openssl
       badger
       duckdb
+      sqlc
     ])
     ++ [
+
       clickhouse-local-wrapped
     ];
 
   shellHook = ''
     # this is only needed for hermetic builds
     unset GO_NO_VENDOR_CHECKS GOSUMDB GOPROXY GOFLAGS
+
+    export HYDRA_SRC=${inputs.hydra}
+
+    # sqlc has a bug when referring to absolute paths for schemas
+    # this is a workaround for now
+    ln -sf ${inputs.hydra}/src/sql/hydra.sql "$PRJ_ROOT/pkg/hydra/hydra.sql"
   '';
 })
