@@ -130,10 +130,6 @@ perSystem.self.narwal.overrideAttrs (old: {
       openssl
       badger
       duckdb
-      # rust tooling
-      cargo
-      clippy
-      rustfmt
     ])
     ++ [
       clickhouse-local-wrapped
