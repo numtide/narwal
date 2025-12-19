@@ -68,52 +68,9 @@ func TestConfig_Validate(t *testing.T) {
 			err: "postgres url is required",
 		},
 		{
-			name: "valid HTTP only",
-			cfg: config.Config{
-				HTTP: &config.HTTP{Host: "127.0.0.1", Port: 8080},
-			},
-		},
-		{
-			name: "invalid HTTP",
-			cfg: config.Config{
-				HTTP: &config.HTTP{Host: "", Port: 8080},
-			},
-			err: "http host is required",
-		},
-		{
 			name: "valid inventory only",
 			cfg: config.Config{
 				Inventory: &config.Inventory{BucketPrefix: "prefix"},
-			},
-		},
-		{
-			name: "valid GC only",
-			cfg: config.Config{
-				GC: &config.GC{
-					AWS:      config.AWS{Region: "us-east-1"},
-					S3:       config.S3{Bucket: "bucket"},
-					Postgres: config.Postgres{URL: "postgres://localhost/db"},
-				},
-			},
-		},
-		{
-			name: "invalid GC - missing bucket",
-			cfg: config.Config{
-				GC: &config.GC{
-					AWS:      config.AWS{},
-					S3:       config.S3{},
-					Postgres: config.Postgres{URL: "postgres://localhost/db"},
-				},
-			},
-			err: "s3 bucket name is required",
-		},
-		{
-			name: "valid SQS only",
-			cfg: config.Config{
-				SQS: &config.SQS{
-					UploadEventQueue: "upload-queue",
-					DeleteEventQueue: "delete-queue",
-				},
 			},
 		},
 		{
@@ -122,9 +79,7 @@ func TestConfig_Validate(t *testing.T) {
 				Badger:   &config.Badger{Path: "./db"},
 				AWS:      &config.AWS{Region: "us-east-1"},
 				S3:       &config.S3{Bucket: "bucket"},
-				SQS:      &config.SQS{UploadEventQueue: "queue"},
 				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
-				HTTP:     &config.HTTP{Host: "127.0.0.1", Port: 8080},
 			},
 		},
 		{
@@ -161,12 +116,8 @@ func TestConfig_FromViper(t *testing.T) {
 		v := viper.New()
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
-		v.Set("sqs.upload_event_queue", "upload-queue")
-		v.Set("sqs.delete_event_queue", "delete-queue")
 		v.Set("aws.region", "us-west-2")
 		v.Set("postgres.url", "postgres://user:pass@localhost:5432/db")
-		v.Set("http.host", "0.0.0.0")
-		v.Set("http.port", 9000)
 		v.Set("inventory.bucket_prefix", "nix-cache/")
 
 		var cfg config.Config
@@ -180,19 +131,11 @@ func TestConfig_FromViper(t *testing.T) {
 		require.NotNil(t, cfg.S3)
 		require.Equal(t, "test-bucket", cfg.S3.Bucket)
 
-		require.NotNil(t, cfg.SQS)
-		require.Equal(t, "upload-queue", cfg.SQS.UploadEventQueue)
-		require.Equal(t, "delete-queue", cfg.SQS.DeleteEventQueue)
-
 		require.NotNil(t, cfg.AWS)
 		require.Equal(t, "us-west-2", cfg.AWS.Region)
 
 		require.NotNil(t, cfg.Postgres)
 		require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.Postgres.URL)
-
-		require.NotNil(t, cfg.HTTP)
-		require.Equal(t, "0.0.0.0", cfg.HTTP.Host)
-		require.Equal(t, 9000, cfg.HTTP.Port)
 
 		require.NotNil(t, cfg.Inventory)
 		require.Equal(t, "nix-cache/", cfg.Inventory.BucketPrefix)
@@ -215,27 +158,6 @@ func TestConfig_FromViper(t *testing.T) {
 		require.Equal(t, "AKIATEST", cfg.AWS.Credentials.AccessKeyID)
 		require.Equal(t, "secret", cfg.AWS.Credentials.SecretAccessKey)
 		require.Equal(t, "production", cfg.AWS.Credentials.Profile)
-	})
-
-	t.Run("handles basic auth nested config", func(t *testing.T) {
-		t.Parallel()
-
-		v := viper.New()
-		v.Set("http.host", "127.0.0.1")
-		v.Set("http.port", 8080)
-		v.Set("http.basic_auth.enabled", true)
-		v.Set("http.basic_auth.username", "admin")
-		v.Set("http.basic_auth.password", "secret")
-
-		var cfg config.Config
-
-		err := config.FromViper(v, &cfg)
-		require.NoError(t, err)
-
-		require.NotNil(t, cfg.HTTP)
-		require.True(t, cfg.HTTP.BasicAuth.Enabled)
-		require.Equal(t, "admin", cfg.HTTP.BasicAuth.Username)
-		require.Equal(t, "secret", cfg.HTTP.BasicAuth.Password)
 	})
 }
 
@@ -277,29 +199,6 @@ func TestConfig_BindEnvVars(t *testing.T) {
 		require.NotNil(t, cfg.AWS)
 		require.Equal(t, "ENV_KEY_ID", cfg.AWS.Credentials.AccessKeyID)
 		require.Equal(t, "ENV_SECRET", cfg.AWS.Credentials.SecretAccessKey)
-	})
-
-	t.Run("binds HTTP basic auth fields", func(t *testing.T) {
-		v := viper.New()
-		config.BindEnvVars(v, "NARWAL", config.Config{})
-
-		t.Setenv("NARWAL_HTTP_HOST", "env-host")
-		t.Setenv("NARWAL_HTTP_PORT", "9999")
-		t.Setenv("NARWAL_HTTP_BASIC_AUTH_ENABLED", "true")
-		t.Setenv("NARWAL_HTTP_BASIC_AUTH_USERNAME", "envuser")
-		t.Setenv("NARWAL_HTTP_BASIC_AUTH_PASSWORD", "envpass")
-
-		var cfg config.Config
-
-		err := config.FromViper(v, &cfg)
-		require.NoError(t, err)
-
-		require.NotNil(t, cfg.HTTP)
-		require.Equal(t, "env-host", cfg.HTTP.Host)
-		require.Equal(t, 9999, cfg.HTTP.Port)
-		require.True(t, cfg.HTTP.BasicAuth.Enabled)
-		require.Equal(t, "envuser", cfg.HTTP.BasicAuth.Username)
-		require.Equal(t, "envpass", cfg.HTTP.BasicAuth.Password)
 	})
 
 	t.Run("env vars work without config", func(t *testing.T) {
@@ -349,10 +248,6 @@ path = "/toml/badger/path"
 [s3]
 bucket = "toml-bucket"
 
-[sqs]
-upload_event_queue = "toml-upload-queue"
-delete_event_queue = "toml-delete-queue"
-
 [aws]
 region = "us-east-1"
 use_ssl = true
@@ -363,15 +258,6 @@ secret_access_key = "TOML_SECRET"
 
 [postgres]
 url = "postgres://toml:toml@localhost:5432/tomldb"
-
-[http]
-host = "0.0.0.0"
-port = 7777
-
-[http.basic_auth]
-enabled = true
-username = "tomluser"
-password = "tomlpass"
 
 [inventory]
 bucket_prefix = "toml/prefix/"
@@ -397,10 +283,6 @@ force_nar_info_download = true
 	require.NotNil(t, cfg.S3)
 	require.Equal(t, "toml-bucket", cfg.S3.Bucket)
 
-	require.NotNil(t, cfg.SQS)
-	require.Equal(t, "toml-upload-queue", cfg.SQS.UploadEventQueue)
-	require.Equal(t, "toml-delete-queue", cfg.SQS.DeleteEventQueue)
-
 	require.NotNil(t, cfg.AWS)
 	require.Equal(t, "us-east-1", cfg.AWS.Region)
 	require.True(t, cfg.AWS.UseSSL)
@@ -409,13 +291,6 @@ force_nar_info_download = true
 
 	require.NotNil(t, cfg.Postgres)
 	require.Equal(t, "postgres://toml:toml@localhost:5432/tomldb", cfg.Postgres.URL)
-
-	require.NotNil(t, cfg.HTTP)
-	require.Equal(t, "0.0.0.0", cfg.HTTP.Host)
-	require.Equal(t, 7777, cfg.HTTP.Port)
-	require.True(t, cfg.HTTP.BasicAuth.Enabled)
-	require.Equal(t, "tomluser", cfg.HTTP.BasicAuth.Username)
-	require.Equal(t, "tomlpass", cfg.HTTP.BasicAuth.Password)
 
 	require.NotNil(t, cfg.Inventory)
 	require.Equal(t, "toml/prefix/", cfg.Inventory.BucketPrefix)

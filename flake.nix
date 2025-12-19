@@ -10,6 +10,8 @@
       inputs.systems.follows = "systems";
     };
 
+    hydra.url = "github:nixos/hydra";
+
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
 
     systems.url = "github:nix-systems/default-linux";
