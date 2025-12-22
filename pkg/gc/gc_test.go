@@ -9,14 +9,14 @@ import (
 )
 
 func TestDB(t *testing.T) {
-	// TODO fix concurrent use of test postgres and rustfs servers
+	t.Parallel()
 
 	// get a rustfs server going
 	rustfs := getRustfsServer(t)
 	defer rustfs.Cleanup(t)
 
 	// create a test bucket
-	rustfs.NewBucket(t)
+	bucketName, minioClient := rustfs.NewBucket(t)
 
 	// get a postgres server going
 	pgServer := getPostgresServer(t)
@@ -30,14 +30,17 @@ func TestDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	qry := queries.New(pool)
-
-	hydratest.Generate(t, qry)
-
 	defer func() {
 		closeErr := pool.Close(t.Context())
 		if closeErr != nil {
 			t.Fatalf("failed to close database connection: %v", closeErr)
 		}
 	}()
+
+	qry := queries.New(pool)
+
+	// Generate test data in database and upload narinfo/nar files to S3
+	hydratest.NewGenerator(t, qry).
+		WithMinio(minioClient, bucketName).
+		Generate()
 }

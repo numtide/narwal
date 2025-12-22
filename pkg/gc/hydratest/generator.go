@@ -1,14 +1,21 @@
 package hydratest
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/minio/minio-go/v7"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/queries"
+	"golang.org/x/sync/errgroup"
 )
 
 // Config holds the configuration for test data generation.
@@ -53,6 +60,10 @@ type Generator struct {
 	buildSteps  []queries.CopyBuildStepsParams
 	stepOutputs []queries.CopyBuildStepOutputsParams
 	nextBuildID int32
+
+	// Optional S3 client for uploading narinfo/nar files
+	minioClient *minio.Client
+	bucketName  string
 }
 
 func Generate(tb testing.TB, queries *queries.Queries) {
@@ -82,6 +93,14 @@ func NewGenerator(tb testing.TB, queries *queries.Queries) *Generator {
 		config:      DefaultConfig(),
 		nextBuildID: 1, // Build IDs start at 1 in fresh DB
 	}
+}
+
+// WithMinio configures the generator to upload narinfo and nar files to S3.
+func (g *Generator) WithMinio(client *minio.Client, bucket string) *Generator {
+	g.minioClient = client
+	g.bucketName = bucket
+
+	return g
 }
 
 // Generate creates all test data in the database.
@@ -179,10 +198,18 @@ func (g *Generator) Generate() {
 		tb.Fatalf("failed to bulk insert step outputs: %v", err)
 	}
 
-	elapsed := time.Since(start)
-	tb.Logf("Generation complete in %s: %d projects, %d jobsets, %d builds, %d steps, %d outputs",
-		elapsed.Round(time.Millisecond),
+	dbElapsed := time.Since(start)
+	tb.Logf("Database population complete in %s: %d projects, %d jobsets, %d builds, %d steps, %d outputs",
+		dbElapsed.Round(time.Millisecond),
 		g.config.NumProjects, totalJobsets, buildCount, stepCount, outputCount)
+
+	// Phase 3: Upload narinfo and NAR files to S3 (if minio client is configured)
+	if g.minioClient != nil {
+		g.uploadToS3(ctx)
+	}
+
+	elapsed := time.Since(start)
+	tb.Logf("Generation complete in %s", elapsed.Round(time.Millisecond))
 
 	// Clear slices to free memory
 	g.builds = nil
@@ -400,4 +427,120 @@ func (g *Generator) randRange(minVal, maxVal int) int {
 	}
 
 	return minVal + g.rng.Intn(maxVal-minVal+1)
+}
+
+// uploadToS3 uploads narinfo and NAR files for all step outputs using concurrent workers.
+func (g *Generator) uploadToS3(ctx context.Context) {
+	tb := g.tb
+	numWorkers := 16
+
+	tb.Logf("Phase 3: Uploading %d narinfo/nar file pairs to S3 with %d workers...", len(g.stepOutputs), numWorkers)
+
+	s3Start := time.Now()
+
+	// Create a channel to distribute work
+	pathChan := make(chan string, 256)
+
+	// Track progress atomically
+	var uploaded atomic.Int64
+
+	// Create an errgroup for executing the workers
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	// Start the workers
+	for range numWorkers {
+		eg.Go(func() error {
+			// Each worker needs its own RNG for deterministic but independent random data
+			workerRng := rand.New(rand.NewSource(g.rng.Int63())) //nolint:gosec
+
+			for storePath := range pathChan {
+				if uploadErr := g.uploadToS3WithRNG(egCtx, storePath, workerRng); uploadErr != nil {
+					return uploadErr
+				}
+
+				count := uploaded.Add(1)
+				if count%10000 == 0 {
+					tb.Logf("Uploaded %d/%d files...", count, len(g.stepOutputs))
+				}
+			}
+
+			return nil
+		})
+	}
+
+	// Send work to the workers
+	for _, output := range g.stepOutputs {
+		if output.Path.Valid {
+			select {
+			case pathChan <- output.Path.String:
+			case <-egCtx.Done():
+				break
+			}
+		}
+	}
+
+	// Close the channel to signal no more work
+	close(pathChan)
+
+	// Wait for all workers to complete
+	if err := eg.Wait(); err != nil {
+		tb.Fatalf("failed to upload narinfo/nar files: %v", err)
+	}
+
+	tb.Logf("S3 upload complete in %s: %d file pairs", time.Since(s3Start).Round(time.Millisecond), len(g.stepOutputs))
+}
+
+// uploadToS3WithRNG uploads a narinfo file and corresponding NAR file to S3.
+// The narinfo is stored at <hash>.narinfo where hash is extracted from the store path.
+// The NAR is stored at nar/<filehash>.nar where filehash is the SHA256 of the NAR content.
+// This version takes a context and RNG for concurrent use.
+func (g *Generator) uploadToS3WithRNG(ctx context.Context, storePath string, rng *rand.Rand) error {
+	// Generate random NAR bytes (small, 64-256 bytes)
+	narSize := 64 + rng.Intn(193) // 64-256 bytes
+	narBytes := make([]byte, narSize)
+
+	_, err := rng.Read(narBytes)
+	if err != nil {
+		return fmt.Errorf("failed to generate random NAR bytes: %w", err)
+	}
+
+	// Calculate SHA256 hash of NAR content
+	narHash := sha256.Sum256(narBytes)
+	fileHashStr := nixbase32.EncodeToString(narHash[:])
+
+	// Extract store path hash for narinfo filename: /nix/store/<hash>-...
+	// The hash starts at position 11 (len("/nix/store/")) and is 32 chars long
+	storePathHash := storePath[11:43]
+	narinfoKey := storePathHash + ".narinfo"
+	narKey := "nar/" + fileHashStr + ".nar"
+
+	// Generate narinfo content
+	narinfoContent := fmt.Sprintf(`StorePath: %s
+URL: %s
+Compression: none
+FileHash: sha256:%s
+FileSize: %d
+NarHash: sha256:%s
+NarSize: %d
+References:
+Deriver: unknown-deriver
+`, storePath, narKey, fileHashStr, narSize, fileHashStr, narSize)
+
+	// Upload NAR file
+	_, err = g.minioClient.PutObject(ctx, g.bucketName, narKey,
+		bytes.NewReader(narBytes), int64(narSize),
+		minio.PutObjectOptions{ContentType: "application/x-nix-nar"})
+	if err != nil {
+		return fmt.Errorf("failed to upload NAR %s: %w", narKey, err)
+	}
+
+	// Upload narinfo file
+	_, err = g.minioClient.PutObject(ctx, g.bucketName, narinfoKey,
+		bytes.NewReader([]byte(narinfoContent)), int64(len(narinfoContent)),
+		minio.PutObjectOptions{ContentType: "text/x-nix-narinfo"})
+	if err != nil {
+		return fmt.Errorf("failed to upload narinfo %s: %w", narinfoKey, err)
+	}
+
+	return nil
 }
