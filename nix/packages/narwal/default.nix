@@ -2,9 +2,12 @@
   pkgs,
   flake,
   inputs,
+  perSystem,
   ...
 }:
 pkgs.callPackage ./package.nix {
+
+  inherit (perSystem.self) rustfs;
 
   # there's no good way of tying in the version to a git tag or branch
   # so for simplicity's sake we set the version as the commit revision hash

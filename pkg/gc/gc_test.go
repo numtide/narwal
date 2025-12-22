@@ -8,11 +8,21 @@ import (
 	"github.com/numtide/narwal/pkg/queries"
 )
 
-//nolint:paralleltest // uses shared postgres server
 func TestDB(t *testing.T) {
+	// TODO fix concurrent use of test postgres and rustfs servers
+
+	// get a rustfs server going
+	rustfs := getRustfsServer(t)
+	defer rustfs.Cleanup()
+
+	// create a test bucket
+	rustfs.NewBucket(t)
+
+	// get a postgres server going
 	pgServer := getPostgresServer(t)
 	defer pgServer.Cleanup()
 
+	// create a new db and add test data to the db
 	dbURL := pgServer.NewHydraDB(t)
 
 	pool, err := pgx.Connect(t.Context(), dbURL)

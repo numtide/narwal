@@ -4,6 +4,7 @@
   versionSuffix ? null,
   golangci-lint,
   buildGo124Module,
+  rustfs,
   postgresql,
   hydraSrc,
 }:
@@ -37,8 +38,11 @@ buildGo124Module (final: {
 
   doInstallCheck = true;
 
-  # PostgreSQL is needed for running tests (embedded test server)
-  nativeCheckInputs = [ postgresql ];
+  # Needed for tests
+  nativeCheckInputs = [
+    postgresql
+    rustfs
+  ];
 
   env = {
     CGO_ENABLED = 0;

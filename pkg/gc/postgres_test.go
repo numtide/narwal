@@ -1,4 +1,3 @@
-// Adapted from https://github.com/Mic92/niks3
 package gc_test
 
 import (
