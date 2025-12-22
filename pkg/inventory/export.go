@@ -397,9 +397,9 @@ func closeParquetWriter(writer *parquet.GenericWriter[NarInfoRecord]) (err error
 // logExportStats logs the final export statistics.
 func logExportStats(stats *exportStats, file *os.File) {
 	log.Infof("=== FINAL EXPORT STATISTICS ===")
-	log.Infof("Total objects processed: %s", humanize.Comma(stats.processed.Load()))
-	log.Infof("Total narinfos exported: %s", humanize.Comma(stats.exported.Load()))
-	log.Infof("Total parse failures: %s", humanize.Comma(stats.failedToParse.Load()))
+	log.Infof("TotalRemoved objects processed: %s", humanize.Comma(stats.processed.Load()))
+	log.Infof("TotalRemoved narinfos exported: %s", humanize.Comma(stats.exported.Load()))
+	log.Infof("TotalRemoved parse failures: %s", humanize.Comma(stats.failedToParse.Load()))
 
 	if stat, err := file.Stat(); err == nil {
 		log.Infof("Output file size: %s", humanize.Bytes(uint64(stat.Size()))) //nolint:gosec
@@ -418,6 +418,6 @@ func logExportStats(stats *exportStats, file *os.File) {
 		log.Infof("Write parquet:  %v (%.1f%%)",
 			time.Duration(writeNs),
 			float64(writeNs)/float64(totalNs)*100)
-		log.Infof("Total measured: %v", time.Duration(totalNs))
+		log.Infof("TotalRemoved measured: %v", time.Duration(totalNs))
 	}
 }

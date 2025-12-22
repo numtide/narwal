@@ -3,6 +3,7 @@ package inventory
 import (
 	"fmt"
 
+	"github.com/numtide/narwal/pkg/cobrautil"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
@@ -14,7 +15,7 @@ func verifyCmd() *cobra.Command {
 		Short: "Verify what we have downloaded",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig(cmd, args)
+			cfg, err := cobrautil.LoadConfig(cmd, args)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}

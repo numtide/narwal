@@ -62,6 +62,6 @@ type NarInfoRecord struct {
 
 	// QuirkReferencesOutOfOrder is true if the original narinfo had references
 	// not in canonical order (lexicographic by full basename). Nix stores
-	// references in a std::set<StorePath> which maintains sorted order.
+	// references in a std::set<StorePaths> which maintains sorted order.
 	QuirkReferencesOutOfOrder bool `parquet:"quirk_references_out_of_order"`
 }

@@ -48,3 +48,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- name: CopyBuildStepOutputs :copyfrom
 INSERT INTO buildstepoutputs (build, stepnr, name, path)
 VALUES ($1, $2, $3, $4);
+
+-- name: FindBuildStepOutputs :many
+SELECT path FROM buildstepoutputs WHERE path = ANY(@paths::text[]) ORDER BY path;
+
+-- name: DeleteBuildStepOutputs :execrows
+DELETE from buildstepoutputs WHERE path = ANY(@paths::text[]);

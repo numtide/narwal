@@ -17,13 +17,9 @@ import (
 	"testing"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
-	"github.com/minio/minio-go/v7"
-	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/config"
 )
 
 //nolint:gochecknoglobals
@@ -37,7 +33,7 @@ type rustfsServer struct {
 	tempDir     string
 	secret      string
 	port        uint16
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	activeTests map[string]struct{}
 }
 
@@ -64,44 +60,6 @@ func sanitizeBucketName(testName string) string {
 	result = strings.TrimRight(result, "-")
 
 	return result
-}
-
-func (s *rustfsServer) Client(tb testing.TB) *minio.Client {
-	tb.Helper()
-
-	endpoint := fmt.Sprintf("localhost:%d", s.port)
-	// minio-go client works with any S3-compatible storage including RustFS
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  miniocreds.NewStaticV4("rustfsadmin", s.secret, ""),
-		Secure: false,
-	})
-	if err != nil {
-		tb.Fatalf("failed to create minio client: %v", err)
-	}
-
-	return minioClient
-}
-
-func (s *rustfsServer) BucketClient(tb testing.TB, bucketName string) *awssdk.BucketClient {
-	tb.Helper()
-
-	endpoint := fmt.Sprintf("http://localhost:%d", s.port)
-
-	cfg, err := awsconfig.LoadDefaultConfig(tb.Context(),
-		awsconfig.WithRegion("us-east-1"),
-		awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("rustfsadmin", s.secret, "")),
-		awsconfig.WithBaseEndpoint(endpoint),
-	)
-	if err != nil {
-		tb.Fatalf("failed to load AWS config: %v", err)
-	}
-
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true
-	})
-
-	return awssdk.NewBucketClientFromSDK(s3Client, bucketName)
 }
 
 func randToken(n int) (string, error) {
@@ -134,14 +92,29 @@ func randPort(ctx context.Context) (uint16, error) {
 	return port, nil
 }
 
-func (s *rustfsServer) NewBucket(tb testing.TB) (string, *minio.Client) {
+func (s *rustfsServer) NewBucket(tb testing.TB) (*config.AWS, *config.S3, *awssdk.BucketClient) {
 	tb.Helper()
 
-	client := s.Client(tb)
-
+	// Derive the bucket name from the test name
 	testName := tb.Name()
 	bucketName := sanitizeBucketName(testName)
 
+	// Generate aws and s3 config
+	awsCfg := &config.AWS{
+		Region:   "us-east-1",
+		Endpoint: fmt.Sprintf("localhost:%d", s.port),
+		UseSSL:   false,
+		Credentials: config.CredentialsConfig{
+			AccessKeyID:     "rustfsadmin",
+			SecretAccessKey: s.secret,
+		},
+	}
+
+	s3Cfg := &config.S3{
+		Bucket: bucketName,
+	}
+
+	// Acquire the write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -150,18 +123,24 @@ func (s *rustfsServer) NewBucket(tb testing.TB) (string, *minio.Client) {
 		tb.Fatalf("test %q already has an active bucket", testName)
 	}
 
+	// Create a bucket client
+	client, err := awssdk.NewBucketClientFromConfig(tb.Context(), awsCfg, s3Cfg)
+	if err != nil {
+		tb.Fatalf("failed to create bucket client: %v", err)
+	}
+
 	// Create the bucket (inside mutex to ensure one-shot creation)
-	if err := client.MakeBucket(tb.Context(), bucketName, minio.MakeBucketOptions{}); err != nil {
+	if err = client.CreateBucket(tb.Context()); err != nil {
 		tb.Fatalf("failed to create bucket: %v", err)
 	}
 
 	// Track the test as active
 	s.activeTests[bucketName] = struct{}{}
 
-	return bucketName, client
+	return awsCfg, s3Cfg, client
 }
 
-func (s *rustfsServer) Cleanup(tb testing.TB) {
+func (s *rustfsServer) CleanupBucket(tb testing.TB) {
 	tb.Helper()
 
 	testName := tb.Name()
@@ -169,8 +148,13 @@ func (s *rustfsServer) Cleanup(tb testing.TB) {
 
 	s.mu.Lock()
 	delete(s.activeTests, bucketName)
-	remaining := len(s.activeTests)
 	s.mu.Unlock()
+}
+
+func (s *rustfsServer) Cleanup() {
+	s.mu.RLock()
+	remaining := len(s.activeTests)
+	s.mu.RUnlock()
 
 	// Only terminate when all tests have cleaned up
 	if remaining == 0 {
@@ -184,48 +168,46 @@ func (s *rustfsServer) Cleanup(tb testing.TB) {
 	}
 }
 
-func getRustfsServer(tb testing.TB) *rustfsServer {
-	tb.Helper()
-
+func getRustfsServer(ctx context.Context) *rustfsServer {
 	testRustfsOnce.Do(func() {
-		testRustfsServer = startRustfsServer(tb)
+		testRustfsServer = startRustfsServer(ctx)
 	})
 
 	return testRustfsServer
 }
 
-func startRustfsServer(tb testing.TB) *rustfsServer {
-	tb.Helper()
-
-	tempDir, err := os.MkdirTemp("", "rustfs") //nolint:usetesting // need manual cleanup for shared server
+func startRustfsServer(ctx context.Context) *rustfsServer {
+	tempDir, err := os.MkdirTemp("", "rustfs")
 	if err != nil {
-		tb.Fatalf("failed to create temp dir: %v", err)
+		log.Fatalf("failed to create temp dir: %v", err)
 	}
-
-	defer func() {
-		if err != nil {
-			if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-				tb.Logf("Failed to remove temp directory during startup cleanup: %s", removeErr)
-			}
-		}
-	}()
-
-	ctx := tb.Context()
 
 	port, err := randPort(ctx)
 	if err != nil {
-		tb.Fatalf("failed to find free port: %v", err)
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+		}
+
+		log.Fatalf("failed to find free port: %v", err)
 	}
 
 	// random hex string
 	secret, err := randToken(20)
 	if err != nil {
-		tb.Fatalf("failed to generate access key: %v", err)
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+		}
+
+		log.Fatalf("failed to generate access key: %v", err)
 	}
 
 	dataDir := filepath.Join(tempDir, "data")
 	if err = os.MkdirAll(dataDir, 0o750); err != nil {
-		tb.Fatalf("failed to create data dir: %v", err)
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+		}
+
+		log.Fatalf("failed to create data dir: %v", err)
 	}
 
 	//nolint:gosec
@@ -246,7 +228,11 @@ func startRustfsServer(tb testing.TB) *rustfsServer {
 	rustfsProc.Env = env
 
 	if err = rustfsProc.Start(); err != nil {
-		tb.Fatalf("failed to start rustfs: %v", err)
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+		}
+
+		log.Fatalf("failed to start rustfs: %v", err)
 	}
 
 	// wait for server to start
@@ -255,7 +241,13 @@ func startRustfsServer(tb testing.TB) *rustfsServer {
 	for range 200 {
 		// Check if context has been cancelled/timed out
 		if ctx.Err() != nil {
-			tb.Fatalf("timeout waiting for rustfs server to start: %v", ctx.Err())
+			terminateProcess(rustfsProc)
+
+			if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+				log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+			}
+
+			log.Fatalf("timeout waiting for rustfs server to start: %v", ctx.Err())
 		}
 
 		var conn net.Conn
@@ -271,7 +263,13 @@ func startRustfsServer(tb testing.TB) *rustfsServer {
 	}
 
 	if err != nil {
-		tb.Fatalf("failed to wait for rustfs server: %v", err)
+		terminateProcess(rustfsProc)
+
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			log.Infof("Failed to remove temp directory during startup cleanup: %s", removeErr)
+		}
+
+		log.Fatalf("failed to wait for rustfs server: %v", err)
 	}
 
 	server := &rustfsServer{
@@ -281,19 +279,6 @@ func startRustfsServer(tb testing.TB) *rustfsServer {
 		port:        port,
 		activeTests: make(map[string]struct{}),
 	}
-
-	defer func() {
-		if err != nil {
-			// Force cleanup on startup failure (no tests registered yet)
-			defer func() {
-				if removeErr := os.RemoveAll(server.tempDir); removeErr != nil {
-					log.Warn("Failed to remove rustfs temp directory", "error", removeErr)
-				}
-			}()
-
-			terminateProcess(server.cmd)
-		}
-	}()
 
 	return server
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/cobrautil"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
@@ -25,13 +26,13 @@ func manifestCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := args[0]
 
-			cfg, err := loadConfig(cmd, args)
+			cfg, err := cobrautil.LoadConfig(cmd, args)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			// create s3 client
-			s3, err := awssdk.NewS3ClientFromConfig(cmd.Context(), cfg.AWS, cfg.S3)
+			s3, err := awssdk.NewBucketClientFromConfig(cmd.Context(), cfg.AWS, cfg.S3)
 			if err != nil {
 				return fmt.Errorf("failed to create s3 client: %w", err)
 			}
@@ -81,8 +82,8 @@ func displayStats(manifest *inventory.Manifest) error {
 	fmt.Printf("  File Format: %s\n", manifest.FileFormat)
 	fmt.Printf("  File Schema: %s\n", manifest.FileSchema)
 	fmt.Printf("  Version: %s\n", manifest.Version)
-	fmt.Printf("  Total Files: %d\n", len(manifest.Files))
-	fmt.Printf("  Total Size: %s\n", humanize.Bytes(totalSize))
+	fmt.Printf("  TotalRemoved Files: %d\n", len(manifest.Files))
+	fmt.Printf("  TotalRemoved Size: %s\n", humanize.Bytes(totalSize))
 
 	return nil
 }
@@ -108,8 +109,8 @@ func displayTable(manifest *inventory.Manifest) error {
 	fmt.Printf("  File Format: %s\n", manifest.FileFormat)
 	fmt.Printf("  File Schema: %s\n", manifest.FileSchema)
 	fmt.Printf("  Version: %s\n", manifest.Version)
-	fmt.Printf("  Total Files: %d\n", len(manifest.Files))
-	fmt.Printf("  Total Size: %s\n", humanize.Bytes(totalSize))
+	fmt.Printf("  TotalRemoved Files: %d\n", len(manifest.Files))
+	fmt.Printf("  TotalRemoved Size: %s\n", humanize.Bytes(totalSize))
 	fmt.Printf("\nFiles:\n")
 
 	for i, file := range manifest.Files {

@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/numtide/narwal/cmd/gc"
 	"github.com/numtide/narwal/cmd/inventory"
 
 	"github.com/charmbracelet/log"
@@ -29,6 +31,7 @@ func New() *cobra.Command {
 
 	// add subcommands
 	cmd.AddCommand(inventory.NewCmd())
+	cmd.AddCommand(gc.NewCmd())
 
 	// add some flags common to all subcommands
 	fs := cmd.PersistentFlags()
@@ -57,11 +60,19 @@ func New() *cobra.Command {
 }
 
 func initConfig() {
-	viper.SetConfigFile(configFile)
+	// Only set explicit config file if provided
+	if configFile != "" {
+		viper.SetConfigFile(configFile)
+	}
 
-	// read in config
+	// Read config file if available, but don't fail if not found
 	if err := viper.ReadInConfig(); err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to read config file: %w", err))
+		// Only fail on actual errors, not on "file not found"
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
+			cobra.CheckErr(fmt.Errorf("failed to read config file: %w", err))
+		}
+		// Config file not found is OK - values can come from flags/env vars
 	}
 
 	// configure logging

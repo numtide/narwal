@@ -281,6 +281,42 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteBuildStepOutputs = `-- name: DeleteBuildStepOutputs :execrows
+DELETE from buildstepoutputs WHERE path = ANY($1::text[])
+`
+
+func (q *Queries) DeleteBuildStepOutputs(ctx context.Context, paths []string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBuildStepOutputs, paths)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const findBuildStepOutputs = `-- name: FindBuildStepOutputs :many
+SELECT path FROM buildstepoutputs WHERE path = ANY($1::text[]) ORDER BY path
+`
+
+func (q *Queries) FindBuildStepOutputs(ctx context.Context, paths []string) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, findBuildStepOutputs, paths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.Text
+	for rows.Next() {
+		var path pgtype.Text
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		items = append(items, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTables = `-- name: ListTables :many
 SELECT
     table_name

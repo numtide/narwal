@@ -32,7 +32,7 @@ const (
 type postgresServer struct {
 	cmd         *exec.Cmd
 	tempDir     string
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	activeTests map[string]struct{}
 }
 
@@ -64,6 +64,7 @@ func (s *postgresServer) NewDB(tb testing.TB) string {
 	testName := tb.Name()
 	dbName := sanitizeDBName(testName)
 
+	// Acquire the write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -73,6 +74,7 @@ func (s *postgresServer) NewDB(tb testing.TB) string {
 	}
 
 	// Create the database (inside mutex to ensure one-shot creation)
+
 	//nolint:gosec
 	command := exec.CommandContext(tb.Context(), "createdb", "-h", s.tempDir, "-U", "postgres", dbName)
 	command.Stdout = os.Stdout
@@ -103,31 +105,31 @@ func (s *postgresServer) NewHydraDB(tb testing.TB) string {
 
 	schemaSQL, err := os.ReadFile(schemaPath) //nolint:gosec // path from trusted env var
 	if err != nil {
-		tb.Fatalf("failed to read hydra schema from %s: %v", schemaPath, err)
+		log.Fatalf("failed to read hydra schema from %s: %v", schemaPath, err)
 	}
 
 	ctx, cancel := context.WithTimeout(tb.Context(), 10*time.Second)
-	defer cancel()
 
 	conn, err := pgx.Connect(ctx, dbUrl)
 	if err != nil {
-		tb.Fatalf("failed to connect to database: %v", err)
+		cancel()
+		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	defer func() {
-		closeErr := conn.Close(ctx)
-		if closeErr != nil {
-			tb.Fatalf("failed to close database connection: %v", closeErr)
-		}
-	}()
+	cancel()
 
 	ctx, cancel = context.WithTimeout(tb.Context(), 10*time.Second)
-	defer cancel()
 
 	_, err = conn.Exec(ctx, string(schemaSQL))
 	if err != nil {
-		tb.Fatalf("failed to execute hydra schema: %v", err)
+		cancel()
+
+		_ = conn.Close(tb.Context())
+
+		log.Fatalf("failed to execute hydra schema: %v", err)
 	}
+
+	cancel()
 
 	// Log all tables in the database
 	if debugPostgres {
@@ -135,7 +137,9 @@ func (s *postgresServer) NewHydraDB(tb testing.TB) string {
 
 		tableNames, err := queries.ListTables(ctx)
 		if err != nil {
-			tb.Fatalf("failed to list tables: %v", err)
+			_ = conn.Close(tb.Context())
+
+			log.Fatalf("failed to list tables: %v", err)
 		}
 
 		for _, tableName := range tableNames {
@@ -143,19 +147,27 @@ func (s *postgresServer) NewHydraDB(tb testing.TB) string {
 		}
 	}
 
+	if closeErr := conn.Close(tb.Context()); closeErr != nil {
+		log.Fatalf("failed to close database connection: %v", closeErr)
+	}
+
 	return dbUrl
 }
 
-func (s *postgresServer) Cleanup(tb testing.TB) {
+func (s *postgresServer) CleanupDB(tb testing.TB) {
 	tb.Helper()
 
-	testName := tb.Name()
-	dbName := sanitizeDBName(testName)
+	dbName := sanitizeDBName(tb.Name())
 
 	s.mu.Lock()
 	delete(s.activeTests, dbName)
-	remaining := len(s.activeTests)
 	s.mu.Unlock()
+}
+
+func (s *postgresServer) Cleanup() {
+	s.mu.RLock()
+	remaining := len(s.activeTests)
+	s.mu.RUnlock()
 
 	// Only terminate when all tests have cleaned up
 	if remaining == 0 {
@@ -169,30 +181,26 @@ func (s *postgresServer) Cleanup(tb testing.TB) {
 	}
 }
 
-func getPostgresServer(tb testing.TB) *postgresServer {
-	tb.Helper()
-
+func getPostgresServer(ctx context.Context) *postgresServer {
 	testPostgresOnce.Do(func() {
-		testPostgresServer, errPostgresStart = startPostgresServer(tb)
+		testPostgresServer, errPostgresStart = startPostgresServer(ctx)
 	})
 
 	if errPostgresStart != nil {
-		tb.Fatalf("failed to start postgres server: %s", errPostgresStart)
+		log.Fatalf("failed to start postgres server: %s", errPostgresStart)
 	}
 
 	return testPostgresServer
 }
 
-func startPostgresServer(tb testing.TB) (*postgresServer, error) {
-	tb.Helper()
-
+func startPostgresServer(ctx context.Context) (*postgresServer, error) {
 	// unload environment variables from the devenv
 	_ = os.Unsetenv("DATABASE_URL")
 	_ = os.Unsetenv("PGDATABASE")
 	_ = os.Unsetenv("PGUSER")
 	_ = os.Unsetenv("PGHOST")
 
-	tempDir, err := os.MkdirTemp("", "postgres") //nolint:usetesting // need manual cleanup for shared server
+	tempDir, err := os.MkdirTemp("", "postgres")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
@@ -204,9 +212,10 @@ func startPostgresServer(tb testing.TB) (*postgresServer, error) {
 			}
 		}
 	}()
+
 	// initialize the database
 	dbPath := filepath.Join(tempDir, "data")
-	initdb := exec.CommandContext(tb.Context(), "initdb", "-D", dbPath, "-U", "postgres") //nolint:gosec // test helper
+	initdb := exec.CommandContext(ctx, "initdb", "-D", dbPath, "-U", "postgres") //nolint:gosec // test helper
 	initdb.Stdout = os.Stdout
 	initdb.Stderr = os.Stderr
 
@@ -232,7 +241,7 @@ func startPostgresServer(tb testing.TB) (*postgresServer, error) {
 		args = append(args, "-c", "log_statement=all", "-c", "log_min_duration_statement=0")
 	}
 
-	postgresProc := exec.CommandContext(tb.Context(), "postgres", args...) //nolint:gosec // test helper
+	postgresProc := exec.CommandContext(ctx, "postgres", args...) //nolint:gosec // test helper
 	postgresProc.Stdout = os.Stdout
 	postgresProc.Stderr = os.Stderr
 	postgresProc.SysProcAttr = &syscall.SysProcAttr{
@@ -264,12 +273,12 @@ func startPostgresServer(tb testing.TB) (*postgresServer, error) {
 
 	for range 30 {
 		// Check if context has been cancelled/timed out
-		if tb.Context().Err() != nil {
-			return nil, fmt.Errorf("timeout waiting for postgres to start: %w", tb.Context().Err())
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("timeout waiting for postgres to start: %w", ctx.Err())
 		}
 
 		//nolint:gosec // test helper
-		waitForPostgres := exec.CommandContext(tb.Context(), "pg_isready", "-h", tempDir, "-U", "postgres")
+		waitForPostgres := exec.CommandContext(ctx, "pg_isready", "-h", tempDir, "-U", "postgres")
 		waitForPostgres.Stdout = os.Stdout
 		waitForPostgres.Stderr = os.Stderr
 

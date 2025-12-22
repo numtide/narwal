@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,7 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/pkg/awssdk"
+	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/numtide/narwal/pkg/queries"
+	"github.com/parquet-go/parquet-go"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -38,14 +43,20 @@ func DefaultConfig() Config {
 		NumProjects:          10,
 		MinJobsetsPerProject: 3,
 		MaxJobsetsPerProject: 10,
-		MinBuildsPerJS:       50,
-		MaxBuildsPerJS:       300,
+		MinBuildsPerJS:       10,
+		MaxBuildsPerJS:       20,
 		MinStepsPerBuild:     1,
 		MaxStepsPerBuild:     5,
 		MinOutputsPerStep:    1,
 		MaxOutputsPerStep:    3,
 		SuccessRate:          85,
 	}
+}
+
+// narInfo stores the FileHash and FileSize for a NAR uploaded to S3.
+type narInfo struct {
+	fileHash [32]byte
+	fileSize uint64
 }
 
 // Generator generates test data for the Hydra database.
@@ -63,6 +74,10 @@ type Generator struct {
 
 	// S3 client for uploading narinfo/nar files
 	bucketClient *awssdk.BucketClient
+
+	// uploadedNars maps store path to NAR file info (populated during S3 upload)
+	uploadedNars   map[string]narInfo
+	uploadedNarsMu sync.Mutex
 }
 
 func Generate(tb testing.TB, queries *queries.Queries, bucketClient *awssdk.BucketClient) {
@@ -92,6 +107,7 @@ func NewGenerator(tb testing.TB, queries *queries.Queries, bucketClient *awssdk.
 		config:       DefaultConfig(),
 		nextBuildID:  1, // Build IDs start at 1 in fresh DB
 		bucketClient: bucketClient,
+		uploadedNars: make(map[string]narInfo),
 	}
 }
 
@@ -205,6 +221,100 @@ func (g *Generator) Generate() {
 	g.builds = nil
 	g.buildSteps = nil
 	g.stepOutputs = nil
+}
+
+// GenerateGCTargets creates a parquet file containing NarInfoRecords for half
+// of the uploaded store paths. Must be called after Generate().
+// Returns the number of records and the path to the generated file.
+func (g *Generator) GenerateGCTargets() (int, string) {
+	tb := g.tb
+	tb.Helper()
+
+	if len(g.uploadedNars) == 0 {
+		tb.Fatal("GenerateGCTargets called before Generate() or no uploads occurred")
+	}
+
+	// Collect all store paths
+	storePaths := make([]string, 0, len(g.uploadedNars))
+	for path := range g.uploadedNars {
+		storePaths = append(storePaths, path)
+	}
+
+	// Select half randomly
+	numTargets := len(storePaths) / 2
+	tb.Logf("Generating gc-targets.parquet with %d entries (half of %d)...", numTargets, len(storePaths))
+
+	// Shuffle using generator's RNG for determinism
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+	selectedPaths := storePaths[:numTargets]
+
+	// Create temp file
+	gcTargetsPath := filepath.Join(tb.TempDir(), "gc-targets.parquet")
+
+	file, err := os.Create(gcTargetsPath) //nolint:gosec // path from test temp dir
+	if err != nil {
+		tb.Fatalf("failed to create gc-targets file: %v", err)
+	}
+
+	// Create parquet writer
+	writer := parquet.NewGenericWriter[inventory.NarInfoRecord](file)
+
+	// Generate NarInfoRecords
+	records := make([]inventory.NarInfoRecord, 0, numTargets)
+
+	for _, storePath := range selectedPaths {
+		info := g.uploadedNars[storePath]
+		record := g.createNarInfoRecord(storePath, info)
+		records = append(records, record)
+	}
+
+	// Write records
+	if _, err := writer.Write(records); err != nil {
+		_ = file.Close()
+
+		tb.Fatalf("failed to write parquet records: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+
+		tb.Fatalf("failed to close parquet writer: %v", err)
+	}
+
+	if err := file.Close(); err != nil {
+		tb.Fatalf("failed to close file: %v", err)
+	}
+
+	tb.Logf("Generated gc-targets.parquet with %d records at %s", len(records), gcTargetsPath)
+
+	return len(records), gcTargetsPath
+}
+
+// createNarInfoRecord creates a NarInfoRecord from a store path and its associated NAR info.
+func (g *Generator) createNarInfoRecord(storePath string, info narInfo) inventory.NarInfoRecord {
+	// Extract hash and pname from store path: /nix/store/<hash>-<pname>
+	hashStr := storePath[11:43] // 32-char nixbase32 hash
+	pname := storePath[44:]     // Everything after the dash
+
+	// Decode hash from nixbase32 to bytes
+	var hash [20]byte
+
+	decoded, err := nixbase32.DecodeString(hashStr)
+	if err == nil && len(decoded) == 20 {
+		copy(hash[:], decoded)
+	}
+
+	return inventory.NarInfoRecord{
+		Hash:        hash,
+		Pname:       pname,
+		Compression: "none",
+		FileHash:    info.fileHash,
+		FileSize:    info.fileSize,
+		NarHash:     info.fileHash, // Same as FileHash since Compression is "none"
+		NarSize:     info.fileSize,
+	}
 }
 
 func (g *Generator) createUsers(tb testing.TB) []string {
@@ -498,6 +608,14 @@ func (g *Generator) uploadToS3WithRNG(ctx context.Context, storePath string, rng
 	narHash := sha256.Sum256(narBytes)
 	fileHashStr := nixbase32.EncodeToString(narHash[:])
 
+	// Store the file info for later use by GenerateGCTargets
+	g.uploadedNarsMu.Lock()
+	g.uploadedNars[storePath] = narInfo{
+		fileHash: narHash,
+		fileSize: uint64(narSize), //nolint:gosec // narSize is small (64-256 bytes)
+	}
+	g.uploadedNarsMu.Unlock()
+
 	// Extract store path hash for narinfo filename: /nix/store/<hash>-...
 	// The hash starts at position 11 (len("/nix/store/")) and is 32 chars long
 	storePathHash := storePath[11:43]
@@ -505,7 +623,7 @@ func (g *Generator) uploadToS3WithRNG(ctx context.Context, storePath string, rng
 	narKey := "nar/" + fileHashStr + ".nar"
 
 	// Generate narinfo content
-	narinfoContent := fmt.Sprintf(`StorePath: %s
+	narinfoContent := fmt.Sprintf(`StorePaths: %s
 URL: %s
 Compression: none
 FileHash: sha256:%s
