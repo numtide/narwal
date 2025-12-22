@@ -13,7 +13,7 @@ func TestDB(t *testing.T) {
 
 	// get a rustfs server going
 	rustfs := getRustfsServer(t)
-	defer rustfs.Cleanup()
+	defer rustfs.Cleanup(t)
 
 	// create a test bucket
 	rustfs.NewBucket(t)

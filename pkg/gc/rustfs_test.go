@@ -11,9 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -34,7 +33,33 @@ type rustfsServer struct {
 	tempDir     string
 	secret      string
 	port        uint16
-	bucketCount atomic.Int32
+	mu          sync.Mutex
+	activeTests map[string]struct{}
+}
+
+func sanitizeBucketName(testName string) string {
+	// Replace "/" and other special chars with "-" (S3 doesn't allow underscores)
+	result := strings.ReplaceAll(testName, "/", "-")
+	result = strings.ReplaceAll(result, "_", "-")
+	result = strings.ReplaceAll(result, " ", "-")
+
+	// Convert to lowercase (S3 requirement)
+	result = strings.ToLower(result)
+
+	// Ensure it starts with a letter (prepend "t-" if it starts with a number)
+	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
+		result = "t-" + result
+	}
+
+	// Truncate to 63 chars (S3 limit)
+	if len(result) > 63 {
+		result = result[:63]
+	}
+
+	// Remove trailing hyphens (S3 requirement)
+	result = strings.TrimRight(result, "-")
+
+	return result
 }
 
 func (s *rustfsServer) Client(tb testing.TB) *minio.Client {
@@ -88,24 +113,49 @@ func (s *rustfsServer) NewBucket(tb testing.TB) (string, *minio.Client) {
 
 	client := s.Client(tb)
 
-	// Generate a unique name for the bucket
-	bucketName := "test-bucket-" + strconv.Itoa(int(s.bucketCount.Add(1)))
+	testName := tb.Name()
+	bucketName := sanitizeBucketName(testName)
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if this test already has an active bucket
+	if _, exists := s.activeTests[bucketName]; exists {
+		tb.Fatalf("test %q already has an active bucket", testName)
+	}
+
+	// Create the bucket (inside mutex to ensure one-shot creation)
 	if err := client.MakeBucket(tb.Context(), bucketName, minio.MakeBucketOptions{}); err != nil {
 		tb.Fatalf("failed to create bucket: %v", err)
 	}
 
+	// Track the test as active
+	s.activeTests[bucketName] = struct{}{}
+
 	return bucketName, client
 }
 
-func (s *rustfsServer) Cleanup() {
-	defer func() {
-		if err := os.RemoveAll(s.tempDir); err != nil {
-			log.Warn("Failed to remove rustfs temp directory", "error", err)
-		}
-	}()
+func (s *rustfsServer) Cleanup(tb testing.TB) {
+	tb.Helper()
 
-	terminateProcess(s.cmd)
+	testName := tb.Name()
+	bucketName := sanitizeBucketName(testName)
+
+	s.mu.Lock()
+	delete(s.activeTests, bucketName)
+	remaining := len(s.activeTests)
+	s.mu.Unlock()
+
+	// Only terminate when all tests have cleaned up
+	if remaining == 0 {
+		defer func() {
+			if err := os.RemoveAll(s.tempDir); err != nil {
+				log.Warn("Failed to remove rustfs temp directory", "error", err)
+			}
+		}()
+
+		terminateProcess(s.cmd)
+	}
 }
 
 func getRustfsServer(tb testing.TB) *rustfsServer {
@@ -199,15 +249,23 @@ func startRustfsServer(tb testing.TB) *rustfsServer {
 	}
 
 	server := &rustfsServer{
-		cmd:     rustfsProc,
-		tempDir: tempDir,
-		secret:  secret,
-		port:    port,
+		cmd:         rustfsProc,
+		tempDir:     tempDir,
+		secret:      secret,
+		port:        port,
+		activeTests: make(map[string]struct{}),
 	}
 
 	defer func() {
 		if err != nil {
-			server.Cleanup()
+			// Force cleanup on startup failure (no tests registered yet)
+			defer func() {
+				if removeErr := os.RemoveAll(server.tempDir); removeErr != nil {
+					log.Warn("Failed to remove rustfs temp directory", "error", removeErr)
+				}
+			}()
+
+			terminateProcess(server.cmd)
 		}
 	}()
 
