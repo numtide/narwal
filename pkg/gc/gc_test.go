@@ -20,7 +20,7 @@ func TestDB(t *testing.T) {
 
 	// get a postgres server going
 	pgServer := getPostgresServer(t)
-	defer pgServer.Cleanup()
+	defer pgServer.Cleanup(t)
 
 	// create a new db and add test data to the db
 	dbURL := pgServer.NewHydraDB(t)

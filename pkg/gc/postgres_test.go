@@ -6,9 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -31,20 +30,51 @@ const (
 )
 
 type postgresServer struct {
-	cmd     *exec.Cmd
-	tempDir string
-	dbCount atomic.Int32
+	cmd         *exec.Cmd
+	tempDir     string
+	mu          sync.Mutex
+	activeTests map[string]struct{}
+}
+
+func sanitizeDBName(testName string) string {
+	// Replace "/" and other special chars with "_"
+	result := strings.ReplaceAll(testName, "/", "_")
+	result = strings.ReplaceAll(result, " ", "_")
+	result = strings.ReplaceAll(result, "-", "_")
+
+	// Ensure it starts with a letter (prepend "t_" if it starts with a number)
+	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
+		result = "t_" + result
+	}
+
+	// Truncate to 63 chars (PostgreSQL limit)
+	if len(result) > 63 {
+		result = result[:63]
+	}
+
+	// Convert to lowercase (PostgreSQL convention)
+	result = strings.ToLower(result)
+
+	return result
 }
 
 func (s *postgresServer) NewDB(tb testing.TB) string {
 	tb.Helper()
 
-	// Generate a unique name for the database
-	dbName := "db_" + strconv.Itoa(int(s.dbCount.Add(1)))
+	testName := tb.Name()
+	dbName := sanitizeDBName(testName)
 
-	// Create the database
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if this test already has an active database
+	if _, exists := s.activeTests[dbName]; exists {
+		tb.Fatalf("test %q already has an active database", testName)
+	}
+
+	// Create the database (inside mutex to ensure one-shot creation)
 	//nolint:gosec
-	command := exec.CommandContext(tb.Context(), "createdb", "-h", testPostgresServer.tempDir, "-U", "postgres", dbName)
+	command := exec.CommandContext(tb.Context(), "createdb", "-h", s.tempDir, "-U", "postgres", dbName)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 
@@ -53,7 +83,10 @@ func (s *postgresServer) NewDB(tb testing.TB) string {
 		tb.Fatalf("failed to create database %s: %v", dbName, err)
 	}
 
-	return fmt.Sprintf("postgres://?dbname=%s&user=postgres&host=%s", dbName, testPostgresServer.tempDir)
+	// Track the test as active
+	s.activeTests[dbName] = struct{}{}
+
+	return fmt.Sprintf("postgres://?dbname=%s&user=postgres&host=%s", dbName, s.tempDir)
 }
 
 func (s *postgresServer) NewHydraDB(tb testing.TB) string {
@@ -113,14 +146,27 @@ func (s *postgresServer) NewHydraDB(tb testing.TB) string {
 	return dbUrl
 }
 
-func (s *postgresServer) Cleanup() {
-	defer func() {
-		if err := os.RemoveAll(s.tempDir); err != nil {
-			log.Warn("Failed to remove postgres temp directory", "error", err)
-		}
-	}()
+func (s *postgresServer) Cleanup(tb testing.TB) {
+	tb.Helper()
 
-	terminateProcess(s.cmd)
+	testName := tb.Name()
+	dbName := sanitizeDBName(testName)
+
+	s.mu.Lock()
+	delete(s.activeTests, dbName)
+	remaining := len(s.activeTests)
+	s.mu.Unlock()
+
+	// Only terminate when all tests have cleaned up
+	if remaining == 0 {
+		defer func() {
+			if err := os.RemoveAll(s.tempDir); err != nil {
+				log.Warn("Failed to remove postgres temp directory", "error", err)
+			}
+		}()
+
+		terminateProcess(s.cmd)
+	}
 }
 
 func getPostgresServer(tb testing.TB) *postgresServer {
@@ -198,13 +244,21 @@ func startPostgresServer(tb testing.TB) (*postgresServer, error) {
 	}
 
 	server := &postgresServer{
-		cmd:     postgresProc,
-		tempDir: tempDir,
+		cmd:         postgresProc,
+		tempDir:     tempDir,
+		activeTests: make(map[string]struct{}),
 	}
 
 	defer func() {
 		if err != nil {
-			server.Cleanup()
+			// Force cleanup on startup failure (no tests registered yet)
+			defer func() {
+				if removeErr := os.RemoveAll(server.tempDir); removeErr != nil {
+					log.Warn("Failed to remove postgres temp directory", "error", removeErr)
+				}
+			}()
+
+			terminateProcess(server.cmd)
 		}
 	}()
 
