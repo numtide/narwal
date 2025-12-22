@@ -16,7 +16,8 @@ func TestDB(t *testing.T) {
 	defer rustfs.Cleanup(t)
 
 	// create a test bucket
-	bucketName, minioClient := rustfs.NewBucket(t)
+	bucketName, _ := rustfs.NewBucket(t)
+	bucketClient := rustfs.BucketClient(t, bucketName)
 
 	// get a postgres server going
 	pgServer := getPostgresServer(t)
@@ -40,7 +41,5 @@ func TestDB(t *testing.T) {
 	qry := queries.New(pool)
 
 	// Generate test data in database and upload narinfo/nar files to S3
-	hydratest.NewGenerator(t, qry).
-		WithMinio(minioClient, bucketName).
-		Generate()
+	hydratest.Generate(t, qry, bucketClient)
 }

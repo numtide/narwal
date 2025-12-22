@@ -81,19 +81,19 @@ func TestNewS3Client_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := awssdk.NewS3Client(t.Context(), tt.awsCfg, tt.s3Cfg)
+			_, err := awssdk.NewS3ClientFromConfig(t.Context(), tt.awsCfg, tt.s3Cfg)
 
 			if tt.wantError {
 				if err == nil {
-					t.Errorf("NewS3Client() expected error but got none")
+					t.Errorf("NewS3ClientFromConfig() expected error but got none")
 					return
 				}
 
 				if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
-					t.Errorf("NewS3Client() error = %v, want error containing %v", err, tt.errorMsg)
+					t.Errorf("NewS3ClientFromConfig() error = %v, want error containing %v", err, tt.errorMsg)
 				}
 			} else if err != nil {
-				t.Errorf("NewS3Client() unexpected error = %v", err)
+				t.Errorf("NewS3ClientFromConfig() unexpected error = %v", err)
 			}
 		})
 	}
@@ -149,13 +149,13 @@ func TestNewS3Client_AWSMode(t *testing.T) {
 				Bucket: tt.bucket,
 			}
 
-			client, err := awssdk.NewS3Client(t.Context(), awsCfg, s3Cfg)
+			client, err := awssdk.NewS3ClientFromConfig(t.Context(), awsCfg, s3Cfg)
 			if err != nil {
-				t.Fatalf("NewS3Client() unexpected error = %v", err)
+				t.Fatalf("NewS3ClientFromConfig() unexpected error = %v", err)
 			}
 
 			if client == nil {
-				t.Fatal("NewS3Client() returned nil client")
+				t.Fatal("NewS3ClientFromConfig() returned nil client")
 			}
 		})
 	}
@@ -176,12 +176,12 @@ func TestNewS3Client_CustomEndpoint(t *testing.T) {
 		Bucket: "test-bucket",
 	}
 
-	client, err := awssdk.NewS3Client(t.Context(), awsCfg, s3Cfg)
+	client, err := awssdk.NewS3ClientFromConfig(t.Context(), awsCfg, s3Cfg)
 	if err != nil {
-		t.Fatalf("NewS3Client() unexpected error = %v", err)
+		t.Fatalf("NewS3ClientFromConfig() unexpected error = %v", err)
 	}
 
 	if client == nil {
-		t.Fatal("NewS3Client() returned nil client")
+		t.Fatal("NewS3ClientFromConfig() returned nil client")
 	}
 }

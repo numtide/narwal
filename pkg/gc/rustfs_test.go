@@ -17,9 +17,13 @@ import (
 	"testing"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/charmbracelet/log"
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/numtide/narwal/pkg/awssdk"
 )
 
 //nolint:gochecknoglobals
@@ -68,7 +72,7 @@ func (s *rustfsServer) Client(tb testing.TB) *minio.Client {
 	endpoint := fmt.Sprintf("localhost:%d", s.port)
 	// minio-go client works with any S3-compatible storage including RustFS
 	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4("rustfsadmin", s.secret, ""),
+		Creds:  miniocreds.NewStaticV4("rustfsadmin", s.secret, ""),
 		Secure: false,
 	})
 	if err != nil {
@@ -76,6 +80,28 @@ func (s *rustfsServer) Client(tb testing.TB) *minio.Client {
 	}
 
 	return minioClient
+}
+
+func (s *rustfsServer) BucketClient(tb testing.TB, bucketName string) *awssdk.BucketClient {
+	tb.Helper()
+
+	endpoint := fmt.Sprintf("http://localhost:%d", s.port)
+
+	cfg, err := awsconfig.LoadDefaultConfig(tb.Context(),
+		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("rustfsadmin", s.secret, "")),
+		awsconfig.WithBaseEndpoint(endpoint),
+	)
+	if err != nil {
+		tb.Fatalf("failed to load AWS config: %v", err)
+	}
+
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+	})
+
+	return awssdk.NewBucketClientFromSDK(s3Client, bucketName)
 }
 
 func randToken(n int) (string, error) {

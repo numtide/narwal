@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/minio/minio-go/v7"
 	"github.com/nix-community/go-nix/pkg/nixbase32"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/queries"
 	"golang.org/x/sync/errgroup"
 )
@@ -61,19 +61,18 @@ type Generator struct {
 	stepOutputs []queries.CopyBuildStepOutputsParams
 	nextBuildID int32
 
-	// Optional S3 client for uploading narinfo/nar files
-	minioClient *minio.Client
-	bucketName  string
+	// S3 client for uploading narinfo/nar files
+	bucketClient *awssdk.BucketClient
 }
 
-func Generate(tb testing.TB, queries *queries.Queries) {
+func Generate(tb testing.TB, queries *queries.Queries, bucketClient *awssdk.BucketClient) {
 	tb.Helper()
-	NewGenerator(tb, queries).Generate()
+	NewGenerator(tb, queries, bucketClient).Generate()
 }
 
 // NewGenerator creates a new Generator with a seed derived from the test name.
 // This provides reproducible, deterministic test data per test.
-func NewGenerator(tb testing.TB, queries *queries.Queries) *Generator {
+func NewGenerator(tb testing.TB, queries *queries.Queries, bucketClient *awssdk.BucketClient) *Generator {
 	tb.Helper()
 
 	// Use FNV hash of test name for a deterministic seed
@@ -87,20 +86,13 @@ func NewGenerator(tb testing.TB, queries *queries.Queries) *Generator {
 	tb.Logf("Using seed %d (from test name: %s)", seed, tb.Name())
 
 	return &Generator{
-		tb:          tb,
-		rng:         rand.New(rand.NewSource(seed)), //nolint:gosec
-		queries:     queries,
-		config:      DefaultConfig(),
-		nextBuildID: 1, // Build IDs start at 1 in fresh DB
+		tb:           tb,
+		rng:          rand.New(rand.NewSource(seed)), //nolint:gosec
+		queries:      queries,
+		config:       DefaultConfig(),
+		nextBuildID:  1, // Build IDs start at 1 in fresh DB
+		bucketClient: bucketClient,
 	}
-}
-
-// WithMinio configures the generator to upload narinfo and nar files to S3.
-func (g *Generator) WithMinio(client *minio.Client, bucket string) *Generator {
-	g.minioClient = client
-	g.bucketName = bucket
-
-	return g
 }
 
 // Generate creates all test data in the database.
@@ -203,10 +195,8 @@ func (g *Generator) Generate() {
 		dbElapsed.Round(time.Millisecond),
 		g.config.NumProjects, totalJobsets, buildCount, stepCount, outputCount)
 
-	// Phase 3: Upload narinfo and NAR files to S3 (if minio client is configured)
-	if g.minioClient != nil {
-		g.uploadToS3(ctx)
-	}
+	// Phase 3: Upload narinfo and NAR files to S3
+	g.uploadToS3(ctx)
 
 	elapsed := time.Since(start)
 	tb.Logf("Generation complete in %s", elapsed.Round(time.Millisecond))
@@ -527,17 +517,17 @@ Deriver: unknown-deriver
 `, storePath, narKey, fileHashStr, narSize, fileHashStr, narSize)
 
 	// Upload NAR file
-	_, err = g.minioClient.PutObject(ctx, g.bucketName, narKey,
+	err = g.bucketClient.PutObject(ctx, narKey,
 		bytes.NewReader(narBytes), int64(narSize),
-		minio.PutObjectOptions{ContentType: "application/x-nix-nar"})
+		"application/x-nix-nar")
 	if err != nil {
 		return fmt.Errorf("failed to upload NAR %s: %w", narKey, err)
 	}
 
 	// Upload narinfo file
-	_, err = g.minioClient.PutObject(ctx, g.bucketName, narinfoKey,
+	err = g.bucketClient.PutObject(ctx, narinfoKey,
 		bytes.NewReader([]byte(narinfoContent)), int64(len(narinfoContent)),
-		minio.PutObjectOptions{ContentType: "text/x-nix-narinfo"})
+		"text/x-nix-narinfo")
 	if err != nil {
 		return fmt.Errorf("failed to upload narinfo %s: %w", narinfoKey, err)
 	}

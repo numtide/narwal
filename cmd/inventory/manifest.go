@@ -31,7 +31,7 @@ func manifestCmd() *cobra.Command {
 			}
 
 			// create s3 client
-			s3, err := awssdk.NewS3Client(cmd.Context(), cfg.AWS, cfg.S3)
+			s3, err := awssdk.NewS3ClientFromConfig(cmd.Context(), cfg.AWS, cfg.S3)
 			if err != nil {
 				return fmt.Errorf("failed to create s3 client: %w", err)
 			}
