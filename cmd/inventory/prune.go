@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/dustin/go-humanize"
+	"github.com/numtide/narwal/pkg/cobrautil"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/spf13/cobra"
@@ -46,7 +47,7 @@ Example:
 
 			log.Infof("keeping %d reports: %v", len(keepReports), keepReports)
 
-			cfg, err := loadConfig(cmd, args)
+			cfg, err := cobrautil.LoadConfig(cmd, args)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}

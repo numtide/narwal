@@ -4,6 +4,9 @@
   versionSuffix ? null,
   golangci-lint,
   buildGo124Module,
+  rustfs,
+  postgresql,
+  hydraSrc,
 }:
 let
   fs = lib.fileset;
@@ -25,7 +28,7 @@ buildGo124Module (final: {
     ];
   };
 
-  vendorHash = "sha256-uWBSubw2KB2tCeF8UjrI9K/kBUNahSn6TFUKsKTS9eU=";
+  vendorHash = "sha256-dsYMtZvLoAO0RcOJDQ+fNSo0L0wIpzFvN+8UiqmfVIE=";
 
   ldflags = [
     "-X github.com/numtide/narwal/pkg/build.Name=${final.pname}"
@@ -35,8 +38,15 @@ buildGo124Module (final: {
 
   doInstallCheck = true;
 
+  # Needed for tests
+  nativeCheckInputs = [
+    postgresql
+    rustfs
+  ];
+
   env = {
     CGO_ENABLED = 0;
+    HYDRA_SRC = "${hydraSrc}";
   };
 
   passthru.tests.golangci-lint = final.overrideAttrs (old: {

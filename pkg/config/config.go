@@ -24,18 +24,6 @@ var (
 			return c.Badger.Validate()
 		},
 		func(c *Config) error {
-			if c.GC == nil {
-				return nil
-			}
-			return c.GC.Validate()
-		},
-		func(c *Config) error {
-			if c.HTTP == nil {
-				return nil
-			}
-			return c.HTTP.Validate()
-		},
-		func(c *Config) error {
 			if c.Postgres == nil {
 				return nil
 			}
@@ -59,24 +47,15 @@ var (
 			}
 			return c.S3.Validate()
 		},
-		func(c *Config) error {
-			if c.SQS == nil {
-				return nil
-			}
-			return c.SQS.Validate()
-		},
 	}
 )
 
 type Config struct {
 	Badger    *Badger    `mapstructure:"badger"`
 	Inventory *Inventory `mapstructure:"inventory"`
-	GC        *GC        `mapstructure:"gc"`
-	HTTP      *HTTP      `mapstructure:"http"`
 	Postgres  *Postgres  `mapstructure:"postgres"`
 	AWS       *AWS       `mapstructure:"aws"`
 	S3        *S3        `mapstructure:"s3"`
-	SQS       *SQS       `mapstructure:"sqs"`
 }
 
 type validator = func(*Config) error

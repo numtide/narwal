@@ -74,7 +74,7 @@ func (d *Downloader) Download(ctx context.Context, report string) error {
 	}()
 
 	// create a prefixed s3 client
-	s3, err := awssdk.NewS3Client(ctx, d.cfg.AWS, d.cfg.S3)
+	s3, err := awssdk.NewBucketClientFromConfig(ctx, d.cfg.AWS, d.cfg.S3)
 	if err != nil {
 		//nolint:wrapcheck
 		return err

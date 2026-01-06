@@ -116,7 +116,6 @@ type narinfosDir struct {
 	prefixes []fuse.DirEntry
 }
 
-//nolint:ireturn
 func (d *narinfosDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	return fs.NewListDirStream(d.prefixes), 0
 }

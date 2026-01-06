@@ -130,7 +130,7 @@ func BenchmarkNixbase32SHA256Optimized(b *testing.B) {
 func TestParseCA(t *testing.T) {
 	t.Parallel()
 
-	narinfo := `StorePath: /nix/store/01ys3jg9mfgf8rsv28ssy7iv0020gxv1-witherable-0.5.drv
+	narinfo := `StorePaths: /nix/store/01ys3jg9mfgf8rsv28ssy7iv0020gxv1-witherable-0.5.drv
 URL: nar/1cfhl0zvh3bb91n77mhvs377spcw2d2rpl6kczcpz9jkm3kbhama.nar.xz
 Compression: xz
 FileHash: sha256:1cfhl0zvh3bb91n77mhvs377spcw2d2rpl6kczcpz9jkm3kbhama

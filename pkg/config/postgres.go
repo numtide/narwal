@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/numtide/narwal/pkg/db"
 	"github.com/spf13/pflag"
 )
 
@@ -13,8 +12,8 @@ type Postgres struct {
 	URL string `mapstructure:"url"`
 }
 
-func (p *Postgres) Connect(ctx context.Context, migrate bool) (*pgxpool.Pool, error) {
-	pg, err := db.Connect(ctx, p.URL, migrate)
+func (p *Postgres) Connect(ctx context.Context) (*pgxpool.Pool, error) {
+	pg, err := pgxpool.New(ctx, p.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
 	}

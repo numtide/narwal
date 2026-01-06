@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/numtide/narwal/pkg/cobrautil"
 	"github.com/numtide/narwal/pkg/config"
 	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/numtide/narwal/pkg/inventory/fuse"
@@ -35,7 +36,7 @@ Requires 'nix' to be available in PATH to run DuckDB.`,
 			manifestName := args[0]
 			outputFile := args[1]
 
-			cfg, err := loadConfig(cmd, args)
+			cfg, err := cobrautil.LoadConfig(cmd, args)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}

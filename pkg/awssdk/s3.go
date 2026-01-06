@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -20,8 +21,14 @@ type BucketClient struct {
 	client *s3.Client
 }
 
-// NewS3Client creates a new bucket-bound S3 client from config objects.
-func NewS3Client(ctx context.Context, awsCfg *config.AWS, s3Cfg *config.S3) (*BucketClient, error) {
+// NewBucketClientFromSDK creates a BucketClient from an existing S3 client.
+// Useful for testing where the client is constructed with custom options.
+func NewBucketClientFromSDK(client *s3.Client, bucket string) *BucketClient {
+	return &BucketClient{client: client, bucket: bucket}
+}
+
+// NewBucketClientFromConfig creates a new bucket-bound S3 client from config objects.
+func NewBucketClientFromConfig(ctx context.Context, awsCfg *config.AWS, s3Cfg *config.S3) (*BucketClient, error) {
 	// Load AWS SDK config
 	sdkCfg, err := LoadSDKConfig(ctx, awsCfg)
 	if err != nil {
@@ -84,7 +91,7 @@ func (bc *BucketClient) RemoveObject(
 func (bc *BucketClient) RemoveObjects(
 	ctx context.Context,
 	keys []string,
-) (map[string]error, error) {
+) (map[string]types.Error, error) {
 	if len(keys) == 0 {
 		return nil, nil //nolint:nilnil // intentional: no keys means no errors
 	}
@@ -92,7 +99,7 @@ func (bc *BucketClient) RemoveObjects(
 	// AWS limit is 1000 objects per DeleteObjects call
 	const maxBatchSize = 1000
 
-	failures := make(map[string]error)
+	failures := make(map[string]types.Error)
 
 	for i := 0; i < len(keys); i += maxBatchSize {
 		end := min(i+maxBatchSize, len(keys))
@@ -113,17 +120,12 @@ func (bc *BucketClient) RemoveObjects(
 			},
 		})
 		if err != nil {
-			// All deletions in this batch failed
-			for _, key := range batch {
-				failures[key] = err
-			}
-
-			continue
+			return nil, fmt.Errorf("failed to delete objects: %w", err)
 		}
 
 		// Record individual failures
-		for _, e := range output.Errors {
-			failures[aws.ToString(e.Key)] = fmt.Errorf("%s: %s", aws.ToString(e.Code), aws.ToString(e.Message))
+		for _, s3Err := range output.Errors {
+			failures[aws.ToString(s3Err.Key)] = s3Err
 		}
 	}
 
@@ -248,6 +250,28 @@ func (bc *BucketClient) CreateBucket(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create bucket %s: %w", bc.bucket, err)
+	}
+
+	return nil
+}
+
+// PutObject uploads an object to the bucket.
+func (bc *BucketClient) PutObject(
+	ctx context.Context,
+	key string,
+	body io.Reader,
+	contentLength int64,
+	contentType string,
+) error {
+	_, err := bc.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bc.bucket),
+		Key:           aws.String(key),
+		Body:          body,
+		ContentLength: aws.Int64(contentLength),
+		ContentType:   aws.String(contentType),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to put object %s: %w", key, err)
 	}
 
 	return nil

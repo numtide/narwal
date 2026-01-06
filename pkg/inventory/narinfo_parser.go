@@ -115,7 +115,7 @@ func parseNarinfoField(record *NarInfoRecord, key, value []byte) error {
 
 	switch key[0] {
 	case 'S':
-		if bytes.Equal(key, []byte("StorePath")) {
+		if bytes.Equal(key, []byte("StorePaths")) {
 			return parseStorePath2(record, value)
 		}
 
@@ -185,7 +185,7 @@ func parseNarinfoField(record *NarInfoRecord, key, value []byte) error {
 	return nil
 }
 
-// parseStorePath2 parses the StorePath field and extracts hash and pname into the record.
+// parseStorePath2 parses the StorePaths field and extracts hash and pname into the record.
 func parseStorePath2(record *NarInfoRecord, value []byte) error {
 	// Format: /nix/store/<32-char-hash>-<pname>
 	// Minimum length: 11 (prefix) + 32 (hash) + 1 (-) + 1 (pname) = 45
