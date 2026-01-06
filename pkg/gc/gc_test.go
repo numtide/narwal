@@ -51,7 +51,7 @@ func TestSimpleGCStrategy(t *testing.T) {
 	gen.Generate()
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	_, gcTargetsPath := gen.GenerateGCTargets()
+	targetCount, gcTargetsPath := gen.GenerateGCTargets()
 	t.Logf("GC targets file: %s", gcTargetsPath)
 
 	// Create output file path in temp directory
@@ -87,8 +87,9 @@ func TestSimpleGCStrategy(t *testing.T) {
 	pr := parquet.NewReader(of, schema)
 
 	var (
-		readErr error
-		record  gc.RemovalRecord
+		readErr     error
+		record      gc.RemovalRecord
+		recordCount int
 	)
 
 	for {
@@ -100,6 +101,8 @@ func TestSimpleGCStrategy(t *testing.T) {
 			t.Fatalf("failed to read from output file: %v", err)
 		}
 
+		recordCount++
+
 		if record.Error != "" {
 			t.Fatalf(
 				"found error in output file for store path %s and key %s: %s",
@@ -107,6 +110,13 @@ func TestSimpleGCStrategy(t *testing.T) {
 			)
 		}
 	}
+
+	// for each target there is an associated nar file
+	expectedRecordCount := targetCount * 2
+	as.Equal(
+		expectedRecordCount, recordCount,
+		"expected %d records in output file, got %d", expectedRecordCount, recordCount,
+	)
 }
 
 func TestSimpleGCStrategyDryRun(t *testing.T) {
@@ -165,8 +175,8 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	t.Logf("DB entries before dry-run: %d", dbCountBefore)
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	numTargets, gcTargetsPath := gen.GenerateGCTargets()
-	t.Logf("GC targets file: %s with %d targets", gcTargetsPath, numTargets)
+	targetCount, gcTargetsPath := gen.GenerateGCTargets()
+	t.Logf("GC targets file: %s with %d targets", gcTargetsPath, targetCount)
 
 	// Create output file path in temp directory
 	outputFile := t.TempDir() + "/output.parquet"
@@ -209,4 +219,43 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	dbCountAfter, err := qry.CountBuildStepOutputs(t.Context())
 	as.NoError(err, "failed to count DB entries after dry-run")
 	as.Equal(dbCountBefore, dbCountAfter, "DB entry count should be unchanged after dry-run")
+
+	// Validate the contents of the output file
+	of, err := os.Open(outputFile) //nolint:gosec // outputFile from test temp dir
+	as.NoError(err)
+
+	schema := parquet.SchemaOf(new(gc.RemovalRecord))
+	pr := parquet.NewReader(of, schema)
+
+	var (
+		readErr     error
+		record      gc.RemovalRecord
+		recordCount int
+	)
+
+	for {
+		readErr = pr.Read(&record)
+		if errors.Is(readErr, io.EOF) {
+			// no more records
+			break
+		} else if err != nil {
+			t.Fatalf("failed to read from output file: %v", err)
+		}
+
+		recordCount++
+
+		if record.Error != "" {
+			t.Fatalf(
+				"found error in output file for store path %s and key %s: %s",
+				record.StorePath, record.Key, record.Error,
+			)
+		}
+	}
+
+	// for each target there is an associated nar file
+	expectedRecordCount := targetCount * 2
+	as.Equal(
+		expectedRecordCount, recordCount,
+		"expected %d records in output file, got %d", expectedRecordCount, recordCount,
+	)
 }
