@@ -33,7 +33,12 @@ deletion attempt and any errors encountered.`,
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			strategy := gc.NewSimple(cfg, inputFile, outputFile)
+			dryRun, err := cmd.Flags().GetBool("dry-run")
+			if err != nil {
+				return fmt.Errorf("failed to get dry-run flag: %w", err)
+			}
+
+			strategy := gc.NewSimple(cfg, inputFile, outputFile, dryRun)
 
 			stats, err := strategy.Run(cmd.Context())
 			if err != nil {
@@ -57,6 +62,8 @@ deletion attempt and any errors encountered.`,
 	}
 
 	fs := cmd.Flags()
+
+	fs.Bool("dry-run", false, "Perform a dry run without actually deleting anything")
 
 	config.SetAWSFlags(fs)
 	config.SetS3Flags(fs)

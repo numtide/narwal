@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -30,6 +31,7 @@ type Simple struct {
 	log        *log.Logger
 	inputFile  string
 	outputFile string
+	dryRun     bool
 
 	pool         *pgxpool.Pool
 	bucketClient *awssdk.BucketClient
@@ -37,17 +39,22 @@ type Simple struct {
 	missingCount atomic.Int32
 }
 
-func NewSimple(cfg *config.Config, inputFile, outputFile string) *Simple {
+func NewSimple(cfg *config.Config, inputFile, outputFile string, dryRun bool) *Simple {
 	return &Simple{
 		cfg:        cfg,
 		log:        log.WithPrefix("gc"),
 		inputFile:  inputFile,
 		outputFile: outputFile,
+		dryRun:     dryRun,
 	}
 }
 
 func (s *Simple) Run(ctx context.Context) (*Stats, error) {
 	cfg := s.cfg
+
+	if s.dryRun {
+		s.log.Info("dry-run mode enabled, no changes will be made")
+	}
 
 	var err error
 
@@ -337,44 +344,19 @@ func (s *Simple) removeTargets(
 		}
 	}
 
-	// Remove the objects from S3
-	bucketErrors, err := s.bucketClient.RemoveObjects(ctx, keysToDelete)
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove objects: %w", err)
+	// Remove the objects from S3 (unless dry-run)
+	var bucketErrors map[string]types.Error
+	if !s.dryRun {
+		bucketErrors, err = s.bucketClient.RemoveObjects(ctx, keysToDelete)
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove objects: %w", err)
+		}
 	}
 
-	// Process the errors
-	failedStorePaths := make([]string, 0, len(keysToDelete))
-
-	for key, bucketErr := range bucketErrors {
-		// Look up the removal record for this key and update it with the error
-		if record, ok := removalsByKey[key]; ok {
-			if aws.ToString(bucketErr.Code) == "NoSuchKey" {
-				// Likely we deleted this in a previous run, we do not consider this an error
-				record.NotFound = true
-				stats.StorePaths.MissingInS3++
-			} else {
-				// Otherwise record the error in the record and log it out
-				record.Error = fmt.Sprintf(
-					"s3 error: code = %s, message = %s",
-					aws.ToString(bucketErr.Code), aws.ToString(bucketErr.Message),
-				)
-
-				s.log.Debugf(
-					"failed to remove object from S3: key = %s, code = %s, message = %s",
-					key, aws.ToString(bucketErr.Code), aws.ToString(bucketErr.Message),
-				)
-			}
-
-			// Collect the failed store path
-			failedStorePaths = append(failedStorePaths, record.StorePath)
-		} else {
-			// This shouldn't happen
-			return nil, fmt.Errorf(
-				"unexpected error, could not find gc target for key %s: %s",
-				key, aws.ToString(bucketErr.Message),
-			)
-		}
+	// Process the S3 errors
+	failedStorePaths, err := s.processBucketErrors(bucketErrors, removalsByKey, stats)
+	if err != nil {
+		return nil, err
 	}
 
 	// Remove entries from the DB, filtering for store paths that were not successfully removed from S3
@@ -391,9 +373,13 @@ func (s *Simple) removeTargets(
 		return nil, fmt.Errorf("expected to remove %d entries, removed %d", len(storePaths), removed)
 	}
 
-	// Commit the TX
-	if err = tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit DB transaction: %w", err)
+	// Commit the TX (unless dry-run, in which case the deferred rollback will run)
+	if !s.dryRun {
+		if err = tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("failed to commit DB transaction: %w", err)
+		}
+	} else {
+		s.log.Debug("dry-run: skipping commit, transaction will be rolled back")
 	}
 
 	s.log.Debugf("removed %d store paths comprised of %d bucket objects", len(storePaths), len(keysToDelete))
@@ -404,6 +390,45 @@ func (s *Simple) removeTargets(
 	}
 
 	return stats, nil
+}
+
+func (s *Simple) processBucketErrors(
+	bucketErrors map[string]types.Error,
+	removalsByKey map[string]*RemovalRecord,
+	stats *Stats,
+) ([]string, error) {
+	failedStorePaths := make([]string, 0, len(bucketErrors))
+
+	for key, bucketErr := range bucketErrors {
+		record, ok := removalsByKey[key]
+		if !ok {
+			return nil, fmt.Errorf(
+				"unexpected error, could not find gc target for key %s: %s",
+				key, aws.ToString(bucketErr.Message),
+			)
+		}
+
+		if aws.ToString(bucketErr.Code) == "NoSuchKey" {
+			// Likely we deleted this in a previous run, we do not consider this an error
+			record.NotFound = true
+			stats.StorePaths.MissingInS3++
+		} else {
+			// Otherwise record the error in the record and log it out
+			record.Error = fmt.Sprintf(
+				"s3 error: code = %s, message = %s",
+				aws.ToString(bucketErr.Code), aws.ToString(bucketErr.Message),
+			)
+
+			s.log.Debugf(
+				"failed to remove object from S3: key = %s, code = %s, message = %s",
+				key, aws.ToString(bucketErr.Code), aws.ToString(bucketErr.Message),
+			)
+		}
+
+		failedStorePaths = append(failedStorePaths, record.StorePath)
+	}
+
+	return failedStorePaths, nil
 }
 
 func (s *Simple) logDiffBetweenTargetsAndDB(

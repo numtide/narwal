@@ -54,3 +54,6 @@ SELECT path FROM buildstepoutputs WHERE path = ANY(@paths::text[]) ORDER BY path
 
 -- name: DeleteBuildStepOutputs :execrows
 DELETE from buildstepoutputs WHERE path = ANY(@paths::text[]);
+
+-- name: CountBuildStepOutputs :one
+SELECT COUNT(*) FROM buildstepoutputs;

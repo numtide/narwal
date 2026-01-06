@@ -43,6 +43,17 @@ type CopyBuildsParams struct {
 	Stoptime    pgtype.Int4 `json:"stoptime"`
 }
 
+const countBuildStepOutputs = `-- name: CountBuildStepOutputs :one
+SELECT COUNT(*) FROM buildstepoutputs
+`
+
+func (q *Queries) CountBuildStepOutputs(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countBuildStepOutputs)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createBuild = `-- name: CreateBuild :one
 INSERT INTO builds (jobset_id, job, drvpath, system, finished, timestamp, buildstatus, priority, starttime, stoptime)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
