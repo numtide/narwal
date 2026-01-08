@@ -81,7 +81,7 @@ Requires 'nix' to be available in PATH to run DuckDB.`,
 
 	cmd.Flags().StringVar(&orderBy, "order-by", "key", "Column to order results by")
 	cmd.Flags().StringVar(&memoryLimit, "memory-limit", "24GB", "DuckDB memory limit")
-	cmd.Flags().IntVar(&threads, "threads", 16, "DuckDB thread count")
+	cmd.Flags().IntVar(&threads, "threads", 8, "DuckDB thread count")
 	cmd.SilenceUsage = true
 
 	return cmd
