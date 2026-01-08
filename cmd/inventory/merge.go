@@ -147,7 +147,7 @@ func runMerge(ctx context.Context, db *badger.DB, opts mergeOptions) error {
 
 func executeDuckDBMerge(ctx context.Context, opts mergeOptions, tempDir, manifestsDir string) error {
 	// Build DuckDB SQL command
-	// SELECT * is intentional - we want all columns from the parquet files
+	// EXCLUDE bucket column as it's redundant (all records are from the same bucket)
 	//nolint:unqueryvet
 	duckdbSQL := fmt.Sprintf(`
 SET memory_limit = '%s';
@@ -155,7 +155,7 @@ SET temp_directory = '%s';
 SET threads = %d;
 SET preserve_insertion_order = false;
 COPY (
-    SELECT * FROM read_parquet('%s/*.parquet')
+    SELECT * EXCLUDE (bucket) FROM read_parquet('%s/*.parquet')
     ORDER BY %s
 ) TO '%s'
 (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000);
