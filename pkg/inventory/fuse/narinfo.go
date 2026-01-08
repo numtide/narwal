@@ -1,3 +1,4 @@
+//nolint:ireturn
 package fuse
 
 import (
@@ -47,7 +48,6 @@ type narinfoDir struct {
 	prefix string
 }
 
-//nolint:ireturn
 func (d *narinfoDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	tx := d.db.NewTransaction(false)
 
