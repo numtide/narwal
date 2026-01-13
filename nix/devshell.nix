@@ -37,7 +37,7 @@ perSystem.self.narwal.overrideAttrs (old: {
       sqlc
     ])
     ++ [
-      perSystem.self.clickhouse-local
+      perSystem.self.duckdb
     ];
 
   shellHook = ''
