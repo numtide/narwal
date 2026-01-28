@@ -24,12 +24,6 @@ var (
 			return c.Badger.Validate()
 		},
 		func(c *Config) error {
-			if c.Postgres == nil {
-				return nil
-			}
-			return c.Postgres.Validate()
-		},
-		func(c *Config) error {
 			if c.AWS == nil {
 				return nil
 			}
@@ -53,7 +47,6 @@ var (
 type Config struct {
 	Badger    *Badger    `mapstructure:"badger"`
 	Inventory *Inventory `mapstructure:"inventory"`
-	Postgres  *Postgres  `mapstructure:"postgres"`
 	AWS       *AWS       `mapstructure:"aws"`
 	S3        *S3        `mapstructure:"s3"`
 }

@@ -19,7 +19,6 @@ type Stats struct {
 	StorePaths struct {
 		Targets     int `json:"targets"`
 		MissingInS3 int `json:"missing_in_s3"`
-		MissingInDB int `json:"missing_in_db"`
 	} `json:"store_paths"`
 
 	Removals struct {
@@ -30,13 +29,12 @@ type Stats struct {
 }
 
 func (s *Stats) TotalMissingStorePaths() int {
-	return s.StorePaths.MissingInS3 + s.StorePaths.MissingInDB
+	return s.StorePaths.MissingInS3
 }
 
 func (s *Stats) Merge(other *Stats) {
 	s.StorePaths.Targets += other.StorePaths.Targets
 	s.StorePaths.MissingInS3 += other.StorePaths.MissingInS3
-	s.StorePaths.MissingInDB += other.StorePaths.MissingInDB
 	s.Removals.Nars += other.Removals.Nars
 	s.Removals.NarInfos += other.Removals.NarInfos
 	s.Removals.Errors += other.Removals.Errors

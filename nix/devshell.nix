@@ -1,6 +1,5 @@
 {
   pkgs,
-  inputs,
   perSystem,
   ...
 }:
@@ -43,11 +42,5 @@ perSystem.self.narwal.overrideAttrs (old: {
   shellHook = ''
     # this is only needed for hermetic builds
     unset GO_NO_VENDOR_CHECKS GOSUMDB GOPROXY GOFLAGS
-
-    export HYDRA_SRC=${inputs.hydra}
-
-    # sqlc has a bug when referring to absolute paths for schemas
-    # this is a workaround for now
-    ln -sf ${inputs.hydra}/src/sql/hydra.sql "$PRJ_ROOT/pkg/queries/hydra.sql"
   '';
 })

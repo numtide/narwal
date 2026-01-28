@@ -14,11 +14,11 @@ func simpleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "simple <input_file> <output_file>",
 		Short: "Run a simple GC",
-		Long: `Run a simple garbage collection strategy on the binary cache and hydra.
+		Long: `Run a simple garbage collection strategy on the binary cache.
 
 This command reads GC targets from a parquet input file containing NarInfo records,
-removes the corresponding narinfo and nar files from S3, deletes the entries from
-the hydra database, and writes the results to a parquet output file.
+removes the corresponding narinfo and nar files from S3, and writes the results to
+a parquet output file.
 
 The input file should be a parquet file with NarInfo records identifying store paths
 to be garbage collected. The output file will contain GC records documenting each
@@ -52,7 +52,7 @@ deletion attempt and any errors encountered.`,
 				return errors.New("errors during GC")
 			}
 
-			// Exit non-zero if any store paths were missing in S3 or the DB
+			// Exit non-zero if any store paths were missing in S3
 			if stats.TotalMissingStorePaths() > 0 {
 				return errors.New("missing store paths during GC")
 			}
@@ -67,7 +67,6 @@ deletion attempt and any errors encountered.`,
 
 	config.SetAWSFlags(fs)
 	config.SetS3Flags(fs)
-	config.SetPostgresFlags(fs)
 
 	// silence usage on error from this point forward
 	cmd.SilenceUsage = true
