@@ -126,7 +126,7 @@ The command exits with a non-zero status if:
 Use `--dry-run` to verify which files exist without deleting them:
 
 ```bash
-narwal gc simple targets.parquet results.parquet --dry-run --s3.bucket my-cache
+narwal gc simple targets.parquet results.parquet --dry-run
 ```
 
 In dry-run mode, the command checks for the presence of each target file using HEAD requests.
