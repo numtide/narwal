@@ -109,11 +109,13 @@ func (bc *BucketClient) StatObjects(
 			_, err := bc.StatObject(ctx, key)
 			if err != nil {
 				mu.Lock()
+
 				failures[key] = types.Error{
 					Key:     aws.String(key),
 					Code:    aws.String("NoSuchKey"),
 					Message: aws.String(err.Error()),
 				}
+
 				mu.Unlock()
 			}
 

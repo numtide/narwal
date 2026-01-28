@@ -33,7 +33,7 @@ type Simple struct {
 func NewSimple(cfg *config.Config, inputFile, outputFile string, dryRun bool) *Simple {
 	return &Simple{
 		cfg:        cfg,
-		log:        log.WithPrefix("gc"),
+		log:        log.WithPrefix("gc_simple"),
 		inputFile:  inputFile,
 		outputFile: outputFile,
 		dryRun:     dryRun,
@@ -42,6 +42,8 @@ func NewSimple(cfg *config.Config, inputFile, outputFile string, dryRun bool) *S
 
 func (s *Simple) Run(ctx context.Context) (*Stats, error) {
 	cfg := s.cfg
+
+	s.log.Info("starting simple garbage collection")
 
 	if s.dryRun {
 		s.log.Info("dry-run mode enabled, no changes will be made")
@@ -55,7 +57,7 @@ func (s *Simple) Run(ctx context.Context) (*Stats, error) {
 	}
 
 	// Open the input file to start reading GC targets
-	r, err := s.targetReader()
+	r, err := s.targetsReader()
 	if err != nil {
 		return nil, err
 	}
@@ -63,48 +65,64 @@ func (s *Simple) Run(ctx context.Context) (*Stats, error) {
 	// Create an errgroup for concurrent processing
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	// Create a channel for GC records and start processing them first
+	// Create some channels for gathering records and stats as things are processed
+	statsCh := make(chan *Stats, 32)
 	recordCh := make(chan *RemovalRecord, 1024)
 
-	// Create a channel for stats collection
-	statsCh := make(chan *Stats, 32)
-
-	// Create an overall object for gathering all stats
+	// Create a global stats object we will merge into
 	allStats := &Stats{}
 
-	eg.Go(func() error {
-		stats, processErr := s.processRecords(egCtx, recordCh, statsCh)
-		if processErr != nil {
-			return processErr
-		}
+	// We use a wait group to know when all batches have been processed since we don't know ahead of time how many
+	// there will be
+	processingWg := &sync.WaitGroup{}
 
-		// Merge stats with overall stats
-		allStats.Merge(stats)
+	// Start processing stats and removal records before generating any
+
+	eg.Go(func() error {
+		for stats := range statsCh {
+			allStats.Merge(stats)
+		}
 
 		return nil
 	})
 
-	// Start processing batches
-	processingWg := &sync.WaitGroup{}
+	eg.Go(func() error {
+		stats, processErr := s.processRemovalRecords(egCtx, recordCh)
+		if processErr != nil {
+			return processErr
+		}
+
+		// Send to stats channel for overall merge
+		statsCh <- stats
+
+		close(statsCh)
+
+		return nil
+	})
 
 LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debug("context cancelled, stopping reading GC targets")
+			log.Debug("context cancelled, stopping")
 			break LOOP
 
 		default:
+			// Read the next batch of targets
 			batch := make([]inventory.NarInfoRecord, 500)
 
 			n, err := r.Read(batch)
 
+			// If we read any targets, submit them for removal
 			if n > 0 {
+				// Bump wait group
 				processingWg.Add(1)
 
 				eg.Go(func() error {
+					// Indicate this goroutine has finished when we're done
 					defer processingWg.Done()
 
+					// Remove the targets
 					stats, removeErr := s.removeTargets(egCtx, batch[:n], recordCh)
 					if removeErr == nil {
 						// Send the stats to the main goroutine
@@ -115,20 +133,23 @@ LOOP:
 				})
 			}
 
+			// Check for EOF
 			if errors.Is(err, io.EOF) {
-				// end of the file
+				// End of the file, let's exit this processing loop
 				break LOOP
 			} else if err != nil {
+				// Something unexpected happened, abort
 				return nil, fmt.Errorf("failed to read GC targets: %w", err)
 			}
 		}
 	}
 
-	// Wait for all processing to finish before closing the channel
+	// Wait for all processing to finish before closing the channels
 	processingWg.Wait()
+
 	close(recordCh)
 
-	// wait for the channel processing to complete
+	// Wait for the record processing to complete
 	if err = eg.Wait(); err != nil {
 		return nil, fmt.Errorf("failed to process GC targets: %w", err)
 	}
@@ -136,48 +157,38 @@ LOOP:
 	return allStats, nil
 }
 
-func (s *Simple) processRecords(
+func (s *Simple) processRemovalRecords(
 	ctx context.Context,
 	recordCh chan *RemovalRecord,
-	statsCh chan *Stats,
 ) (*Stats, error) {
 	filePath := s.outputFile
 
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0o644) //nolint:gosec // filePath from args
+	// Open the input file contain narinfos
+	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0o644) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open output file %s: %w", filePath, err)
 	}
 
+	// Open a new parquet writer for the results
 	w := parquet.NewWriter(f,
 		parquet.Compression(&parquet.Zstd),
 		parquet.MaxRowsPerRowGroup(20_000),
 	)
 
-	// track the unique store paths
+	// Track the unique store paths
 	uniqueHashes := make(map[[32]byte]struct{})
 
 	stats := Stats{}
 
-	closedChannels := 0
-
 LOOP:
-	for closedChannels < 2 {
+	for {
 		select {
 		case <-ctx.Done():
 			break LOOP
 
-		case s, ok := <-statsCh:
-			if !ok {
-				closedChannels++
-				continue LOOP
-			}
-
-			stats.Merge(s)
-
 		case record, ok := <-recordCh:
 			if !ok {
-				closedChannels++
-				continue LOOP
+				break LOOP
 			}
 
 			s.log.Debugf("GC record: %s %s (%s)", record.StorePath, record.Key, record.Error)
@@ -207,15 +218,13 @@ LOOP:
 			default:
 				return nil, fmt.Errorf("unexpected GC record key: %s", record.Key)
 			}
-
 		}
 	}
 
+	// Close the writer and output file
 	if closeErr := w.Close(); closeErr != nil {
 		return nil, fmt.Errorf("failed to close GC output file: %w", closeErr)
 	}
-
-	stats.StorePaths.Targets = len(uniqueHashes)
 
 	s.log.Infof("processing complete: \n%v", stats)
 
@@ -263,6 +272,8 @@ func (s *Simple) removeTargets(
 			Key:       narInfoKey,
 			StorePath: storePath,
 		}
+
+		stats.Targets.NarInfos++
 
 		// Followed by the nar file
 		fileHash := nixbase32.EncodeToString(target.FileHash[:])
@@ -332,7 +343,15 @@ func (s *Simple) processBucketErrors(
 		if aws.ToString(bucketErr.Code) == "NoSuchKey" {
 			// Likely we deleted this in a previous run, we do not consider this an error
 			record.NotFound = true
-			stats.StorePaths.MissingInS3++
+
+			switch {
+			case strings.HasPrefix(key, "nar/"):
+				stats.Targets.MissingInS3.Nars++
+			case strings.HasSuffix(key, ".narinfo"):
+				stats.Targets.MissingInS3.NarInfos++
+			default:
+				return fmt.Errorf("unexpected record key: %s", key)
+			}
 		} else {
 			// Otherwise record the error in the record and log it out
 			record.Error = fmt.Sprintf(
@@ -350,7 +369,7 @@ func (s *Simple) processBucketErrors(
 	return nil
 }
 
-func (s *Simple) targetReader() (*parquet.GenericReader[inventory.NarInfoRecord], error) {
+func (s *Simple) targetsReader() (*parquet.GenericReader[inventory.NarInfoRecord], error) {
 	filePath := s.inputFile
 
 	s.log.Infof("reading GC targets from %s", filePath)

@@ -45,7 +45,7 @@ deletion attempt and any errors encountered.`,
 				return fmt.Errorf("failed to run simple GC strategy: %w", err)
 			}
 
-			fmt.Printf("GC stats: %s\n", stats)
+			fmt.Printf("%v\n", stats)
 
 			// Exit non-zero if there were any errors during GC
 			if stats.Removals.Errors > 0 {
@@ -53,7 +53,7 @@ deletion attempt and any errors encountered.`,
 			}
 
 			// Exit non-zero if any store paths were missing in S3
-			if stats.TotalMissingStorePaths() > 0 {
+			if stats.TotalMissingTargets() > 0 {
 				return errors.New("missing store paths during GC")
 			}
 

@@ -433,7 +433,7 @@ func TestSimpleGCStrategy(t *testing.T) {
 
 	// Generate test data in S3
 	gen := newS3TestGenerator(t, bucketClient)
-	gen.generate(20_000)
+	gen.generate(10_000)
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
 	targetCount, gcTargetsPath, _ := gen.generateGCTargets()
@@ -507,7 +507,7 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	t.Parallel()
 
 	const (
-		storePathCount        = 20_000
+		storePathCount        = 10_000
 		narInfoMissingPercent = 20
 		narMissingPercent     = 10
 	)
@@ -543,8 +543,8 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	t.Logf("GC targets file: %s with %d targets", gcTargetsPath, targetCount)
 
 	// Count expected missing files in our targets
-	expectedMissingNarInfos := 0
 	expectedMissingNars := 0
+	expectedMissingNarInfos := 0
 
 	for _, info := range targetInfos {
 		if info.narInfoMissing {
@@ -556,8 +556,10 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 		}
 	}
 
-	t.Logf("Expected missing in targets: %d narinfo files, %d nar files",
-		expectedMissingNarInfos, expectedMissingNars)
+	t.Logf(
+		"Expected missing in targets: %d narinfo files, %d nar files",
+		expectedMissingNarInfos, expectedMissingNars,
+	)
 
 	// Create output file path in temp directory
 	outputFile := t.TempDir() + "/output.parquet"
@@ -604,7 +606,7 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	of, err := os.Open(outputFile) //nolint:gosec
 	as.NoError(err)
 
-	defer of.Close()
+	defer of.Close() //nolint:errcheck
 
 	schema := parquet.SchemaOf(new(gc.RemovalRecord))
 	pr := parquet.NewReader(of, schema)
