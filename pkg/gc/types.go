@@ -16,30 +16,36 @@ type RemovalRecord struct {
 }
 
 type Stats struct {
-	StorePaths struct {
-		Targets     int `json:"targets"`
-		MissingInS3 int `json:"missing_in_s3"`
-		MissingInDB int `json:"missing_in_db"`
-	} `json:"store_paths"`
+	Targets struct {
+		NarInfos int `json:"nar_infos"`
+	} `json:"targets"`
 
-	Removals struct {
+	Removed struct {
 		Nars     int `json:"nars"`
 		NarInfos int `json:"nar_infos"`
-		Errors   int `json:"errors"`
-	} `json:"removals"`
+
+		// We do not record `NoSuchKey` errors as they could be the result of a previous deletion run or multiple
+		// narinfos referencing the same nar.
+		Errors int `json:"errors"`
+	} `json:"removed"`
+
+	MissingInS3 struct {
+		Nars     int `json:"nars"`
+		NarInfos int `json:"nar_infos"`
+	} `json:"missing_in_s3"`
 }
 
-func (s *Stats) TotalMissingStorePaths() int {
-	return s.StorePaths.MissingInS3 + s.StorePaths.MissingInDB
+func (s *Stats) TotalMissingTargets() int {
+	return s.MissingInS3.Nars + s.MissingInS3.NarInfos
 }
 
 func (s *Stats) Merge(other *Stats) {
-	s.StorePaths.Targets += other.StorePaths.Targets
-	s.StorePaths.MissingInS3 += other.StorePaths.MissingInS3
-	s.StorePaths.MissingInDB += other.StorePaths.MissingInDB
-	s.Removals.Nars += other.Removals.Nars
-	s.Removals.NarInfos += other.Removals.NarInfos
-	s.Removals.Errors += other.Removals.Errors
+	s.Targets.NarInfos += other.Targets.NarInfos
+	s.Removed.Nars += other.Removed.Nars
+	s.Removed.NarInfos += other.Removed.NarInfos
+	s.Removed.Errors += other.Removed.Errors
+	s.MissingInS3.Nars += other.MissingInS3.Nars
+	s.MissingInS3.NarInfos += other.MissingInS3.NarInfos
 }
 
 func (s *Stats) String() string {

@@ -176,6 +176,38 @@ func getRustfsServer(ctx context.Context) *rustfsServer {
 	return testRustfsServer
 }
 
+func terminateProcess(cmd *exec.Cmd) {
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err != nil {
+		log.Error("failed to get pgid", "error", err)
+
+		return
+	}
+
+	time.AfterFunc(10*time.Second, func() {
+		err = syscall.Kill(pgid, syscall.SIGKILL)
+		if err != nil {
+			log.Error("failed to kill %s: %s", cmd, err)
+
+			return
+		}
+
+		log.Infof("killed %s", cmd.String())
+	})
+
+	err = syscall.Kill(pgid, syscall.SIGTERM)
+	if err != nil {
+		log.Errorf("failed to kill '%s': %s", cmd, err)
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		log.Error("failed to wait for '%s': %s", cmd, err)
+
+		return
+	}
+}
+
 func startRustfsServer(ctx context.Context) *rustfsServer {
 	tempDir, err := os.MkdirTemp("", "rustfs")
 	if err != nil {

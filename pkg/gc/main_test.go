@@ -18,9 +18,5 @@ func innerTestMain(m *testing.M) int {
 	rustfs := getRustfsServer(ctx)
 	defer rustfs.Cleanup()
 
-	// get a postgres server going
-	pgServer := getPostgresServer(ctx)
-	defer pgServer.Cleanup()
-
 	return m.Run()
 }

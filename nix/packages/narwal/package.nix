@@ -6,7 +6,6 @@
   buildGo124Module,
   rustfs,
   postgresql,
-  hydraSrc,
 }:
 let
   fs = lib.fileset;
@@ -46,7 +45,6 @@ buildGo124Module (final: {
 
   env = {
     CGO_ENABLED = 0;
-    HYDRA_SRC = "${hydraSrc}";
   };
 
   passthru.tests.golangci-lint = final.overrideAttrs (old: {

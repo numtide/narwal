@@ -55,19 +55,6 @@ func TestConfig_Validate(t *testing.T) {
 			err: "s3 bucket name is required",
 		},
 		{
-			name: "valid postgres only",
-			cfg: config.Config{
-				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
-			},
-		},
-		{
-			name: "invalid postgres",
-			cfg: config.Config{
-				Postgres: &config.Postgres{URL: ""},
-			},
-			err: "postgres url is required",
-		},
-		{
 			name: "valid inventory only",
 			cfg: config.Config{
 				Inventory: &config.Inventory{BucketPrefix: "prefix"},
@@ -76,17 +63,16 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "multiple valid configs",
 			cfg: config.Config{
-				Badger:   &config.Badger{Path: "./db"},
-				AWS:      &config.AWS{Region: "us-east-1"},
-				S3:       &config.S3{Bucket: "bucket"},
-				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
+				Badger: &config.Badger{Path: "./db"},
+				AWS:    &config.AWS{Region: "us-east-1"},
+				S3:     &config.S3{Bucket: "bucket"},
 			},
 		},
 		{
 			name: "first invalid stops validation",
 			cfg: config.Config{
-				Badger:   &config.Badger{Path: ""}, // invalid
-				Postgres: &config.Postgres{URL: "postgres://localhost/db"},
+				Badger: &config.Badger{Path: ""}, // invalid
+				S3:     &config.S3{Bucket: "bucket"},
 			},
 			err: "badger db path is required",
 		},
@@ -117,7 +103,6 @@ func TestConfig_FromViper(t *testing.T) {
 		v.Set("badger.path", "/path/to/db")
 		v.Set("s3.bucket", "test-bucket")
 		v.Set("aws.region", "us-west-2")
-		v.Set("postgres.url", "postgres://user:pass@localhost:5432/db")
 		v.Set("inventory.bucket_prefix", "nix-cache/")
 
 		var cfg config.Config
@@ -133,9 +118,6 @@ func TestConfig_FromViper(t *testing.T) {
 
 		require.NotNil(t, cfg.AWS)
 		require.Equal(t, "us-west-2", cfg.AWS.Region)
-
-		require.NotNil(t, cfg.Postgres)
-		require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.Postgres.URL)
 
 		require.NotNil(t, cfg.Inventory)
 		require.Equal(t, "nix-cache/", cfg.Inventory.BucketPrefix)
@@ -176,9 +158,6 @@ func TestConfig_BindEnvVars(t *testing.T) {
 
 		require.NotNil(t, cfg.Badger)
 		require.Equal(t, "/env/path", cfg.Badger.Path)
-
-		require.NotNil(t, cfg.Postgres)
-		require.Equal(t, "postgres://env/db", cfg.Postgres.URL)
 	})
 
 	t.Run("binds nested fields", func(t *testing.T) {
@@ -288,9 +267,6 @@ force_nar_info_download = true
 	require.True(t, cfg.AWS.UseSSL)
 	require.Equal(t, "TOML_KEY", cfg.AWS.Credentials.AccessKeyID)
 	require.Equal(t, "TOML_SECRET", cfg.AWS.Credentials.SecretAccessKey)
-
-	require.NotNil(t, cfg.Postgres)
-	require.Equal(t, "postgres://toml:toml@localhost:5432/tomldb", cfg.Postgres.URL)
 
 	require.NotNil(t, cfg.Inventory)
 	require.Equal(t, "toml/prefix/", cfg.Inventory.BucketPrefix)

@@ -1,20 +1,427 @@
+//nolint:gochecknoglobals
 package gc_test
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"math/rand"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/nix-community/go-nix/pkg/nixbase32"
 	"github.com/numtide/narwal/cmd"
+	"github.com/numtide/narwal/pkg/awssdk"
 	"github.com/numtide/narwal/pkg/gc"
-	"github.com/numtide/narwal/pkg/gc/hydratest"
-	"github.com/numtide/narwal/pkg/queries"
+	"github.com/numtide/narwal/pkg/inventory"
 	"github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
+
+// nixBase32Alphabet is the base32 alphabet used by Nix for store paths.
+// It excludes e, o, t, u to avoid confusion with similar-looking characters.
+const nixBase32Alphabet = "0123456789abcdfghijklmnpqrsvwxyz"
+
+// nixHashLength is the length of a Nix store path hash (32 characters).
+const nixHashLength = 32
+
+// packageNames contains real nixpkgs package names for realistic test data.
+var packageNames = []string{
+	"firefox", "chromium", "thunderbird", "libreoffice", "gimp",
+	"inkscape", "blender", "vlc", "mpv", "ffmpeg",
+	"git", "vim", "neovim", "emacs", "vscode",
+	"tmux", "zsh", "fish", "bash", "coreutils",
+	"nginx", "apache", "caddy", "traefik", "haproxy",
+	"docker", "podman", "kubernetes", "terraform", "ansible",
+	"python3", "nodejs", "go", "rustc", "gcc",
+	"clang", "llvm", "cmake", "ninja", "meson",
+	"openssl", "curl", "wget", "jq", "ripgrep",
+}
+
+// packageVersions contains realistic version strings.
+var packageVersions = []string{
+	"1.0.0", "1.0.1", "1.1.0", "1.2.0", "1.2.3",
+	"2.0.0", "2.1.0", "2.2.0", "2.3.1", "2.4.0",
+	"3.0.0", "3.1.0", "3.2.0", "3.3.0", "3.4.0",
+	"23.05", "23.11", "24.05", "24.11", "unstable",
+}
+
+// generateNixHash generates a random but valid-looking Nix base32 hash.
+func generateNixHash(rng *rand.Rand) string {
+	hash := make([]byte, nixHashLength)
+	for i := range hash {
+		hash[i] = nixBase32Alphabet[rng.Intn(len(nixBase32Alphabet))]
+	}
+
+	return string(hash)
+}
+
+// generateStorePath generates a Nix store path for a package with the given name and version.
+func generateStorePath(rng *rand.Rand, name, version string) string {
+	hash := generateNixHash(rng)
+
+	return "/nix/store/" + hash + "-" + name + "-" + version
+}
+
+// narInfo stores the FileHash and FileSize for a NAR uploaded to S3.
+type narInfo struct {
+	fileHash [32]byte
+	fileSize uint64
+}
+
+// gcTargetInfo tracks information about a GC target for test validation.
+type gcTargetInfo struct {
+	storePath      string
+	narInfoMissing bool
+	narMissing     bool
+}
+
+// s3TestGenerator generates test data for S3-only GC tests.
+type s3TestGenerator struct {
+	tb           testing.TB
+	rng          *rand.Rand
+	bucketClient *awssdk.BucketClient
+
+	// uploadedNars maps store path to NAR file info
+	uploadedNars   map[string]narInfo
+	uploadedNarsMu sync.Mutex
+
+	// deletedNarInfos tracks which narinfo files have been deleted
+	deletedNarInfos map[string]bool
+	// deletedNars tracks which nar files have been deleted
+	deletedNars map[string]bool
+}
+
+// newS3TestGenerator creates a generator for S3-only test data.
+func newS3TestGenerator(tb testing.TB, bucketClient *awssdk.BucketClient) *s3TestGenerator {
+	tb.Helper()
+
+	// Use FNV hash of test name for a deterministic seed
+	h := fnv.New64a()
+	if _, err := h.Write([]byte(tb.Name())); err != nil {
+		tb.Fatalf("failed to hash test name: %v", err)
+	}
+
+	seed := int64(h.Sum64()) //nolint:gosec
+
+	return &s3TestGenerator{
+		tb:              tb,
+		rng:             rand.New(rand.NewSource(seed)), //nolint:gosec
+		bucketClient:    bucketClient,
+		uploadedNars:    make(map[string]narInfo),
+		deletedNarInfos: make(map[string]bool),
+		deletedNars:     make(map[string]bool),
+	}
+}
+
+// generate creates test data by uploading narinfo/nar files to S3.
+func (g *s3TestGenerator) generate(count int) {
+	tb := g.tb
+	tb.Helper()
+
+	numWorkers := 16
+
+	tb.Logf("Uploading %d narinfo/nar file pairs to S3 with %d workers...", count, numWorkers)
+
+	start := time.Now()
+
+	// Generate store paths
+	storePaths := make([]string, count)
+	for i := range count {
+		pkgName := packageNames[g.rng.Intn(len(packageNames))]
+		version := packageVersions[g.rng.Intn(len(packageVersions))]
+		storePaths[i] = generateStorePath(g.rng, pkgName, version)
+	}
+
+	// Pre-generate worker seeds before spawning goroutines (rand.Rand is not safe for concurrent use)
+	workerSeeds := make([]int64, numWorkers)
+	for i := range numWorkers {
+		workerSeeds[i] = g.rng.Int63()
+	}
+
+	// Create a channel to distribute work
+	pathChan := make(chan string, 256)
+
+	// Track progress atomically
+	var uploaded atomic.Int64
+
+	// Create an errgroup for executing the workers
+	eg, egCtx := errgroup.WithContext(tb.Context())
+
+	// Start the workers
+	for i := range numWorkers {
+		workerSeed := workerSeeds[i]
+
+		eg.Go(func() error {
+			// Each worker needs its own RNG for deterministic but independent random data
+			workerRng := rand.New(rand.NewSource(workerSeed)) //nolint:gosec
+
+			for storePath := range pathChan {
+				if uploadErr := g.uploadToS3(egCtx, storePath, workerRng); uploadErr != nil {
+					return uploadErr
+				}
+
+				count := uploaded.Add(1)
+				if count%1000 == 0 {
+					tb.Logf("Uploaded %d files...", count)
+				}
+			}
+
+			return nil
+		})
+	}
+
+	// Send work to the workers
+LOOP:
+	for _, storePath := range storePaths {
+		select {
+		case pathChan <- storePath:
+		case <-egCtx.Done():
+			break LOOP
+		}
+	}
+
+	// Close the channel to signal no more work
+	close(pathChan)
+
+	// Wait for all workers to complete
+	if err := eg.Wait(); err != nil {
+		tb.Fatalf("failed to upload narinfo/nar files: %v", err)
+	}
+
+	tb.Logf("S3 upload complete in %s: %d file pairs", time.Since(start).Round(time.Millisecond), len(storePaths))
+}
+
+// uploadToS3 uploads a narinfo file and corresponding NAR file to S3.
+func (g *s3TestGenerator) uploadToS3(ctx context.Context, storePath string, rng *rand.Rand) error {
+	// Generate random NAR bytes (small, 64-256 bytes)
+	narSize := 64 + rng.Intn(193) // 64-256 bytes
+	narBytes := make([]byte, narSize)
+
+	_, err := rng.Read(narBytes)
+	if err != nil {
+		return fmt.Errorf("failed to generate random NAR bytes: %w", err)
+	}
+
+	// Calculate SHA256 hash of NAR content
+	narHash := sha256.Sum256(narBytes)
+	fileHashStr := nixbase32.EncodeToString(narHash[:])
+
+	// Store the file info for later use by generateGCTargets
+	g.uploadedNarsMu.Lock()
+	g.uploadedNars[storePath] = narInfo{
+		fileHash: narHash,
+		fileSize: uint64(narSize), //nolint:gosec // narSize is small (64-256 bytes)
+	}
+	g.uploadedNarsMu.Unlock()
+
+	// Extract store path hash for narinfo filename: /nix/store/<hash>-...
+	storePathHash := storePath[11:43]
+	narinfoKey := storePathHash + ".narinfo"
+	narKey := "nar/" + fileHashStr + ".nar"
+
+	// Generate narinfo content
+	narinfoContent := fmt.Sprintf(`StorePaths: %s
+URL: %s
+Compression: none
+FileHash: sha256:%s
+FileSize: %d
+NarHash: sha256:%s
+NarSize: %d
+References:
+Deriver: unknown-deriver
+`, storePath, narKey, fileHashStr, narSize, fileHashStr, narSize)
+
+	// Upload NAR file
+	err = g.bucketClient.PutObject(ctx, narKey,
+		bytes.NewReader(narBytes), int64(narSize),
+		"application/x-nix-nar")
+	if err != nil {
+		return fmt.Errorf("failed to upload NAR %s: %w", narKey, err)
+	}
+
+	// Upload narinfo file
+	err = g.bucketClient.PutObject(ctx, narinfoKey,
+		bytes.NewReader([]byte(narinfoContent)), int64(len(narinfoContent)),
+		"text/x-nix-narinfo")
+	if err != nil {
+		return fmt.Errorf("failed to upload narinfo %s: %w", narinfoKey, err)
+	}
+
+	return nil
+}
+
+// deleteFiles deletes a percentage of narinfo and nar files from S3.
+// narInfoPercent and narPercent are values from 0-100 indicating what percentage to delete.
+func (g *s3TestGenerator) deleteFiles(narInfoPercent, narPercent int) {
+	tb := g.tb
+	tb.Helper()
+
+	ctx := tb.Context()
+
+	// Collect all store paths
+	storePaths := make([]string, 0, len(g.uploadedNars))
+	for path := range g.uploadedNars {
+		storePaths = append(storePaths, path)
+	}
+
+	// Shuffle for random selection
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+
+	// Calculate how many of each to delete
+	numNarInfosToDelete := len(storePaths) * narInfoPercent / 100
+	numNarsToDelete := len(storePaths) * narPercent / 100
+
+	tb.Logf("Deleting %d narinfo files and %d nar files...", numNarInfosToDelete, numNarsToDelete)
+
+	// Delete narinfo files
+	for i := range numNarInfosToDelete {
+		storePath := storePaths[i]
+		storePathHash := storePath[11:43]
+		narinfoKey := storePathHash + ".narinfo"
+
+		if err := g.bucketClient.RemoveObject(ctx, narinfoKey); err != nil {
+			tb.Fatalf("failed to delete narinfo %s: %v", narinfoKey, err)
+		}
+
+		g.deletedNarInfos[storePath] = true
+	}
+
+	// For nar files, use a different subset (shuffle again)
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+
+	// Delete nar files
+	for i := range numNarsToDelete {
+		storePath := storePaths[i]
+		info := g.uploadedNars[storePath]
+		fileHashStr := nixbase32.EncodeToString(info.fileHash[:])
+		narKey := "nar/" + fileHashStr + ".nar"
+
+		if err := g.bucketClient.RemoveObject(ctx, narKey); err != nil {
+			tb.Fatalf("failed to delete nar %s: %v", narKey, err)
+		}
+
+		g.deletedNars[storePath] = true
+	}
+
+	tb.Logf("Deleted %d narinfo files and %d nar files", numNarInfosToDelete, numNarsToDelete)
+}
+
+// generateGCTargets creates a parquet file containing NarInfoRecords for half
+// of the uploaded store paths. Returns the count, file path, and info about each target.
+func (g *s3TestGenerator) generateGCTargets() (int, string, []gcTargetInfo) {
+	tb := g.tb
+	tb.Helper()
+
+	if len(g.uploadedNars) == 0 {
+		tb.Fatal("generateGCTargets called before generate() or no uploads occurred")
+	}
+
+	// Collect all store paths
+	storePaths := make([]string, 0, len(g.uploadedNars))
+	for path := range g.uploadedNars {
+		storePaths = append(storePaths, path)
+	}
+
+	// Select half randomly
+	numTargets := len(storePaths) / 2
+	tb.Logf("Generating gc-targets.parquet with %d entries (half of %d)...", numTargets, len(storePaths))
+
+	// Shuffle using generator's RNG for determinism
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+	selectedPaths := storePaths[:numTargets]
+
+	// Create temp file
+	gcTargetsPath := filepath.Join(tb.TempDir(), "gc-targets.parquet")
+
+	file, err := os.Create(gcTargetsPath) //nolint:gosec // path from test temp dir
+	if err != nil {
+		tb.Fatalf("failed to create gc-targets file: %v", err)
+	}
+
+	// Create parquet writer
+	writer := parquet.NewGenericWriter[inventory.NarInfoRecord](file)
+
+	// Generate NarInfoRecords and track target info
+	records := make([]inventory.NarInfoRecord, 0, numTargets)
+	targetInfos := make([]gcTargetInfo, 0, numTargets)
+
+	for _, storePath := range selectedPaths {
+		info := g.uploadedNars[storePath]
+		record := g.createNarInfoRecord(storePath, info)
+		records = append(records, record)
+
+		// Track whether this target has missing files
+		targetInfos = append(targetInfos, gcTargetInfo{
+			storePath:      storePath,
+			narInfoMissing: g.deletedNarInfos[storePath],
+			narMissing:     g.deletedNars[storePath],
+		})
+	}
+
+	// Write records
+	if _, err := writer.Write(records); err != nil {
+		_ = file.Close()
+
+		tb.Fatalf("failed to write parquet records: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		_ = file.Close()
+
+		tb.Fatalf("failed to close parquet writer: %v", err)
+	}
+
+	if err := file.Close(); err != nil {
+		tb.Fatalf("failed to close file: %v", err)
+	}
+
+	tb.Logf("Generated gc-targets.parquet with %d records at %s", len(records), gcTargetsPath)
+
+	return len(records), gcTargetsPath, targetInfos
+}
+
+// createNarInfoRecord creates a NarInfoRecord from a store path and its associated NAR info.
+func (g *s3TestGenerator) createNarInfoRecord(storePath string, info narInfo) inventory.NarInfoRecord {
+	// Extract hash and pname from store path: /nix/store/<hash>-<pname>
+	hashStr := storePath[11:43] // 32-char nixbase32 hash
+	pname := storePath[44:]     // Everything after the dash
+
+	// Decode hash from nixbase32 to bytes
+	var hash [20]byte
+
+	decoded, err := nixbase32.DecodeString(hashStr)
+	if err == nil && len(decoded) == 20 {
+		copy(hash[:], decoded)
+	}
+
+	return inventory.NarInfoRecord{
+		Hash:        hash,
+		Pname:       pname,
+		Compression: "none",
+		FileHash:    info.fileHash,
+		FileSize:    info.fileSize,
+		NarHash:     info.fileHash, // Same as FileHash since Compression is "none"
+		NarSize:     info.fileSize,
+	}
+}
 
 func TestSimpleGCStrategy(t *testing.T) {
 	t.Parallel()
@@ -25,33 +432,12 @@ func TestSimpleGCStrategy(t *testing.T) {
 	awsCfg, s3Cfg, bucketClient := rustfs.NewBucket(t)
 	defer rustfs.CleanupBucket(t)
 
-	// create a new db with the hydra schema
-	pgServer := getPostgresServer(t.Context())
-
-	dbURL := pgServer.NewHydraDB(t)
-	defer pgServer.CleanupDB(t)
-
-	// Create a connection pool
-	pool, err := pgx.Connect(t.Context(), dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		closeErr := pool.Close(t.Context())
-		if closeErr != nil {
-			t.Fatalf("failed to close database connection: %v", closeErr)
-		}
-	}()
-
-	qry := queries.New(pool)
-
-	// Generate test data in database and upload narinfo/nar files to S3
-	gen := hydratest.NewGenerator(t, qry, bucketClient)
-	gen.Generate()
+	// Generate test data in S3
+	gen := newS3TestGenerator(t, bucketClient)
+	gen.generate(10_000)
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	targetCount, gcTargetsPath := gen.GenerateGCTargets()
+	targetCount, gcTargetsPath, _ := gen.generateGCTargets()
 	t.Logf("GC targets file: %s", gcTargetsPath)
 
 	// Create output file path in temp directory
@@ -61,11 +447,15 @@ func TestSimpleGCStrategy(t *testing.T) {
 
 	// Create the cobra command and execute "gc simple" with positional args
 	rootCmd := cmd.New()
+
+	// Capture stdout to parse and validate stats
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+
 	rootCmd.SetArgs([]string{
 		"gc", "simple",
 		gcTargetsPath, // positional arg 1: input file
 		outputFile,    // positional arg 2: output file
-		"--postgres.url", dbURL,
 		"--aws.endpoint", awsCfg.Endpoint,
 		fmt.Sprintf("--aws.use_ssl=%t", awsCfg.UseSSL),
 		"--aws.credentials.access_key_id", awsCfg.Credentials.AccessKeyID,
@@ -73,14 +463,28 @@ func TestSimpleGCStrategy(t *testing.T) {
 		"--s3.bucket", s3Cfg.Bucket,
 	})
 
-	err = rootCmd.ExecuteContext(t.Context())
+	err := rootCmd.ExecuteContext(t.Context())
 	as.NoError(err)
+
+	// Parse and validate stats from stdout
+	var stats gc.Stats
+	as.NoError(json.Unmarshal(stdout.Bytes(), &stats), "failed to parse stats JSON")
+
+	t.Logf("GC stats: %+v", stats)
+
+	// Validate stats
+	as.Equal(targetCount, stats.Targets.NarInfos, "expected %d target narinfos", targetCount)
+	as.Equal(0, stats.MissingInS3.NarInfos, "expected no missing narinfo files")
+	as.Equal(0, stats.MissingInS3.Nars, "expected no missing nar files")
+	as.Equal(targetCount, stats.Removed.NarInfos, "expected %d narinfo removals", targetCount)
+	as.Equal(targetCount, stats.Removed.Nars, "expected %d nar removals", targetCount)
+	as.Equal(0, stats.Removed.Errors, "expected no removal errors")
 
 	// Confirm the output file exists
 	as.FileExists(outputFile)
 
 	// Validate the contents of the output file
-	of, err := os.Open(outputFile) //nolint:gosec // outputFile from test temp dir
+	of, err := os.Open(outputFile) //nolint:gosec
 	as.NoError(err)
 
 	schema := parquet.SchemaOf(new(gc.RemovalRecord))
@@ -122,36 +526,21 @@ func TestSimpleGCStrategy(t *testing.T) {
 func TestSimpleGCStrategyDryRun(t *testing.T) {
 	t.Parallel()
 
+	const (
+		storePathCount        = 10_000
+		narInfoMissingPercent = 20
+		narMissingPercent     = 10
+	)
+
 	// create a test bucket
 	rustfs := getRustfsServer(t.Context())
 
 	awsCfg, s3Cfg, bucketClient := rustfs.NewBucket(t)
 	defer rustfs.CleanupBucket(t)
 
-	// create a new db with the hydra schema
-	pgServer := getPostgresServer(t.Context())
-
-	dbURL := pgServer.NewHydraDB(t)
-	defer pgServer.CleanupDB(t)
-
-	// Create a connection pool
-	pool, err := pgx.Connect(t.Context(), dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		closeErr := pool.Close(t.Context())
-		if closeErr != nil {
-			t.Fatalf("failed to close database connection: %v", closeErr)
-		}
-	}()
-
-	qry := queries.New(pool)
-
-	// Generate test data in database and upload narinfo/nar files to S3
-	gen := hydratest.NewGenerator(t, qry, bucketClient)
-	gen.Generate()
+	// Generate test data in S3
+	gen := newS3TestGenerator(t, bucketClient)
+	gen.generate(storePathCount)
 
 	// Count S3 objects before dry-run
 	s3CountBefore := 0
@@ -166,17 +555,31 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 
 	t.Logf("S3 objects before dry-run: %d", s3CountBefore)
 
-	// Count DB entries before dry-run
-	dbCountBefore, err := qry.CountBuildStepOutputs(t.Context())
-	if err != nil {
-		t.Fatalf("failed to count DB entries before dry-run: %v", err)
-	}
-
-	t.Logf("DB entries before dry-run: %d", dbCountBefore)
+	// Delete some files to simulate missing data
+	gen.deleteFiles(narInfoMissingPercent, narMissingPercent)
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	targetCount, gcTargetsPath := gen.GenerateGCTargets()
+	targetCount, gcTargetsPath, targetInfos := gen.generateGCTargets()
 	t.Logf("GC targets file: %s with %d targets", gcTargetsPath, targetCount)
+
+	// Count expected missing files in our targets
+	expectedMissingNars := 0
+	expectedMissingNarInfos := 0
+
+	for _, info := range targetInfos {
+		if info.narInfoMissing {
+			expectedMissingNarInfos++
+		}
+
+		if info.narMissing {
+			expectedMissingNars++
+		}
+	}
+
+	t.Logf(
+		"Expected missing in targets: %d narinfo files, %d nar files",
+		expectedMissingNarInfos, expectedMissingNars,
+	)
 
 	// Create output file path in temp directory
 	outputFile := t.TempDir() + "/output.parquet"
@@ -185,12 +588,16 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 
 	// Create the cobra command and execute "gc simple" with --dry-run
 	rootCmd := cmd.New()
+
+	// Capture stdout to parse and validate stats
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+
 	rootCmd.SetArgs([]string{
 		"gc", "simple",
 		gcTargetsPath, // positional arg 1: input file
 		outputFile,    // positional arg 2: output file
 		"--dry-run",
-		"--postgres.url", dbURL,
 		"--aws.endpoint", awsCfg.Endpoint,
 		fmt.Sprintf("--aws.use_ssl=%t", awsCfg.UseSSL),
 		"--aws.credentials.access_key_id", awsCfg.Credentials.AccessKeyID,
@@ -198,13 +605,32 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 		"--s3.bucket", s3Cfg.Bucket,
 	})
 
-	err = rootCmd.ExecuteContext(t.Context())
-	as.NoError(err)
+	err := rootCmd.ExecuteContext(t.Context())
+
+	// We expect an error due to missing store paths
+	as.Error(err, "expected error due to missing store paths")
+	as.Contains(err.Error(), "missing store paths during GC")
+
+	// Parse and validate stats from stdout
+	var stats gc.Stats
+	as.NoError(json.Unmarshal(stdout.Bytes(), &stats), "failed to parse stats JSON")
+
+	t.Logf("GC stats: %+v", stats)
+
+	// Validate stats match expected missing files
+	as.Equal(targetCount, stats.Targets.NarInfos, "expected %d target narinfos", targetCount)
+	as.Equal(expectedMissingNarInfos, stats.MissingInS3.NarInfos,
+		"expected %d missing narinfo files in stats", expectedMissingNarInfos)
+	as.Equal(expectedMissingNars, stats.MissingInS3.Nars,
+		"expected %d missing nar files in stats", expectedMissingNars)
+	as.Equal(targetCount, stats.Removed.NarInfos, "expected %d narinfo removals", targetCount)
+	as.Equal(targetCount, stats.Removed.Nars, "expected %d nar removals", targetCount)
+	as.Equal(0, stats.Removed.Errors, "expected no removal errors")
 
 	// Confirm the output file exists
 	as.FileExists(outputFile)
 
-	// Verify that all S3 objects still exist (dry-run should not delete them)
+	// Verify that S3 objects were not deleted (dry-run should only check)
 	s3CountAfter := 0
 
 	for obj := range bucketClient.ListObjects(t.Context(), "", true) {
@@ -213,49 +639,66 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 		s3CountAfter++
 	}
 
-	as.Equal(s3CountBefore, s3CountAfter, "S3 object count should be unchanged after dry-run")
-
-	// Verify that all DB entries still exist (dry-run should not delete them)
-	dbCountAfter, err := qry.CountBuildStepOutputs(t.Context())
-	as.NoError(err, "failed to count DB entries after dry-run")
-	as.Equal(dbCountBefore, dbCountAfter, "DB entry count should be unchanged after dry-run")
+	// Account for files we deleted before the dry-run
+	expectedS3Count := s3CountBefore - (storePathCount*narInfoMissingPercent/100 + storePathCount*narMissingPercent/100)
+	as.Equal(expectedS3Count, s3CountAfter, "S3 object count should be unchanged after dry-run")
 
 	// Validate the contents of the output file
-	of, err := os.Open(outputFile) //nolint:gosec // outputFile from test temp dir
+	of, err := os.Open(outputFile) //nolint:gosec
 	as.NoError(err)
+
+	defer of.Close() //nolint:errcheck
 
 	schema := parquet.SchemaOf(new(gc.RemovalRecord))
 	pr := parquet.NewReader(of, schema)
 
 	var (
-		readErr     error
-		record      gc.RemovalRecord
-		recordCount int
+		readErr         error
+		record          gc.RemovalRecord
+		recordCount     int
+		notFoundCount   int
+		errorCount      int
+		missingNarInfos int
+		missingNars     int
 	)
 
 	for {
 		readErr = pr.Read(&record)
 		if errors.Is(readErr, io.EOF) {
-			// no more records
 			break
-		} else if err != nil {
-			t.Fatalf("failed to read from output file: %v", err)
 		}
+
+		as.NoError(readErr, "failed to read from output file")
 
 		recordCount++
 
+		if record.NotFound {
+			notFoundCount++
+
+			// Track which type of file was not found
+			if strings.HasSuffix(record.Key, ".narinfo") {
+				missingNarInfos++
+			} else if strings.HasPrefix(record.Key, "nar/") {
+				missingNars++
+			}
+		}
+
 		if record.Error != "" {
-			t.Fatalf(
-				"found error in output file for store path %s and key %s: %s",
-				record.StorePath, record.Key, record.Error,
-			)
+			errorCount++
 		}
 	}
 
-	// for each target there is an associated nar file
+	t.Logf("Output records: %d total, %d not found, %d errors", recordCount, notFoundCount, errorCount)
+	t.Logf("Missing files found: %d narinfo, %d nar", missingNarInfos, missingNars)
+
+	// Verify we detected the expected number of missing files
+	as.Equal(expectedMissingNarInfos, missingNarInfos,
+		"expected %d missing narinfo files, got %d", expectedMissingNarInfos, missingNarInfos)
+	as.Equal(expectedMissingNars, missingNars,
+		"expected %d missing nar files, got %d", expectedMissingNars, missingNars)
+
+	// Verify total record count (each target has narinfo + nar)
 	expectedRecordCount := targetCount * 2
-	as.Equal(
-		expectedRecordCount, recordCount,
-		"expected %d records in output file, got %d", expectedRecordCount, recordCount,
-	)
+	as.Equal(expectedRecordCount, recordCount,
+		"expected %d records in output file, got %d", expectedRecordCount, recordCount)
 }

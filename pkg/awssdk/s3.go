@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/numtide/narwal/pkg/config"
+	"golang.org/x/sync/errgroup"
 )
 
 // BucketClient is a bucket-bound S3 client that provides operations
@@ -84,6 +87,47 @@ func (bc *BucketClient) RemoveObject(
 	}
 
 	return nil
+}
+
+func (bc *BucketClient) StatObjects(
+	ctx context.Context,
+	keys []string,
+) (map[string]types.Error, error) {
+	if len(keys) == 0 {
+		return nil, nil //nolint:nilnil // intentional: no keys means no errors
+	}
+
+	var mu sync.Mutex
+
+	failures := make(map[string]types.Error)
+
+	eg := errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU() * 2)
+
+	for _, key := range keys {
+		eg.Go(func() error {
+			_, err := bc.StatObject(ctx, key)
+			if err != nil {
+				mu.Lock()
+
+				failures[key] = types.Error{
+					Key:     aws.String(key),
+					Code:    aws.String("NoSuchKey"),
+					Message: aws.String(err.Error()),
+				}
+
+				mu.Unlock()
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("failed to stat objects: %w", err)
+	}
+
+	return failures, nil
 }
 
 // RemoveObjects removes multiple objects from the bucket in a single call.

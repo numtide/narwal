@@ -36,9 +36,102 @@ quick wins.
 A proper write-up of those findings will be published in the near-future, along with the underlying datasets
 so that others can verify them and perhaps identify other opportunities.
 
-> [!NOTE]  
+> [!NOTE]
 > This repository still retains some of the server functionality we developed, but is now mostly focused on inventory
 > analysis and export.
+
+## Simple GC
+
+The Simple GC command removes store paths from an S3-based binary cache. It reads a list of GC targets from a
+parquet file and deletes the corresponding `.narinfo` and `.nar` files from S3.
+
+### Usage
+
+```bash
+narwal gc simple <input_file> <output_file> [flags]
+```
+
+**Arguments:**
+
+- `input_file` - Parquet file containing `NarInfoRecord` entries identifying store paths to delete
+- `output_file` - Parquet file where removal results will be written
+
+### AWS Authentication
+
+The command requires AWS credentials to be configured in the usual ways.
+
+We have been using the profile defined in `./aws-config` for development and testing:
+
+```env
+export AWS_CONFIG_FILE=$PWD/aws-config
+export AWS_PROFILE=nixos-archeologist
+```
+
+After running `aws sso login` you can use the `narwal gc simple` command as normal.
+
+### Input Format
+
+The input file must be a parquet file with the `NarInfoRecord` schema found in `pkgs/inventory/types.go`.
+
+From each record, we construct two S3 keys to delete:
+
+- `<hash>.narinfo` - The narinfo itself
+- `nar/<file_hash>.nar<compression>` - The compressed NAR archive it refers to
+
+### Output Format
+
+The output parquet file contains `RemovalRecord` entries:
+
+| Field        | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `key`        | S3 object key that was targeted                              |
+| `store_path` | Full Nix store path (e.g., `/nix/store/abc...-hello-2.12.1`) |
+| `not_found`  | `true` if the object didn't exist in S3                      |
+| `error`      | Error message if deletion failed                             |
+
+> [!NOTE]  
+> A `NoSuchKey` error is not considered a failure.
+> Multiple narinfos may refer to the same NAR archive, with the NAR being removed early in the process and later
+> attempts to remove it failing with `NoSuchKey`.
+> It also means it is safe to retry removal several times with the same or evolving input file.
+
+### Stats Output
+
+On completion, the command outputs JSON stats to stdout:
+
+```json
+{
+    "targets": {
+        "nar_infos": 5000,
+        "missing_in_s3": {
+            "nars": 12,
+            "nar_infos": 5
+        }
+    },
+    "removals": {
+        "nars": 5000,
+        "nar_infos": 5000,
+        "errors": 0
+    }
+}
+```
+
+The command exits with a non-zero status if:
+
+- Any objects were missing in S3 (possible prior deletion or data inconsistency)
+- Any removal errors occurred
+
+### Dry Run Mode
+
+Use `--dry-run` to verify which files exist without deleting them:
+
+```bash
+narwal gc simple targets.parquet results.parquet --dry-run --s3.bucket my-cache
+```
+
+In dry-run mode, the command checks for the presence of each target file using HEAD requests.
+Missing files are reported in the output and stats, allowing you to identify data inconsistencies
+before performing actual deletions.
 
 [Hydra]: https://hydra.nixos.org/
 [Hydra Queue Runner]: https://github.com/NixOS/hydra/tree/master/hydra-queue-runner
