@@ -45,10 +45,13 @@ deletion attempt and any errors encountered.`,
 				return fmt.Errorf("failed to run simple GC strategy: %w", err)
 			}
 
-			fmt.Printf("%v\n", stats)
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), stats)
+			if err != nil {
+				return fmt.Errorf("failed to print GC stats: %w", err)
+			}
 
-			// Exit non-zero if there were any errors during GC
-			if stats.Removals.Errors > 0 {
+			// Exit non-zero if there were any fatal errors during GC
+			if stats.Removed.Errors > 0 {
 				return errors.New("errors during GC")
 			}
 

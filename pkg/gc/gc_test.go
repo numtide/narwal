@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -446,6 +447,11 @@ func TestSimpleGCStrategy(t *testing.T) {
 
 	// Create the cobra command and execute "gc simple" with positional args
 	rootCmd := cmd.New()
+
+	// Capture stdout to parse and validate stats
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+
 	rootCmd.SetArgs([]string{
 		"gc", "simple",
 		gcTargetsPath, // positional arg 1: input file
@@ -459,6 +465,20 @@ func TestSimpleGCStrategy(t *testing.T) {
 
 	err := rootCmd.ExecuteContext(t.Context())
 	as.NoError(err)
+
+	// Parse and validate stats from stdout
+	var stats gc.Stats
+	as.NoError(json.Unmarshal(stdout.Bytes(), &stats), "failed to parse stats JSON")
+
+	t.Logf("GC stats: %+v", stats)
+
+	// Validate stats
+	as.Equal(targetCount, stats.Targets.NarInfos, "expected %d target narinfos", targetCount)
+	as.Equal(0, stats.MissingInS3.NarInfos, "expected no missing narinfo files")
+	as.Equal(0, stats.MissingInS3.Nars, "expected no missing nar files")
+	as.Equal(targetCount, stats.Removed.NarInfos, "expected %d narinfo removals", targetCount)
+	as.Equal(targetCount, stats.Removed.Nars, "expected %d nar removals", targetCount)
+	as.Equal(0, stats.Removed.Errors, "expected no removal errors")
 
 	// Confirm the output file exists
 	as.FileExists(outputFile)
@@ -568,6 +588,11 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 
 	// Create the cobra command and execute "gc simple" with --dry-run
 	rootCmd := cmd.New()
+
+	// Capture stdout to parse and validate stats
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+
 	rootCmd.SetArgs([]string{
 		"gc", "simple",
 		gcTargetsPath, // positional arg 1: input file
@@ -585,6 +610,22 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	// We expect an error due to missing store paths
 	as.Error(err, "expected error due to missing store paths")
 	as.Contains(err.Error(), "missing store paths during GC")
+
+	// Parse and validate stats from stdout
+	var stats gc.Stats
+	as.NoError(json.Unmarshal(stdout.Bytes(), &stats), "failed to parse stats JSON")
+
+	t.Logf("GC stats: %+v", stats)
+
+	// Validate stats match expected missing files
+	as.Equal(targetCount, stats.Targets.NarInfos, "expected %d target narinfos", targetCount)
+	as.Equal(expectedMissingNarInfos, stats.MissingInS3.NarInfos,
+		"expected %d missing narinfo files in stats", expectedMissingNarInfos)
+	as.Equal(expectedMissingNars, stats.MissingInS3.Nars,
+		"expected %d missing nar files in stats", expectedMissingNars)
+	as.Equal(targetCount, stats.Removed.NarInfos, "expected %d narinfo removals", targetCount)
+	as.Equal(targetCount, stats.Removed.Nars, "expected %d nar removals", targetCount)
+	as.Equal(0, stats.Removed.Errors, "expected no removal errors")
 
 	// Confirm the output file exists
 	as.FileExists(outputFile)

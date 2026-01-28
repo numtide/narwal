@@ -202,18 +202,13 @@ LOOP:
 			copy(hash[:], record.StorePath[11:43])
 			uniqueHashes[hash] = struct{}{}
 
-			// update stats
-			if s.dryRun {
-				// skip if dry run
-				continue LOOP
-			}
-
+			// update stats (count even in dry-run to track what would be removed)
 			switch {
 			case strings.HasPrefix(record.Key, "nar/"):
-				stats.Removals.Nars++
+				stats.Removed.Nars++
 
 			case strings.HasSuffix(record.Key, ".narinfo"):
-				stats.Removals.NarInfos++
+				stats.Removed.NarInfos++
 
 			default:
 				return nil, fmt.Errorf("unexpected GC record key: %s", record.Key)
@@ -346,9 +341,9 @@ func (s *Simple) processBucketErrors(
 
 			switch {
 			case strings.HasPrefix(key, "nar/"):
-				stats.Targets.MissingInS3.Nars++
+				stats.MissingInS3.Nars++
 			case strings.HasSuffix(key, ".narinfo"):
-				stats.Targets.MissingInS3.NarInfos++
+				stats.MissingInS3.NarInfos++
 			default:
 				return fmt.Errorf("unexpected record key: %s", key)
 			}
