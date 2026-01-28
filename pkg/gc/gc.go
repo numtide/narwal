@@ -186,6 +186,17 @@ LOOP:
 				return nil, fmt.Errorf("failed to write GC record: %w", writeErr)
 			}
 
+			// record the store path hash
+			var hash [32]byte
+			copy(hash[:], record.StorePath[11:43])
+			uniqueHashes[hash] = struct{}{}
+
+			// update stats
+			if s.dryRun {
+				// skip if dry run
+				continue LOOP
+			}
+
 			switch {
 			case strings.HasPrefix(record.Key, "nar/"):
 				stats.Removals.Nars++
@@ -197,10 +208,6 @@ LOOP:
 				return nil, fmt.Errorf("unexpected GC record key: %s", record.Key)
 			}
 
-			// record the store path hash
-			var hash [32]byte
-			copy(hash[:], record.StorePath[11:43])
-			uniqueHashes[hash] = struct{}{}
 		}
 	}
 
@@ -279,7 +286,14 @@ func (s *Simple) removeTargets(
 		err          error
 	)
 
-	if !s.dryRun {
+	if s.dryRun {
+		// For a dry run we just check if the keys exist
+		bucketErrors, err = s.bucketClient.StatObjects(ctx, keysToDelete)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat objects: %w", err)
+		}
+	} else {
+		// Otherwise, we remove the objects from S3
 		bucketErrors, err = s.bucketClient.RemoveObjects(ctx, keysToDelete)
 		if err != nil {
 			return nil, fmt.Errorf("failed to remove objects: %w", err)

@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -78,6 +79,13 @@ type narInfo struct {
 	fileSize uint64
 }
 
+// gcTargetInfo tracks information about a GC target for test validation.
+type gcTargetInfo struct {
+	storePath      string
+	narInfoMissing bool
+	narMissing     bool
+}
+
 // s3TestGenerator generates test data for S3-only GC tests.
 type s3TestGenerator struct {
 	tb           testing.TB
@@ -87,6 +95,11 @@ type s3TestGenerator struct {
 	// uploadedNars maps store path to NAR file info
 	uploadedNars   map[string]narInfo
 	uploadedNarsMu sync.Mutex
+
+	// deletedNarInfos tracks which narinfo files have been deleted
+	deletedNarInfos map[string]bool
+	// deletedNars tracks which nar files have been deleted
+	deletedNars map[string]bool
 }
 
 // newS3TestGenerator creates a generator for S3-only test data.
@@ -102,10 +115,12 @@ func newS3TestGenerator(tb testing.TB, bucketClient *awssdk.BucketClient) *s3Tes
 	seed := int64(h.Sum64()) //nolint:gosec
 
 	return &s3TestGenerator{
-		tb:           tb,
-		rng:          rand.New(rand.NewSource(seed)), //nolint:gosec
-		bucketClient: bucketClient,
-		uploadedNars: make(map[string]narInfo),
+		tb:              tb,
+		rng:             rand.New(rand.NewSource(seed)), //nolint:gosec
+		bucketClient:    bucketClient,
+		uploadedNars:    make(map[string]narInfo),
+		deletedNarInfos: make(map[string]bool),
+		deletedNars:     make(map[string]bool),
 	}
 }
 
@@ -246,9 +261,69 @@ Deriver: unknown-deriver
 	return nil
 }
 
+// deleteFiles deletes a percentage of narinfo and nar files from S3.
+// narInfoPercent and narPercent are values from 0-100 indicating what percentage to delete.
+func (g *s3TestGenerator) deleteFiles(narInfoPercent, narPercent int) {
+	tb := g.tb
+	tb.Helper()
+
+	ctx := tb.Context()
+
+	// Collect all store paths
+	storePaths := make([]string, 0, len(g.uploadedNars))
+	for path := range g.uploadedNars {
+		storePaths = append(storePaths, path)
+	}
+
+	// Shuffle for random selection
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+
+	// Calculate how many of each to delete
+	numNarInfosToDelete := len(storePaths) * narInfoPercent / 100
+	numNarsToDelete := len(storePaths) * narPercent / 100
+
+	tb.Logf("Deleting %d narinfo files and %d nar files...", numNarInfosToDelete, numNarsToDelete)
+
+	// Delete narinfo files
+	for i := range numNarInfosToDelete {
+		storePath := storePaths[i]
+		storePathHash := storePath[11:43]
+		narinfoKey := storePathHash + ".narinfo"
+
+		if err := g.bucketClient.RemoveObject(ctx, narinfoKey); err != nil {
+			tb.Fatalf("failed to delete narinfo %s: %v", narinfoKey, err)
+		}
+
+		g.deletedNarInfos[storePath] = true
+	}
+
+	// For nar files, use a different subset (shuffle again)
+	g.rng.Shuffle(len(storePaths), func(i, j int) {
+		storePaths[i], storePaths[j] = storePaths[j], storePaths[i]
+	})
+
+	// Delete nar files
+	for i := range numNarsToDelete {
+		storePath := storePaths[i]
+		info := g.uploadedNars[storePath]
+		fileHashStr := nixbase32.EncodeToString(info.fileHash[:])
+		narKey := "nar/" + fileHashStr + ".nar"
+
+		if err := g.bucketClient.RemoveObject(ctx, narKey); err != nil {
+			tb.Fatalf("failed to delete nar %s: %v", narKey, err)
+		}
+
+		g.deletedNars[storePath] = true
+	}
+
+	tb.Logf("Deleted %d narinfo files and %d nar files", numNarInfosToDelete, numNarsToDelete)
+}
+
 // generateGCTargets creates a parquet file containing NarInfoRecords for half
-// of the uploaded store paths.
-func (g *s3TestGenerator) generateGCTargets() (int, string) {
+// of the uploaded store paths. Returns the count, file path, and info about each target.
+func (g *s3TestGenerator) generateGCTargets() (int, string, []gcTargetInfo) {
 	tb := g.tb
 	tb.Helper()
 
@@ -283,13 +358,21 @@ func (g *s3TestGenerator) generateGCTargets() (int, string) {
 	// Create parquet writer
 	writer := parquet.NewGenericWriter[inventory.NarInfoRecord](file)
 
-	// Generate NarInfoRecords
+	// Generate NarInfoRecords and track target info
 	records := make([]inventory.NarInfoRecord, 0, numTargets)
+	targetInfos := make([]gcTargetInfo, 0, numTargets)
 
 	for _, storePath := range selectedPaths {
 		info := g.uploadedNars[storePath]
 		record := g.createNarInfoRecord(storePath, info)
 		records = append(records, record)
+
+		// Track whether this target has missing files
+		targetInfos = append(targetInfos, gcTargetInfo{
+			storePath:      storePath,
+			narInfoMissing: g.deletedNarInfos[storePath],
+			narMissing:     g.deletedNars[storePath],
+		})
 	}
 
 	// Write records
@@ -311,7 +394,7 @@ func (g *s3TestGenerator) generateGCTargets() (int, string) {
 
 	tb.Logf("Generated gc-targets.parquet with %d records at %s", len(records), gcTargetsPath)
 
-	return len(records), gcTargetsPath
+	return len(records), gcTargetsPath, targetInfos
 }
 
 // createNarInfoRecord creates a NarInfoRecord from a store path and its associated NAR info.
@@ -350,10 +433,10 @@ func TestSimpleGCStrategy(t *testing.T) {
 
 	// Generate test data in S3
 	gen := newS3TestGenerator(t, bucketClient)
-	gen.generate(100) // Upload 100 store paths
+	gen.generate(20_000)
 
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	targetCount, gcTargetsPath := gen.generateGCTargets()
+	targetCount, gcTargetsPath, _ := gen.generateGCTargets()
 	t.Logf("GC targets file: %s", gcTargetsPath)
 
 	// Create output file path in temp directory
@@ -423,6 +506,12 @@ func TestSimpleGCStrategy(t *testing.T) {
 func TestSimpleGCStrategyDryRun(t *testing.T) {
 	t.Parallel()
 
+	const (
+		storePathCount        = 20_000
+		narInfoMissingPercent = 20
+		narMissingPercent     = 10
+	)
+
 	// create a test bucket
 	rustfs := getRustfsServer(t.Context())
 
@@ -431,7 +520,7 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 
 	// Generate test data in S3
 	gen := newS3TestGenerator(t, bucketClient)
-	gen.generate(100) // Upload 100 store paths
+	gen.generate(storePathCount)
 
 	// Count S3 objects before dry-run
 	s3CountBefore := 0
@@ -446,9 +535,29 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 
 	t.Logf("S3 objects before dry-run: %d", s3CountBefore)
 
+	// Delete some files to simulate missing data
+	gen.deleteFiles(narInfoMissingPercent, narMissingPercent)
+
 	// Generate GC targets parquet file containing half of the uploaded store paths
-	targetCount, gcTargetsPath := gen.generateGCTargets()
+	targetCount, gcTargetsPath, targetInfos := gen.generateGCTargets()
 	t.Logf("GC targets file: %s with %d targets", gcTargetsPath, targetCount)
+
+	// Count expected missing files in our targets
+	expectedMissingNarInfos := 0
+	expectedMissingNars := 0
+
+	for _, info := range targetInfos {
+		if info.narInfoMissing {
+			expectedMissingNarInfos++
+		}
+
+		if info.narMissing {
+			expectedMissingNars++
+		}
+	}
+
+	t.Logf("Expected missing in targets: %d narinfo files, %d nar files",
+		expectedMissingNarInfos, expectedMissingNars)
 
 	// Create output file path in temp directory
 	outputFile := t.TempDir() + "/output.parquet"
@@ -470,12 +579,15 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 	})
 
 	err := rootCmd.ExecuteContext(t.Context())
-	as.NoError(err)
+
+	// We expect an error due to missing store paths
+	as.Error(err, "expected error due to missing store paths")
+	as.Contains(err.Error(), "missing store paths during GC")
 
 	// Confirm the output file exists
 	as.FileExists(outputFile)
 
-	// Verify that all S3 objects still exist (dry-run should not delete them)
+	// Verify that S3 objects were not deleted (dry-run should only check)
 	s3CountAfter := 0
 
 	for obj := range bucketClient.ListObjects(t.Context(), "", true) {
@@ -484,44 +596,66 @@ func TestSimpleGCStrategyDryRun(t *testing.T) {
 		s3CountAfter++
 	}
 
-	as.Equal(s3CountBefore, s3CountAfter, "S3 object count should be unchanged after dry-run")
+	// Account for files we deleted before the dry-run
+	expectedS3Count := s3CountBefore - (storePathCount*narInfoMissingPercent/100 + storePathCount*narMissingPercent/100)
+	as.Equal(expectedS3Count, s3CountAfter, "S3 object count should be unchanged after dry-run")
 
 	// Validate the contents of the output file
-	of, err := os.Open(outputFile) //nolint:gosec // outputFile from test temp dir
+	of, err := os.Open(outputFile) //nolint:gosec
 	as.NoError(err)
+
+	defer of.Close()
 
 	schema := parquet.SchemaOf(new(gc.RemovalRecord))
 	pr := parquet.NewReader(of, schema)
 
 	var (
-		readErr     error
-		record      gc.RemovalRecord
-		recordCount int
+		readErr         error
+		record          gc.RemovalRecord
+		recordCount     int
+		notFoundCount   int
+		errorCount      int
+		missingNarInfos int
+		missingNars     int
 	)
 
 	for {
 		readErr = pr.Read(&record)
 		if errors.Is(readErr, io.EOF) {
-			// no more records
 			break
-		} else if err != nil {
-			t.Fatalf("failed to read from output file: %v", err)
 		}
+
+		as.NoError(readErr, "failed to read from output file")
 
 		recordCount++
 
+		if record.NotFound {
+			notFoundCount++
+
+			// Track which type of file was not found
+			if strings.HasSuffix(record.Key, ".narinfo") {
+				missingNarInfos++
+			} else if strings.HasPrefix(record.Key, "nar/") {
+				missingNars++
+			}
+		}
+
 		if record.Error != "" {
-			t.Fatalf(
-				"found error in output file for store path %s and key %s: %s",
-				record.StorePath, record.Key, record.Error,
-			)
+			errorCount++
 		}
 	}
 
-	// for each target there is an associated nar file
+	t.Logf("Output records: %d total, %d not found, %d errors", recordCount, notFoundCount, errorCount)
+	t.Logf("Missing files found: %d narinfo, %d nar", missingNarInfos, missingNars)
+
+	// Verify we detected the expected number of missing files
+	as.Equal(expectedMissingNarInfos, missingNarInfos,
+		"expected %d missing narinfo files, got %d", expectedMissingNarInfos, missingNarInfos)
+	as.Equal(expectedMissingNars, missingNars,
+		"expected %d missing nar files, got %d", expectedMissingNars, missingNars)
+
+	// Verify total record count (each target has narinfo + nar)
 	expectedRecordCount := targetCount * 2
-	as.Equal(
-		expectedRecordCount, recordCount,
-		"expected %d records in output file, got %d", expectedRecordCount, recordCount,
-	)
+	as.Equal(expectedRecordCount, recordCount,
+		"expected %d records in output file, got %d", expectedRecordCount, recordCount)
 }
