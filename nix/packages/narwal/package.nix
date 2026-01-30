@@ -27,7 +27,7 @@ buildGo124Module (final: {
     ];
   };
 
-  vendorHash = "sha256-dsYMtZvLoAO0RcOJDQ+fNSo0L0wIpzFvN+8UiqmfVIE=";
+  vendorHash = "sha256-Sfp4Aqm5DdO/dBSHK5LqS+18JiTOaBBUq1F+6dxlH2s=";
 
   ldflags = [
     "-X github.com/numtide/narwal/pkg/build.Name=${final.pname}"
