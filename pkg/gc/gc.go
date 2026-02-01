@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -64,48 +65,106 @@ func (s *Simple) Run(ctx context.Context) (*Stats, error) {
 
 	// Create an errgroup for concurrent processing
 	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(16)
 
 	// Create some channels for gathering records and stats as things are processed
-	statsCh := make(chan *Stats, 32)
+	statsCh := make(chan *Stats, 1024)
 	recordCh := make(chan *RemovalRecord, 1024)
 
 	// Create a global stats object we will merge into
-	allStats := &Stats{}
+	allStats := &Stats{
+		DryRun: s.dryRun,
+	}
 
 	// We use a wait group to know when all batches have been processed since we don't know ahead of time how many
 	// there will be
 	processingWg := &sync.WaitGroup{}
 
-	// Start processing stats and removal records before generating any
+	// log progress periodically
+	progressCtx, cancelProgress := context.WithCancel(egCtx)
+	defer cancelProgress()
 
+	eg.Go(s.progressLogger(progressCtx, allStats))
+	eg.Go(s.statsProcessor(ctx, statsCh, allStats, cancelProgress))
 	eg.Go(func() error {
-		for stats := range statsCh {
-			allStats.Merge(stats)
-		}
-
-		return nil
+		return s.processRemovalRecords(egCtx, recordCh, statsCh)
 	})
 
-	eg.Go(func() error {
-		stats, processErr := s.processRemovalRecords(egCtx, recordCh)
-		if processErr != nil {
-			return processErr
+	// Process batches from the input file
+	if err = s.processBatches(ctx, egCtx, r, eg, processingWg, recordCh, statsCh); err != nil {
+		return nil, err
+	}
+
+	// Wait for all processing to finish before closing the channels
+	processingWg.Wait()
+
+	close(recordCh)
+
+	// Wait for the record processing to complete
+	if err = eg.Wait(); err != nil {
+		return nil, fmt.Errorf("failed to process GC targets: %w", err)
+	}
+
+	return allStats, nil
+}
+
+func (s *Simple) progressLogger(ctx context.Context, allStats *Stats) func() error {
+	return func() error {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case _, ok := <-t.C:
+				if !ok {
+					return nil
+				}
+
+				log.Infof("progress:\n%s", allStats)
+			}
 		}
+	}
+}
 
-		// Send to stats channel for overall merge
-		statsCh <- stats
+func (s *Simple) statsProcessor(
+	ctx context.Context,
+	statsCh chan *Stats,
+	allStats *Stats,
+	cancelProgress context.CancelFunc,
+) func() error {
+	return func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case stats, ok := <-statsCh:
+				if !ok {
+					cancelProgress() // cancel progress logging
+					return nil
+				}
 
-		close(statsCh)
+				allStats.Merge(stats)
+			}
+		}
+	}
+}
 
-		return nil
-	})
-
-LOOP:
+func (s *Simple) processBatches(
+	ctx context.Context,
+	egCtx context.Context,
+	r *parquet.GenericReader[inventory.NarInfoRecord],
+	eg *errgroup.Group,
+	processingWg *sync.WaitGroup,
+	recordCh chan *RemovalRecord,
+	statsCh chan *Stats,
+) error {
 	for {
 		select {
 		case <-ctx.Done():
 			log.Debug("context cancelled, stopping")
-			break LOOP
+			return nil
 
 		default:
 			// Read the next batch of targets
@@ -135,38 +194,27 @@ LOOP:
 
 			// Check for EOF
 			if errors.Is(err, io.EOF) {
-				// End of the file, let's exit this processing loop
-				break LOOP
+				return nil
 			} else if err != nil {
-				// Something unexpected happened, abort
-				return nil, fmt.Errorf("failed to read GC targets: %w", err)
+				return fmt.Errorf("failed to read GC targets: %w", err)
 			}
 		}
 	}
-
-	// Wait for all processing to finish before closing the channels
-	processingWg.Wait()
-
-	close(recordCh)
-
-	// Wait for the record processing to complete
-	if err = eg.Wait(); err != nil {
-		return nil, fmt.Errorf("failed to process GC targets: %w", err)
-	}
-
-	return allStats, nil
 }
 
 func (s *Simple) processRemovalRecords(
 	ctx context.Context,
 	recordCh chan *RemovalRecord,
-) (*Stats, error) {
+	statsCh chan *Stats,
+) error {
+	defer close(statsCh)
+
 	filePath := s.outputFile
 
 	// Open the input file contain narinfos
 	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0o644) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("failed to open output file %s: %w", filePath, err)
+		return fmt.Errorf("failed to open output file %s: %w", filePath, err)
 	}
 
 	// Open a new parquet writer for the results
@@ -177,8 +225,6 @@ func (s *Simple) processRemovalRecords(
 
 	// Track the unique store paths
 	uniqueHashes := make(map[[32]byte]struct{})
-
-	stats := Stats{}
 
 LOOP:
 	for {
@@ -194,7 +240,7 @@ LOOP:
 			s.log.Debugf("GC record: %s %s (%s)", record.StorePath, record.Key, record.Error)
 
 			if writeErr := w.Write(record); writeErr != nil {
-				return nil, fmt.Errorf("failed to write GC record: %w", writeErr)
+				return fmt.Errorf("failed to write GC record: %w", writeErr)
 			}
 
 			// record the store path hash
@@ -203,6 +249,8 @@ LOOP:
 			uniqueHashes[hash] = struct{}{}
 
 			// update stats (count even in dry-run to track what would be removed)
+			stats := &Stats{}
+
 			switch {
 			case strings.HasPrefix(record.Key, "nar/"):
 				stats.Removed.Nars++
@@ -211,19 +259,19 @@ LOOP:
 				stats.Removed.NarInfos++
 
 			default:
-				return nil, fmt.Errorf("unexpected GC record key: %s", record.Key)
+				return fmt.Errorf("unexpected GC record key: %s", record.Key)
 			}
+
+			statsCh <- stats
 		}
 	}
 
 	// Close the writer and output file
 	if closeErr := w.Close(); closeErr != nil {
-		return nil, fmt.Errorf("failed to close GC output file: %w", closeErr)
+		return fmt.Errorf("failed to close GC output file: %w", closeErr)
 	}
 
-	s.log.Infof("processing complete: \n%v", stats)
-
-	return &stats, nil
+	return nil
 }
 
 func (s *Simple) removeTargets(
@@ -233,7 +281,7 @@ func (s *Simple) removeTargets(
 ) (*Stats, error) {
 	stats := &Stats{}
 
-	s.log.Debugf("removing %d targets", len(batch))
+	s.log.Debugf("attempting to remove %d targets", len(batch))
 
 	// The AWS bulk delete API supports up to 1000 objects at a time.
 	// For each narinfo entry we will delete 0 or 1 nar files (multiple narinfos can point to the same nar file).
@@ -275,7 +323,7 @@ func (s *Simple) removeTargets(
 
 		narKey := "nar/" + fileHash + ".nar"
 		if target.Compression != "" && target.Compression != "none" {
-			narKey += target.Compression
+			narKey += "." + target.Compression
 		}
 
 		keysToDelete = append(keysToDelete, narKey)
@@ -311,7 +359,13 @@ func (s *Simple) removeTargets(
 		return nil, err
 	}
 
-	s.log.Debugf("removed %d store paths comprised of %d bucket objects", len(batch), len(keysToDelete))
+	s.log.Debug(
+		"processed targets",
+		"dry_run", s.dryRun,
+		"batch_size", len(batch),
+		"keys_to_delete", len(keysToDelete),
+		"errors", len(bucketErrors),
+	)
 
 	// Feed the GC records into the channel
 	for _, record := range removalsByKey {

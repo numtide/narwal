@@ -1,4 +1,3 @@
-//nolint:ireturn
 package fuse
 
 import (
@@ -48,6 +47,7 @@ type narinfoDir struct {
 	prefix string
 }
 
+//nolint:ireturn // required by go-fuse interface
 func (d *narinfoDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	tx := d.db.NewTransaction(false)
 
@@ -116,6 +116,7 @@ type narinfosDir struct {
 	prefixes []fuse.DirEntry
 }
 
+//nolint:ireturn // required by go-fuse interface
 func (d *narinfosDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	return fs.NewListDirStream(d.prefixes), 0
 }

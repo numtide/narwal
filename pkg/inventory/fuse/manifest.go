@@ -1,4 +1,3 @@
-//nolint:ireturn
 package fuse
 
 import (
@@ -62,6 +61,7 @@ type manifestDir struct {
 	manifest *inventory.Manifest
 }
 
+//nolint:ireturn // required by go-fuse interface
 func (d *manifestDir) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	tx := d.db.NewTransaction(false)
 	defer tx.Discard()
@@ -134,6 +134,7 @@ type manifestsDir struct {
 	db *badger.DB
 }
 
+//nolint:ireturn // required by go-fuse interface
 func (d *manifestsDir) Readdir(_ context.Context) (fs.DirStream, syscall.Errno) {
 	tx := d.db.NewTransaction(false)
 	defer tx.Discard()

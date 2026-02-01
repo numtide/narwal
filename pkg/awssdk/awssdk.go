@@ -48,7 +48,7 @@ func LoadSDKConfig(ctx context.Context, cfg *config.AWS) (*aws.Config, error) {
 		region = cfg.Region
 
 		if region == "" {
-			return nil, errors.New("region is required for AWS SQS")
+			return nil, errors.New("region is required")
 		}
 	}
 
