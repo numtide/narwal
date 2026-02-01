@@ -1,4 +1,3 @@
-//nolint:ireturn
 package fuse
 
 import (
@@ -23,6 +22,8 @@ type fuseFile struct {
 }
 
 // Open opens the file for reading.
+//
+//nolint:ireturn // required by go-fuse interface
 func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	// enforce a read-only file system
 	if flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0 {
@@ -72,7 +73,7 @@ type fuseFileHandle struct {
 
 // Read reads data for the file from the Badger db.
 //
-
+//nolint:ireturn // required by go-fuse interface
 func (fh *fuseFileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
 	// a buffer to hold the data read from the db
 	var data []byte

@@ -16,6 +16,7 @@ type RemovalRecord struct {
 }
 
 type Stats struct {
+	DryRun  bool `json:"dry_run"`
 	Targets struct {
 		NarInfos int `json:"nar_infos"`
 	} `json:"targets"`
